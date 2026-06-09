@@ -800,7 +800,19 @@ const sampleBrowserModManifest = (): ModManifest => ({
   dependencies: [],
   conflicts: [],
   capabilities: ["content"],
-  resources: [],
+  resources: [
+    {
+      resource_id: "example.minimal_character.assets.readme",
+      source_path: "assets/readme.txt",
+      media_type: "other",
+      license: "CC-BY-4.0",
+      author: "ERAtw-NEXT",
+      usage: ["package_audit"],
+      character_bindings: [],
+      tags: ["mod_package"],
+      sha256: null,
+    },
+  ],
 });
 
 const unsafeModCapabilities = new Set<ModCapability>([
@@ -986,7 +998,31 @@ const preflightBrowserModPackageInstall = (
       staging_root: plan.staging_root,
       manifest: plan.manifest,
       ready: true,
-      issues: [],
+      issues: plan.manifest.resources.flatMap((resource) => {
+        const issues = collectBrowserPublishMetadataIssues(resource, {
+          resource_id: resource.resource_id,
+          source_path: resource.source_path,
+          resolved_path: joinModPath(plan.source_root, resource.source_path),
+          media_type: resource.media_type,
+          status: "ready",
+          load_strategy: "eager",
+          cache_key: cacheKeyForResource(resource),
+          cache_path: null,
+          thumbnail_path: null,
+          fallback: fallbackForMediaType(resource.media_type),
+          expected_sha256: resource.sha256,
+          actual_sha256: null,
+        });
+        return issues.map((issue) => ({
+          severity: issue.severity,
+          path: joinModPath(plan.source_root, issue.source_path),
+          kind:
+            issue.severity === "warning"
+              ? ("resource_publication_warning" as const)
+              : ("resource_publication_failed" as const),
+          message: issue.message,
+        }));
+      }),
     };
   } catch (error) {
     const issue = error as ModDiscoveryReport["errors"][number];

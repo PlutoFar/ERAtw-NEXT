@@ -3,6 +3,7 @@ import { createEngineClient, type EngineClient } from "./client";
 import type {
   ContentPackage,
   EngineCommand,
+  ModInstallPreflightReport,
   ModRegistry,
   SavePreflightReport,
   SaveRecoveryReport,
@@ -18,9 +19,14 @@ interface EngineStore {
   lastSave: SaveSlotReport | null;
   lastLoadPreflight: SavePreflightReport | null;
   lastRecovery: SaveRecoveryReport | null;
+  lastModPackagePreflight: ModInstallPreflightReport | null;
   load: () => Promise<void>;
   dispatch: (command: EngineCommand) => Promise<void>;
   installContentPackage: (packageData: ContentPackage) => Promise<void>;
+  preflightModPackageInstall: (
+    packageRoot: string,
+    installRoot: string,
+  ) => Promise<void>;
   saveSlot: (slotId: string) => Promise<void>;
   preflightLoadSlot: (slotId: string) => Promise<void>;
   loadSlot: (slotId: string) => Promise<void>;
@@ -52,6 +58,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
   lastSave: null,
   lastLoadPreflight: null,
   lastRecovery: null,
+  lastModPackagePreflight: null,
   async load() {
     set({ loading: true, error: null });
     try {
@@ -86,6 +93,20 @@ export const useEngine = create<EngineStore>((set, get) => ({
       set({ world, loading: false });
     } catch (error) {
       set({ error: String(error), loading: false });
+    }
+  },
+  async preflightModPackageInstall(packageRoot, installRoot) {
+    set({ loading: true, error: null });
+    try {
+      const lastModPackagePreflight = await get().client.preflightModPackageInstall(
+        packageRoot,
+        installRoot,
+        get().world?.engine_version,
+        [],
+      );
+      set({ lastModPackagePreflight, loading: false });
+    } catch (error) {
+      set({ error: String(error), lastModPackagePreflight: null, loading: false });
     }
   },
   async saveSlot(slotId) {

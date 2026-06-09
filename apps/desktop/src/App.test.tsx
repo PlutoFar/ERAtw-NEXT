@@ -14,6 +14,7 @@ describe("App", () => {
       lastSave: null,
       lastLoadPreflight: null,
       lastRecovery: null,
+      lastModPackagePreflight: null,
     });
   });
 
@@ -146,6 +147,23 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/随内容包新增的角色/)).toBeInTheDocument();
+    });
+  });
+
+  it("preflights a mod package and shows resource warnings", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Mod 预检/ }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("mod package preflight")).toBeInTheDocument();
+      expect(screen.getByText(/可安装：example\.minimal_character/)).toBeInTheDocument();
+      expect(screen.getByText(/resource sha256 is missing/)).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "packages/example.minimal_character-0.1.0/content/assets/readme.txt",
+        ),
+      ).toBeInTheDocument();
     });
   });
 

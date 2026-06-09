@@ -163,6 +163,7 @@ describe("useEngine", () => {
       lastSave: null,
       lastLoadPreflight: null,
       lastRecovery: null,
+      lastModPackagePreflight: null,
     });
   });
 
@@ -239,5 +240,40 @@ describe("useEngine", () => {
     );
     expect(useEngine.getState().lastLoadPreflight?.ready).toBe(true);
     expect(useEngine.getState().world).toEqual(world);
+  });
+
+  it("preflights a mod package with the active engine version", async () => {
+    const world = createDemoWorld();
+    const calls = {
+      preflightRegistries: [] as ModRegistry[],
+      installRegistries: [] as ModRegistry[],
+    };
+    const client = createMockClient(world, calls);
+    vi.mocked(client.preflightModPackageInstall).mockResolvedValue({
+      source_root: "packages/example.minimal_character-0.1.0",
+      content_root: "packages/example.minimal_character-0.1.0/content",
+      install_root: "mods/installed",
+      target_root: "mods/installed/example.minimal_character",
+      staging_root: "mods/installed/.installing-example.minimal_character",
+      manifest: null,
+      ready: true,
+      issues: [],
+    });
+    useEngine.setState({ client, world });
+
+    await useEngine
+      .getState()
+      .preflightModPackageInstall(
+        "packages/example.minimal_character-0.1.0",
+        "mods/installed",
+      );
+
+    expect(client.preflightModPackageInstall).toHaveBeenCalledWith(
+      "packages/example.minimal_character-0.1.0",
+      "mods/installed",
+      "0.1.0-m0",
+      [],
+    );
+    expect(useEngine.getState().lastModPackagePreflight?.ready).toBe(true);
   });
 });

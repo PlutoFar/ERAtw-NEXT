@@ -1050,11 +1050,19 @@ describe("demo engine adapter", () => {
       source_root: "packages/example.minimal_character-0.1.0",
       content_root: "packages/example.minimal_character-0.1.0/content",
       target_root: "mods/installed/example.minimal_character",
-      issues: [],
       manifest: {
         namespace: "example.minimal_character",
       },
     });
+    expect(report.issues).toEqual([
+      {
+        severity: "warning",
+        path: "packages/example.minimal_character-0.1.0/content/assets/readme.txt",
+        kind: "resource_publication_warning",
+        message:
+          "resource sha256 is missing: example.minimal_character.assets.readme",
+      },
+    ]);
   });
 
   it("preflights browser mod package compatibility errors", async () => {

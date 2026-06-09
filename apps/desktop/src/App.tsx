@@ -77,7 +77,9 @@ export const App = () => {
     load,
     loadSlot,
     loading,
+    lastModPackagePreflight,
     preflightLoadSlot,
+    preflightModPackageInstall,
     recoverSlot,
     saveSlot,
     world,
@@ -241,6 +243,18 @@ export const App = () => {
             >
               <MessageSquareText size={17} /> 示例包
             </button>
+            <button
+              type="button"
+              onClick={() =>
+                preflightModPackageInstall(
+                  "packages/example.minimal_character-0.1.0",
+                  "mods/installed",
+                )
+              }
+              disabled={loading}
+            >
+              <MessageSquareText size={17} /> Mod 预检
+            </button>
             <div className="save-slot-panel" aria-label="save slots">
               {SAVE_SLOTS.map((slotId, index) => (
                 <button
@@ -331,6 +345,43 @@ export const App = () => {
                 </>
               ) : null}
             </p>
+          ) : null}
+          {lastModPackagePreflight ? (
+            <section
+              className="mod-preflight-panel"
+              aria-label="mod package preflight"
+            >
+              <h2>Mod 包预检</h2>
+              <p
+                className={
+                  lastModPackagePreflight.ready
+                    ? "preflight-text"
+                    : "preflight-error-text"
+                }
+              >
+                {lastModPackagePreflight.ready ? "可安装" : "已阻止"}
+                {lastModPackagePreflight.manifest
+                  ? `：${lastModPackagePreflight.manifest.namespace}`
+                  : ""}
+                <br />
+                包：{lastModPackagePreflight.source_root}
+                <br />
+                目标：{lastModPackagePreflight.target_root ?? "未生成"}
+              </p>
+              {lastModPackagePreflight.issues.length > 0 ? (
+                <ul className="mod-preflight-issues">
+                  {lastModPackagePreflight.issues.map((issue) => (
+                    <li key={`${issue.kind}:${issue.path}:${issue.message}`}>
+                      <strong>{issue.severity === "error" ? "错误" : "警告"}</strong>
+                      <span>{issue.message}</span>
+                      <small>{issue.path}</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-text">没有预检问题。</p>
+              )}
+            </section>
           ) : null}
           {lastRecovery ? (
             <p className="recovery-text">

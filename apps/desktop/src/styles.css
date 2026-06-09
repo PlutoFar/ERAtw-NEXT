@@ -284,6 +284,47 @@ button {
   gap: 10px;
 }
 
+.mod-preflight-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.mod-preflight-panel h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.mod-preflight-issues {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mod-preflight-issues li {
+  background: #1a2227;
+  border: 1px solid #2d3940;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.mod-preflight-issues strong {
+  color: #f5c87a;
+  font-size: 13px;
+}
+
+.mod-preflight-issues span,
+.mod-preflight-issues small {
+  overflow-wrap: anywhere;
+}
+
+.mod-preflight-issues small {
+  color: #8fa0aa;
+}
+
 .dialogue-panel article {
   border-left: 3px solid #f6d365;
   padding-left: 10px;
