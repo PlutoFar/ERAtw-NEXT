@@ -6,6 +6,7 @@ import type {
   ModDiscoveryReport,
   ModEnablement,
   ModEnablementPlanReport,
+  ModInstallReport,
   ModInstallPlanReport,
   ModLoadErrorReport,
   ModManifest,
@@ -28,6 +29,11 @@ export interface EngineClient {
     installRoot: string,
     engineVersion?: string | null,
   ): Promise<ModInstallPlanReport>;
+  installMod(
+    sourceRoot: string,
+    installRoot: string,
+    engineVersion?: string | null,
+  ): Promise<ModInstallReport>;
   planEnabledMods(
     manifests: ModManifest[],
     enablement: ModEnablement[],
@@ -59,6 +65,14 @@ export const createTauriEngineClient = (): EngineClient => ({
     }),
   planModInstall: (sourceRoot, installRoot, engineVersion = null) =>
     invoke<ModInstallPlanReport>("engine_plan_mod_install", {
+      request: {
+        sourceRoot,
+        installRoot,
+        engineVersion,
+      },
+    }),
+  installMod: (sourceRoot, installRoot, engineVersion = null) =>
+    invoke<ModInstallReport>("engine_install_mod", {
       request: {
         sourceRoot,
         installRoot,
@@ -276,10 +290,12 @@ const planBrowserModInstall = (
   }
 
   const targetRoot = joinModPath(installRoot, manifest.namespace);
+  const stagingRoot = joinModPath(installRoot, `.installing-${manifest.namespace}`);
   return {
     source_root: sourceRoot,
     install_root: installRoot,
     target_root: targetRoot,
+    staging_root: stagingRoot,
     manifest_path: joinModPath(sourceRoot, "manifest.json"),
     manifest,
     actions: [
@@ -293,9 +309,28 @@ const planBrowserModInstall = (
         kind: "copy_directory",
         path: null,
         from: sourceRoot,
+        to: stagingRoot,
+      },
+      {
+        kind: "move_directory",
+        path: null,
+        from: stagingRoot,
         to: targetRoot,
       },
     ],
+  };
+};
+
+const installBrowserMod = (
+  sourceRoot: string,
+  installRoot: string,
+  engineVersion: string | null | undefined,
+): ModInstallReport => {
+  const plan = planBrowserModInstall(sourceRoot, installRoot, engineVersion);
+  return {
+    target_root: plan.target_root,
+    manifest: plan.manifest,
+    actions: plan.actions,
   };
 };
 
@@ -791,6 +826,9 @@ export const createBrowserMockEngineClient = (): EngineClient => {
       return structuredClone(
         planBrowserModInstall(sourceRoot, installRoot, engineVersion),
       );
+    },
+    async installMod(sourceRoot, installRoot, engineVersion = null) {
+      return structuredClone(installBrowserMod(sourceRoot, installRoot, engineVersion));
     },
     async planEnabledMods(manifests, enablement, engineVersion = null) {
       return structuredClone(planBrowserEnabledMods(manifests, enablement, engineVersion));

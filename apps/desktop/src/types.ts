@@ -113,6 +113,7 @@ export type ModDiscoveryIssueKind =
   | "io"
   | "json"
   | "unsafe_install_namespace"
+  | "install_target_exists"
   | "missing_namespace"
   | "missing_name"
   | "missing_version"
@@ -138,7 +139,14 @@ export interface ModInstallPlanReport {
   source_root: string;
   install_root: string;
   target_root: string;
+  staging_root: string;
   manifest_path: string;
+  manifest: ModManifest;
+  actions: ModInstallActionReport[];
+}
+
+export interface ModInstallReport {
+  target_root: string;
   manifest: ModManifest;
   actions: ModInstallActionReport[];
 }
@@ -152,6 +160,12 @@ export type ModInstallActionReport =
     }
   | {
       kind: "copy_directory";
+      path: null;
+      from: string;
+      to: string;
+    }
+  | {
+      kind: "move_directory";
       path: null;
       from: string;
       to: string;

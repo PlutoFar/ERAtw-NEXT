@@ -5,10 +5,10 @@ use eratw_engine::{
     EngineCommand, WorldState,
 };
 use eratw_mod_runtime::{
-    discover_mods_for_engine, plan_enabled_mods_for_engine, plan_mod_install_for_engine,
-    DisabledMod, DiscoveredMod, ModDiscoveryError, ModDiscoveryIssue, ModDiscoveryReport,
-    ModEnablement, ModEnablementPlan, ModInstallAction, ModInstallPlan, ModLoadError, ModManifest,
-    ModValidationError,
+    discover_mods_for_engine, install_mod_for_engine, plan_enabled_mods_for_engine,
+    plan_mod_install_for_engine, DisabledMod, DiscoveredMod, ModDiscoveryError, ModDiscoveryIssue,
+    ModDiscoveryReport, ModEnablement, ModEnablementPlan, ModInstallAction, ModInstallPlan,
+    ModInstallReport, ModLoadError, ModManifest, ModValidationError,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -57,7 +57,15 @@ struct ModInstallPlanReport {
     source_root: String,
     install_root: String,
     target_root: String,
+    staging_root: String,
     manifest_path: String,
+    manifest: ModManifest,
+    actions: Vec<ModInstallActionReport>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct ModInstallReportDto {
+    target_root: String,
     manifest: ModManifest,
     actions: Vec<ModInstallActionReport>,
 }
@@ -154,6 +162,23 @@ fn engine_plan_mod_install(
     request: ModInstallRequest,
 ) -> Result<ModInstallPlanReport, ModDiscoveryIssueReport> {
     plan_mod_install_for_engine(
+        request.source_root,
+        request.install_root,
+        request.engine_version.as_deref(),
+    )
+    .map(Into::into)
+    .map_err(|error| ModDiscoveryIssueReport {
+        path: String::new(),
+        kind: mod_discovery_error_kind(&error).to_string(),
+        message: error.to_string(),
+    })
+}
+
+#[tauri::command]
+fn engine_install_mod(
+    request: ModInstallRequest,
+) -> Result<ModInstallReportDto, ModDiscoveryIssueReport> {
+    install_mod_for_engine(
         request.source_root,
         request.install_root,
         request.engine_version.as_deref(),
@@ -285,9 +310,20 @@ impl From<ModInstallPlan> for ModInstallPlanReport {
             source_root: plan.source_root.to_string_lossy().to_string(),
             install_root: plan.install_root.to_string_lossy().to_string(),
             target_root: plan.target_root.to_string_lossy().to_string(),
+            staging_root: plan.staging_root.to_string_lossy().to_string(),
             manifest_path: plan.manifest_path.to_string_lossy().to_string(),
             manifest: plan.manifest,
             actions: plan.actions.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<ModInstallReport> for ModInstallReportDto {
+    fn from(report: ModInstallReport) -> Self {
+        Self {
+            target_root: report.target_root.to_string_lossy().to_string(),
+            manifest: report.manifest,
+            actions: report.actions.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -303,6 +339,12 @@ impl From<ModInstallAction> for ModInstallActionReport {
             },
             ModInstallAction::CopyDirectory { from, to } => Self {
                 kind: "copy_directory".to_string(),
+                from: Some(from.to_string_lossy().to_string()),
+                path: None,
+                to: Some(to.to_string_lossy().to_string()),
+            },
+            ModInstallAction::MoveDirectory { from, to } => Self {
+                kind: "move_directory".to_string(),
                 from: Some(from.to_string_lossy().to_string()),
                 path: None,
                 to: Some(to.to_string_lossy().to_string()),
@@ -356,6 +398,7 @@ fn mod_discovery_error_kind(error: &ModDiscoveryError) -> &'static str {
         ModDiscoveryError::Io(_) => "io",
         ModDiscoveryError::Json(_) => "json",
         ModDiscoveryError::UnsafeInstallNamespace(_) => "unsafe_install_namespace",
+        ModDiscoveryError::InstallTargetExists(_) => "install_target_exists",
         ModDiscoveryError::Validation(error) => mod_validation_error_kind(error),
     }
 }
@@ -452,8 +495,12 @@ mod tests {
 
         assert_eq!(report.manifest.namespace, "example.installable");
         assert!(report.target_root.ends_with("example.installable"));
+        assert!(report
+            .staging_root
+            .ends_with(".installing-example.installable"));
         assert_eq!(report.actions[0].kind, "create_directory");
         assert_eq!(report.actions[1].kind, "copy_directory");
+        assert_eq!(report.actions[2].kind, "move_directory");
 
         let _ = fs::remove_dir_all(source_root);
     }
@@ -480,6 +527,36 @@ mod tests {
 
         assert_eq!(report.kind, "unsafe_install_namespace");
 
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn engine_install_mod_executes_and_returns_frontend_report() {
+        let source_root = temp_mod_root("install_execute_command_source");
+        let install_root = temp_mod_root("install_execute_command_target");
+        fs::create_dir_all(source_root.join("assets")).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.installable")).unwrap(),
+        )
+        .unwrap();
+        fs::write(source_root.join("assets/readme.txt"), "installed").unwrap();
+
+        let report = engine_install_mod(ModInstallRequest {
+            source_root: source_root.to_string_lossy().to_string(),
+            install_root: install_root.to_string_lossy().to_string(),
+            engine_version: Some("0.1.0-m0".to_string()),
+        })
+        .unwrap();
+
+        assert_eq!(report.manifest.namespace, "example.installable");
+        assert!(report.target_root.ends_with("example.installable"));
+        assert_eq!(report.actions[2].kind, "move_directory");
+        assert!(install_root
+            .join("example.installable/assets/readme.txt")
+            .exists());
+
+        let _ = fs::remove_dir_all(install_root);
         let _ = fs::remove_dir_all(source_root);
     }
 
@@ -577,6 +654,7 @@ pub fn run() {
             engine_inspect_resources,
             engine_discover_mods,
             engine_plan_mod_install,
+            engine_install_mod,
             engine_plan_enabled_mods,
             engine_save_preview,
             engine_save_slot,

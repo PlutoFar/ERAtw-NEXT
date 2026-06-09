@@ -574,6 +574,7 @@ describe("demo engine adapter", () => {
       source_root: "downloads/minimal-character",
       install_root: "mods/installed",
       target_root: "mods/installed/example.minimal_character",
+      staging_root: "mods/installed/.installing-example.minimal_character",
       manifest_path: "downloads/minimal-character/manifest.json",
       manifest: {
         namespace: "example.minimal_character",
@@ -589,10 +590,38 @@ describe("demo engine adapter", () => {
           kind: "copy_directory",
           path: null,
           from: "downloads/minimal-character",
+          to: "mods/installed/.installing-example.minimal_character",
+        },
+        {
+          kind: "move_directory",
+          path: null,
+          from: "mods/installed/.installing-example.minimal_character",
           to: "mods/installed/example.minimal_character",
         },
       ],
     });
+  });
+
+  it("simulates browser mod install execution report", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.installMod(
+      "downloads/minimal-character",
+      "mods/installed",
+      "0.1.0-m0",
+    );
+
+    expect(report).toMatchObject({
+      target_root: "mods/installed/example.minimal_character",
+      manifest: {
+        namespace: "example.minimal_character",
+      },
+    });
+    expect(report.actions.map((action) => action.kind)).toEqual([
+      "create_directory",
+      "copy_directory",
+      "move_directory",
+    ]);
   });
 
   it("reports browser mod install compatibility errors", async () => {

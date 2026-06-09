@@ -131,6 +131,7 @@ pub struct ModInstallPlan {
     pub source_root: PathBuf,
     pub install_root: PathBuf,
     pub target_root: PathBuf,
+    pub staging_root: PathBuf,
     pub manifest_path: PathBuf,
     pub manifest: ModManifest,
     pub actions: Vec<ModInstallAction>,
@@ -140,6 +141,14 @@ pub struct ModInstallPlan {
 pub enum ModInstallAction {
     CreateDirectory { path: PathBuf },
     CopyDirectory { from: PathBuf, to: PathBuf },
+    MoveDirectory { from: PathBuf, to: PathBuf },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModInstallReport {
+    pub target_root: PathBuf,
+    pub manifest: ModManifest,
+    pub actions: Vec<ModInstallAction>,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -183,6 +192,8 @@ pub enum ModDiscoveryError {
     Json(String),
     #[error("unsafe mod install namespace: {0}")]
     UnsafeInstallNamespace(String),
+    #[error("mod install target already exists: {0}")]
+    InstallTargetExists(String),
     #[error(transparent)]
     Validation(#[from] ModValidationError),
 }
@@ -337,12 +348,15 @@ pub fn plan_mod_install_for_engine(
         }
         Ok(manifest)
     })?;
-    let target_root = install_root.join(safe_install_namespace(&manifest.namespace)?);
+    let namespace = safe_install_namespace(&manifest.namespace)?;
+    let target_root = install_root.join(namespace);
+    let staging_root = install_root.join(format!(".installing-{namespace}"));
 
     Ok(ModInstallPlan {
         source_root: source_root.to_path_buf(),
         install_root: install_root.to_path_buf(),
         target_root: target_root.clone(),
+        staging_root: staging_root.clone(),
         manifest_path,
         manifest,
         actions: vec![
@@ -351,9 +365,61 @@ pub fn plan_mod_install_for_engine(
             },
             ModInstallAction::CopyDirectory {
                 from: source_root.to_path_buf(),
+                to: staging_root.clone(),
+            },
+            ModInstallAction::MoveDirectory {
+                from: staging_root,
                 to: target_root,
             },
         ],
+    })
+}
+
+pub fn install_mod(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+) -> Result<ModInstallReport, ModDiscoveryError> {
+    install_mod_for_engine(source_root, install_root, None)
+}
+
+pub fn install_mod_for_engine(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+) -> Result<ModInstallReport, ModDiscoveryError> {
+    let plan = plan_mod_install_for_engine(source_root, install_root, engine_version)?;
+    execute_mod_install_plan(plan)
+}
+
+pub fn execute_mod_install_plan(
+    plan: ModInstallPlan,
+) -> Result<ModInstallReport, ModDiscoveryError> {
+    if plan.target_root.exists() {
+        return Err(ModDiscoveryError::InstallTargetExists(
+            plan.target_root.to_string_lossy().to_string(),
+        ));
+    }
+
+    if plan.staging_root.exists() {
+        fs::remove_dir_all(&plan.staging_root)?;
+    }
+
+    let result = (|| -> Result<(), ModDiscoveryError> {
+        fs::create_dir_all(&plan.install_root)?;
+        copy_directory_recursively(&plan.source_root, &plan.staging_root)?;
+        fs::rename(&plan.staging_root, &plan.target_root)?;
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        let _ = fs::remove_dir_all(&plan.staging_root);
+        return Err(error);
+    }
+
+    Ok(ModInstallReport {
+        target_root: plan.target_root,
+        manifest: plan.manifest,
+        actions: plan.actions,
     })
 }
 
@@ -581,6 +647,22 @@ fn safe_install_namespace(namespace: &str) -> Result<&str, ModDiscoveryError> {
         ));
     }
     Ok(namespace)
+}
+
+fn copy_directory_recursively(from: &Path, to: &Path) -> io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let target_path = to.join(entry.file_name());
+        let metadata = entry.file_type()?;
+        if metadata.is_dir() {
+            copy_directory_recursively(&source_path, &target_path)?;
+        } else if metadata.is_file() {
+            fs::copy(&source_path, &target_path)?;
+        }
+    }
+    Ok(())
 }
 
 fn next_ready_namespace(
@@ -974,6 +1056,10 @@ mod tests {
             plan.install_root.join("example.installable")
         );
         assert_eq!(
+            plan.staging_root,
+            plan.install_root.join(".installing-example.installable")
+        );
+        assert_eq!(
             plan.actions,
             vec![
                 ModInstallAction::CreateDirectory {
@@ -981,6 +1067,10 @@ mod tests {
                 },
                 ModInstallAction::CopyDirectory {
                     from: plan.source_root.clone(),
+                    to: plan.staging_root.clone(),
+                },
+                ModInstallAction::MoveDirectory {
+                    from: plan.staging_root.clone(),
                     to: plan.target_root.clone(),
                 },
             ]
@@ -1045,6 +1135,91 @@ mod tests {
         let result = plan_mod_install(&source_root, &install_root);
 
         assert!(matches!(result, Err(ModDiscoveryError::Io(_))));
+    }
+
+    #[test]
+    fn install_mod_copies_directory_through_staging() {
+        let source_root = temp_mod_dir("install_execute_source");
+        let install_root = temp_mod_dir("install_execute_root");
+        fs::create_dir_all(source_root.join("assets/nested")).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.installable")).unwrap(),
+        )
+        .unwrap();
+        fs::write(source_root.join("assets/nested/readme.txt"), "copied").unwrap();
+
+        let report = install_mod_for_engine(&source_root, &install_root, Some("0.1.0-m0")).unwrap();
+
+        assert_eq!(report.manifest.namespace, "example.installable");
+        assert!(report.target_root.join("manifest.json").exists());
+        assert_eq!(
+            fs::read_to_string(report.target_root.join("assets/nested/readme.txt")).unwrap(),
+            "copied"
+        );
+        assert!(!install_root
+            .join(".installing-example.installable")
+            .exists());
+        assert!(matches!(
+            report.actions[2],
+            ModInstallAction::MoveDirectory { .. }
+        ));
+
+        let _ = fs::remove_dir_all(install_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn install_mod_rejects_existing_target_without_overwrite() {
+        let source_root = temp_mod_dir("install_existing_source");
+        let install_root = temp_mod_dir("install_existing_root");
+        let target_root = install_root.join("example.installable");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::create_dir_all(&target_root).unwrap();
+        fs::write(target_root.join("keep.txt"), "existing").unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.installable")).unwrap(),
+        )
+        .unwrap();
+
+        let result = install_mod(&source_root, &install_root);
+
+        assert!(matches!(
+            result,
+            Err(ModDiscoveryError::InstallTargetExists(_))
+        ));
+        assert_eq!(
+            fs::read_to_string(target_root.join("keep.txt")).unwrap(),
+            "existing"
+        );
+
+        let _ = fs::remove_dir_all(install_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn install_mod_cleans_staging_when_copy_fails() {
+        let source_root = temp_mod_dir("install_fail_source");
+        let install_root = temp_mod_dir("install_fail_root");
+        let staging_root = install_root.join(".installing-example.installable");
+        let target_root = install_root.join("example.installable");
+        let plan = ModInstallPlan {
+            source_root: source_root.clone(),
+            install_root: install_root.clone(),
+            target_root,
+            staging_root: staging_root.clone(),
+            manifest_path: source_root.join("manifest.json"),
+            manifest: manifest("example.installable"),
+            actions: Vec::new(),
+        };
+
+        let result = execute_mod_install_plan(plan);
+
+        assert!(matches!(result, Err(ModDiscoveryError::Io(_))));
+        assert!(!staging_root.exists());
+
+        let _ = fs::remove_dir_all(install_root);
     }
 
     #[test]
