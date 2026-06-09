@@ -25,6 +25,7 @@ M0 proves the new project can stand alone:
 - Mod install preflight reports package/install target readiness before writing files
 - Mod install execution stages copies before moving into the final namespace directory
 - Mod uninstall planning and execution move installs through uninstall staging before deletion
+- Save load preflight checks save Mod dependencies against the enabled Mod registry
 - Mod CLI scaffolds, validates, packages, checks, and installs example Mod release directories
 - Mod validation keeps unsafe capabilities denied by default, with explicit CLI/API authorization for trusted workflows
 

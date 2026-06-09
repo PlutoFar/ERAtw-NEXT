@@ -1,7 +1,10 @@
 use eratw_content::ContentPackage;
 use eratw_engine::{
     resource::{inspect_resource_files, plan_resource_loads, ResourceResolutionReport},
-    save::{read_save, write_save_atomic, SaveEnvelope},
+    save::{
+        preflight_save_against_registry, read_save, write_save_atomic, SaveEnvelope,
+        SaveModDependency, SaveReadReport, SaveValidationReport,
+    },
     EngineCommand, WorldState,
 };
 use eratw_mod_runtime::{
@@ -11,7 +14,7 @@ use eratw_mod_runtime::{
     DisabledMod, DiscoveredMod, ModCapability, ModDiscoveryError, ModDiscoveryIssue,
     ModDiscoveryReport, ModEnablement, ModEnablementPlan, ModInstallAction, ModInstallPlan,
     ModInstallPreflightIssue, ModInstallPreflightIssueSeverity, ModInstallPreflightReport,
-    ModInstallReport, ModLoadError, ModManifest, ModSecurityPolicy, ModUninstallPlan,
+    ModInstallReport, ModLoadError, ModManifest, ModRegistry, ModSecurityPolicy, ModUninstallPlan,
     ModUninstallReport, ModValidationError,
 };
 use serde::{Deserialize, Serialize};
@@ -23,6 +26,37 @@ use tauri::Manager;
 struct SaveSlotReport {
     path: String,
     backup_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SavePreflightRequest {
+    #[serde(alias = "slotId")]
+    slot_id: String,
+    #[serde(alias = "modRoot")]
+    mod_root: String,
+    enablement: Vec<ModEnablement>,
+    #[serde(alias = "engineVersion")]
+    engine_version: Option<String>,
+    #[serde(default, alias = "authorizedUnsafeCapabilities")]
+    authorized_unsafe_capabilities: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct SavePreflightReport {
+    slot_id: String,
+    path: String,
+    ready: bool,
+    registry: ModRegistry,
+    discovery: ModDiscoveryReportDto,
+    validation: SaveValidationReportDto,
+    save: SaveEnvelope,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct SaveValidationReportDto {
+    missing_required_mods: Vec<SaveModDependency>,
+    incompatible_schema: Option<u32>,
+    engine_version_mismatch: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -351,6 +385,49 @@ fn engine_load_slot(
     Ok(world.clone())
 }
 
+#[tauri::command]
+fn engine_preflight_load_slot(
+    app: tauri::AppHandle,
+    request: SavePreflightRequest,
+) -> Result<SavePreflightReport, ModLoadErrorReport> {
+    let save_path = save_path_for_slot(&app, &request.slot_id).map_err(save_preflight_error)?;
+    preflight_load_slot_path(save_path, request)
+}
+
+fn preflight_load_slot_path(
+    save_path: PathBuf,
+    request: SavePreflightRequest,
+) -> Result<SavePreflightReport, ModLoadErrorReport> {
+    let policy = security_policy_for_load(&request.authorized_unsafe_capabilities)?;
+    let discovery = discover_mods_for_engine_with_policy(
+        &request.mod_root,
+        request.engine_version.as_deref(),
+        &policy,
+    );
+    let enablement = plan_enabled_mods_for_engine_with_policy(
+        discovery
+            .discovered
+            .iter()
+            .map(|discovered| discovered.manifest.clone())
+            .collect(),
+        request.enablement,
+        request.engine_version.as_deref(),
+        &policy,
+    )?;
+    let registry = eratw_mod_runtime::mod_registry_from_enablement_plan(&enablement);
+    let enabled_mods = save_dependencies_from_registry(&registry);
+    let read_report = preflight_save_against_registry(&save_path, &enabled_mods)
+        .map_err(|error| save_preflight_error(error.to_string()))?;
+
+    Ok(SavePreflightReport::from_parts(
+        request.slot_id,
+        save_path,
+        registry,
+        discovery,
+        read_report,
+    ))
+}
+
 fn save_path_for_slot(app: &tauri::AppHandle, slot_id: &str) -> Result<PathBuf, String> {
     let sanitized = sanitize_slot_id(slot_id)?;
     let save_dir = app
@@ -398,6 +475,25 @@ fn security_policy_for_load(
                 .unwrap_or_default()
         ),
     })
+}
+
+fn save_preflight_error(message: String) -> ModLoadErrorReport {
+    ModLoadErrorReport {
+        kind: "save".to_string(),
+        message,
+    }
+}
+
+fn save_dependencies_from_registry(registry: &ModRegistry) -> Vec<SaveModDependency> {
+    registry
+        .enabled
+        .iter()
+        .map(|entry| SaveModDependency {
+            namespace: entry.namespace.clone(),
+            version: entry.version.clone(),
+            required: true,
+        })
+        .collect()
 }
 
 fn parse_security_policy(authorized_unsafe_capabilities: &[String]) -> Option<ModSecurityPolicy> {
@@ -449,6 +545,40 @@ impl From<ModDiscoveryIssue> for ModDiscoveryIssueReport {
             path: issue.path.to_string_lossy().to_string(),
             kind: mod_discovery_error_kind(&issue.error).to_string(),
             message: issue.error.to_string(),
+        }
+    }
+}
+
+impl SavePreflightReport {
+    fn from_parts(
+        slot_id: String,
+        path: PathBuf,
+        registry: ModRegistry,
+        discovery: ModDiscoveryReport,
+        read_report: SaveReadReport,
+    ) -> Self {
+        let validation: SaveValidationReportDto = read_report.validation.into();
+        let ready =
+            validation.incompatible_schema.is_none() && validation.missing_required_mods.is_empty();
+
+        Self {
+            slot_id,
+            path: path.to_string_lossy().to_string(),
+            ready,
+            registry,
+            discovery: discovery.into(),
+            validation,
+            save: read_report.save,
+        }
+    }
+}
+
+impl From<SaveValidationReport> for SaveValidationReportDto {
+    fn from(report: SaveValidationReport) -> Self {
+        Self {
+            missing_required_mods: report.missing_required_mods,
+            incompatible_schema: report.incompatible_schema,
+            engine_version_mismatch: report.engine_version_mismatch,
         }
     }
 }
@@ -1030,6 +1160,74 @@ mod tests {
         assert_eq!(allowed.enabled[0].namespace, "example.policy");
     }
 
+    #[test]
+    fn preflight_load_slot_checks_save_dependencies_against_enabled_registry() {
+        let save_root = temp_mod_root("save_preflight_slot");
+        let mod_root = temp_mod_root("save_preflight_mods");
+        let mod_dir = mod_root.join("example.installable");
+        let save_path = save_root.join("slot_1.json");
+        let mut world = WorldState::bootstrap_demo();
+        world
+            .installed_content_packages
+            .push(eratw_engine::InstalledContentPackage {
+                namespace: "example".to_string(),
+                package_id: "example.installable".to_string(),
+                version: "0.1.0".to_string(),
+                dependencies: Vec::new(),
+                conflicts: Vec::new(),
+            });
+        let save = SaveEnvelope::new("slot_1", world, 123);
+        fs::create_dir_all(&mod_dir).unwrap();
+        fs::write(
+            mod_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.installable")).unwrap(),
+        )
+        .unwrap();
+        write_save_atomic(&save_path, &save, 123).unwrap();
+
+        let ready = preflight_load_slot_path(
+            save_path.clone(),
+            SavePreflightRequest {
+                slot_id: "slot_1".to_string(),
+                mod_root: mod_root.to_string_lossy().to_string(),
+                enablement: Vec::new(),
+                engine_version: Some("0.1.0-m0".to_string()),
+                authorized_unsafe_capabilities: Vec::new(),
+            },
+        )
+        .unwrap();
+        let blocked = preflight_load_slot_path(
+            save_path,
+            SavePreflightRequest {
+                slot_id: "slot_1".to_string(),
+                mod_root: mod_root.to_string_lossy().to_string(),
+                enablement: vec![ModEnablement {
+                    namespace: "example.installable".to_string(),
+                    enabled: false,
+                }],
+                engine_version: Some("0.1.0-m0".to_string()),
+                authorized_unsafe_capabilities: Vec::new(),
+            },
+        )
+        .unwrap();
+
+        assert!(ready.ready);
+        assert_eq!(ready.registry.enabled.len(), 1);
+        assert!(ready.validation.missing_required_mods.is_empty());
+        assert!(!blocked.ready);
+        assert_eq!(
+            blocked.validation.missing_required_mods,
+            vec![SaveModDependency {
+                namespace: "example.installable".to_string(),
+                version: "0.1.0".to_string(),
+                required: true,
+            }]
+        );
+
+        let _ = fs::remove_dir_all(save_root);
+        let _ = fs::remove_dir_all(mod_root);
+    }
+
     fn manifest(namespace: &str) -> ModManifest {
         ModManifest {
             namespace: namespace.to_string(),
@@ -1079,6 +1277,7 @@ pub fn run() {
             engine_plan_enabled_mods,
             engine_save_preview,
             engine_save_slot,
+            engine_preflight_load_slot,
             engine_load_slot
         ])
         .run(tauri::generate_context!())

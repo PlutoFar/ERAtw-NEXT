@@ -17,6 +17,7 @@ import type {
   ResourceAsset,
   ResourceResolutionReport,
   SaveEnvelope,
+  SavePreflightReport,
   SaveSlotReport,
   WorldState,
 } from "../types";
@@ -63,6 +64,13 @@ export interface EngineClient {
   ): Promise<ModEnablementPlanReport>;
   savePreview(slotId: string, savedAtUnixMs: number): Promise<SaveEnvelope>;
   saveSlot(slotId: string, savedAtUnixMs: number): Promise<SaveSlotReport>;
+  preflightLoadSlot(
+    slotId: string,
+    modRoot: string,
+    enablement: ModEnablement[],
+    engineVersion?: string | null,
+    authorizedUnsafeCapabilities?: ModCapability[],
+  ): Promise<SavePreflightReport>;
   loadSlot(slotId: string): Promise<WorldState>;
 }
 
@@ -165,6 +173,22 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<SaveSlotReport>("engine_save_slot", {
       slotId,
       savedAtUnixMs,
+    }),
+  preflightLoadSlot: (
+    slotId,
+    modRoot,
+    enablement,
+    engineVersion = null,
+    authorizedUnsafeCapabilities = [],
+  ) =>
+    invoke<SavePreflightReport>("engine_preflight_load_slot", {
+      request: {
+        slotId,
+        modRoot,
+        enablement,
+        engineVersion,
+        authorizedUnsafeCapabilities,
+      },
     }),
   loadSlot: (slotId) =>
     invoke<WorldState>("engine_load_slot", {
@@ -730,6 +754,28 @@ const modDependenciesForWorld = (world: WorldState) =>
       required: true,
     }));
 
+const modRegistryFromEnabledPlan = (
+  enabledPlan: ModEnablementPlanReport,
+): SavePreflightReport["registry"] => ({
+  enabled: enabledPlan.enabled.map((manifest) => ({
+    namespace: manifest.namespace,
+    version: manifest.version,
+  })),
+});
+
+const missingSaveDependencies = (
+  save: SaveEnvelope,
+  registry: SavePreflightReport["registry"],
+) => {
+  const enabled = new Map(
+    registry.enabled.map((entry) => [entry.namespace, entry.version]),
+  );
+  return save.mod_dependencies.filter(
+    (dependency) =>
+      dependency.required && enabled.get(dependency.namespace) !== dependency.version,
+  );
+};
+
 const conditionRefsExist = (
   condition: ContentPackage["dialogue_scenes"][number]["nodes"][number]["choices"][number]["conditions"][number],
   characterIds: Set<string>,
@@ -1127,6 +1173,51 @@ export const createBrowserMockEngineClient = (): EngineClient => {
         path: `browser-memory://${slotId}.json`,
         backup_path: null,
       };
+    },
+    async preflightLoadSlot(
+      slotId,
+      modRoot,
+      enablement,
+      engineVersion = null,
+      authorizedUnsafeCapabilities = [],
+    ) {
+      const save = saves.get(slotId);
+      if (!save) {
+        throw {
+          kind: "save",
+          message: `save slot is missing: ${slotId}`,
+        };
+      }
+
+      const discovery = discoverBrowserMods(
+        modRoot,
+        engineVersion,
+        authorizedUnsafeCapabilities,
+      );
+      const plan = planBrowserEnabledMods(
+        discovery.discovered.map((entry) => entry.manifest),
+        enablement,
+        engineVersion,
+        authorizedUnsafeCapabilities,
+      );
+      const registry = modRegistryFromEnabledPlan(plan);
+      const validation = {
+        missing_required_mods: missingSaveDependencies(save, registry),
+        incompatible_schema: save.schema_version === 1 ? null : save.schema_version,
+        engine_version_mismatch: save.engine_version !== world.engine_version,
+      };
+
+      return structuredClone({
+        slot_id: slotId,
+        path: `browser-memory://${slotId}.json`,
+        ready:
+          validation.incompatible_schema === null &&
+          validation.missing_required_mods.length === 0,
+        registry,
+        discovery,
+        validation,
+        save,
+      });
     },
     async loadSlot(slotId) {
       const save = saves.get(slotId);

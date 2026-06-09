@@ -448,6 +448,45 @@ describe("demo engine adapter", () => {
     ]);
   });
 
+  it("preflights browser saves against enabled mod registry", async () => {
+    const client = createBrowserMockEngineClient();
+    const packageData = createSampleContentPackage();
+    packageData.manifest.package_id = "example.minimal_character";
+
+    await client.installContentPackage(packageData);
+    await client.saveSlot("slot_1", 1000);
+
+    const ready = await client.preflightLoadSlot(
+      "slot_1",
+      "examples/mods",
+      [],
+      "0.1.0-m0",
+    );
+    const blocked = await client.preflightLoadSlot(
+      "slot_1",
+      "examples/mods",
+      [{ namespace: "example.minimal_character", enabled: false }],
+      "0.1.0-m0",
+    );
+
+    expect(ready.ready).toBe(true);
+    expect(ready.registry.enabled).toEqual([
+      {
+        namespace: "example.minimal_character",
+        version: "0.1.0",
+      },
+    ]);
+    expect(ready.validation.missing_required_mods).toEqual([]);
+    expect(blocked.ready).toBe(false);
+    expect(blocked.validation.missing_required_mods).toEqual([
+      {
+        namespace: "example.minimal_character",
+        version: "0.1.0",
+        required: true,
+      },
+    ]);
+  });
+
   it("rejects browser content packages with missing dependencies or conflicts", async () => {
     const client = createBrowserMockEngineClient();
     const packageData = createSampleContentPackage();

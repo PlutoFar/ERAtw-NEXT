@@ -233,7 +233,17 @@ export interface ModEnablementPlanReport {
   disabled: DisabledModReport[];
 }
 
+export interface ModRegistryEntry {
+  namespace: string;
+  version: string;
+}
+
+export interface ModRegistry {
+  enabled: ModRegistryEntry[];
+}
+
 export type ModLoadErrorKind =
+  | "save"
   | "unknown_capability"
   | "missing_namespace"
   | "missing_name"
@@ -396,6 +406,22 @@ export interface SaveEnvelope {
   slot_id: string;
   mod_dependencies: SaveModDependency[];
   world: WorldState;
+}
+
+export interface SaveValidationReport {
+  missing_required_mods: SaveModDependency[];
+  incompatible_schema: number | null;
+  engine_version_mismatch: boolean;
+}
+
+export interface SavePreflightReport {
+  slot_id: string;
+  path: string;
+  ready: boolean;
+  registry: ModRegistry;
+  discovery: ModDiscoveryReport;
+  validation: SaveValidationReport;
+  save: SaveEnvelope;
 }
 
 export interface SaveSlotReport {

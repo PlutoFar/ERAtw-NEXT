@@ -107,6 +107,17 @@ pub struct ModEnablementPlan {
     pub disabled: Vec<DisabledMod>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModRegistry {
+    pub enabled: Vec<ModRegistryEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModRegistryEntry {
+    pub namespace: String,
+    pub version: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredMod {
     pub root_path: PathBuf,
@@ -1374,6 +1385,15 @@ pub fn plan_enabled_mods_for_engine_with_policy(
     Ok(ModEnablementPlan { enabled, disabled })
 }
 
+pub fn mod_registry_from_load_plan(plan: &ModLoadPlan) -> ModRegistry {
+    let enabled = plan.manifests.iter().map(ModRegistryEntry::from).collect();
+    ModRegistry { enabled }
+}
+
+pub fn mod_registry_from_enablement_plan(plan: &ModEnablementPlan) -> ModRegistry {
+    mod_registry_from_load_plan(&plan.enabled)
+}
+
 fn manifest_namespaces(manifests: &[ModManifest]) -> Result<BTreeSet<String>, ModLoadError> {
     let mut namespaces = BTreeSet::new();
     for manifest in manifests {
@@ -1397,6 +1417,15 @@ fn requested_enablement(
         }
     }
     Ok(requested)
+}
+
+impl From<&ModManifest> for ModRegistryEntry {
+    fn from(manifest: &ModManifest) -> Self {
+        Self {
+            namespace: manifest.namespace.clone(),
+            version: manifest.version.clone(),
+        }
+    }
 }
 
 fn safe_install_namespace(namespace: &str) -> Result<&str, ModDiscoveryError> {
@@ -1917,6 +1946,36 @@ mod tests {
         );
         assert_eq!(disabled_namespaces(&plan), vec!["example.optional"]);
         assert_eq!(plan.disabled[0].reason, DisabledModReason::UserDisabled);
+    }
+
+    #[test]
+    fn registry_snapshot_uses_enabled_load_order_versions() {
+        let mut base = manifest("core.base");
+        base.load_order = -10;
+        let mut addon = manifest("example.addon");
+        addon.dependencies = vec![dependency("core.base", None)];
+        let disabled = manifest("example.disabled");
+        let plan = plan_enabled_mods(
+            vec![addon, disabled, base],
+            vec![enablement("example.disabled", false)],
+        )
+        .unwrap();
+
+        let registry = mod_registry_from_enablement_plan(&plan);
+
+        assert_eq!(
+            registry.enabled,
+            vec![
+                ModRegistryEntry {
+                    namespace: "core.base".to_string(),
+                    version: "0.1.0".to_string(),
+                },
+                ModRegistryEntry {
+                    namespace: "example.addon".to_string(),
+                    version: "0.1.0".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]

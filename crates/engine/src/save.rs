@@ -33,6 +33,12 @@ pub struct SaveValidationReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveReadReport {
+    pub save: SaveEnvelope,
+    pub validation: SaveValidationReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SaveBackupPlan {
     pub primary_path: String,
     pub backup_path: String,
@@ -100,6 +106,21 @@ impl SaveEnvelope {
         &self,
         enabled_mods: &[SaveModDependency],
     ) -> Result<SaveValidationReport, SaveError> {
+        self.validate_with_options(enabled_mods, false)
+    }
+
+    pub fn validate_against_registry(
+        &self,
+        enabled_mods: &[SaveModDependency],
+    ) -> Result<SaveValidationReport, SaveError> {
+        self.validate_with_options(enabled_mods, true)
+    }
+
+    fn validate_with_options(
+        &self,
+        enabled_mods: &[SaveModDependency],
+        require_external_registry: bool,
+    ) -> Result<SaveValidationReport, SaveError> {
         if self.schema_version > SAVE_SCHEMA_VERSION {
             return Err(SaveError::UnsupportedFutureSchema(self.schema_version));
         }
@@ -120,7 +141,8 @@ impl SaveEnvelope {
             .filter(|dependency| {
                 dependency.required
                     && !mod_dependency_is_available(dependency, enabled_mods)
-                    && !mod_dependency_is_available(dependency, &world_mod_dependencies)
+                    && (require_external_registry
+                        || !mod_dependency_is_available(dependency, &world_mod_dependencies))
             })
             .cloned()
             .collect();
@@ -219,11 +241,29 @@ pub fn read_save(
     path: impl AsRef<Path>,
     enabled_mods: &[SaveModDependency],
 ) -> Result<SaveEnvelope, SaveError> {
+    Ok(read_save_report(path, enabled_mods)?.save)
+}
+
+pub fn read_save_report(
+    path: impl AsRef<Path>,
+    enabled_mods: &[SaveModDependency],
+) -> Result<SaveReadReport, SaveError> {
     let encoded = fs::read(path)?;
     let save: SaveEnvelope = serde_json::from_slice(&encoded)?;
     let save = save.migrate_to_current()?;
-    save.validate(enabled_mods)?;
-    Ok(save)
+    let validation = save.validate(enabled_mods)?;
+    Ok(SaveReadReport { save, validation })
+}
+
+pub fn preflight_save_against_registry(
+    path: impl AsRef<Path>,
+    enabled_mods: &[SaveModDependency],
+) -> Result<SaveReadReport, SaveError> {
+    let encoded = fs::read(path)?;
+    let save: SaveEnvelope = serde_json::from_slice(&encoded)?;
+    let save = save.migrate_to_current()?;
+    let validation = save.validate_against_registry(enabled_mods)?;
+    Ok(SaveReadReport { save, validation })
 }
 
 pub fn backup_plan(
@@ -322,6 +362,62 @@ mod tests {
             }]
         );
         assert!(report.missing_required_mods.is_empty());
+    }
+
+    #[test]
+    fn save_preflight_registry_requires_external_enabled_mods() {
+        let mut world = WorldState::bootstrap_demo();
+        world
+            .installed_content_packages
+            .push(InstalledContentPackage {
+                namespace: "sample".to_string(),
+                package_id: "sample.event_pack".to_string(),
+                version: "0.1.0".to_string(),
+                dependencies: Vec::new(),
+                conflicts: Vec::new(),
+            });
+        let save = SaveEnvelope::new("slot-1", world, 123);
+
+        let compatibility_report = save.validate(&[]).unwrap();
+        let registry_report = save.validate_against_registry(&[]).unwrap();
+        let ready_report = save
+            .validate_against_registry(&[SaveModDependency {
+                namespace: "sample.event_pack".to_string(),
+                version: "0.1.0".to_string(),
+                required: true,
+            }])
+            .unwrap();
+
+        assert!(compatibility_report.missing_required_mods.is_empty());
+        assert_eq!(
+            registry_report.missing_required_mods,
+            vec![SaveModDependency {
+                namespace: "sample.event_pack".to_string(),
+                version: "0.1.0".to_string(),
+                required: true,
+            }]
+        );
+        assert!(ready_report.missing_required_mods.is_empty());
+    }
+
+    #[test]
+    fn save_preflight_registry_reports_version_mismatch_as_missing_dependency() {
+        let mut save = SaveEnvelope::new("slot-1", WorldState::bootstrap_demo(), 123);
+        save.mod_dependencies.push(SaveModDependency {
+            namespace: "example.required".to_string(),
+            version: "1.0.0".to_string(),
+            required: true,
+        });
+
+        let report = save
+            .validate_against_registry(&[SaveModDependency {
+                namespace: "example.required".to_string(),
+                version: "2.0.0".to_string(),
+                required: true,
+            }])
+            .unwrap();
+
+        assert_eq!(report.missing_required_mods, save.mod_dependencies);
     }
 
     #[test]
