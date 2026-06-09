@@ -1147,6 +1147,10 @@ const scheduledKindRefsExist = (
     return hasCharacter(characterIds, event.kind.character_id);
   }
 
+  if (event.kind.type === "roll_character_state") {
+    return hasCharacter(characterIds, event.kind.character_id);
+  }
+
   if (event.kind.type === "adjust_relationship") {
     return (
       hasCharacter(characterIds, event.kind.source_character_id) &&
@@ -1203,6 +1207,19 @@ const validateBrowserContentPackage = (
           }
         }
       }
+    }
+  }
+
+  for (const event of packageData.scheduled_events) {
+    if (
+      event.kind.type === "roll_character_state" &&
+      (event.kind.energy_min_delta > event.kind.energy_max_delta ||
+        event.kind.mood_min_delta > event.kind.mood_max_delta)
+    ) {
+      issues.push({
+        code: "invalid_scheduled_event_random_range",
+        target: `scheduled_event:${event.id}`,
+      });
     }
   }
 

@@ -177,8 +177,12 @@ ScheduledEvent。
       "repeat": null,
       "conditions": [],
       "kind": {
-        "type": "change_weather",
-        "weather": "cloudy"
+        "type": "roll_character_state",
+        "character_id": "core.character.demo_heroine",
+        "energy_min_delta": -2,
+        "energy_max_delta": 0,
+        "mood_min_delta": -1,
+        "mood_max_delta": 2
       }
     }
   ]
@@ -204,6 +208,7 @@ ScheduledEvent。
 - Choice 指向不存在的下一节点。
 - Choice 条件引用空 ID 或非法时间。
 - Choice 随机状态效果的最小增量大于最大增量。
+- ScheduledEvent 随机状态事件的最小增量大于最大增量。
 - 从入口节点不可达的节点。
 - ScheduledEvent 空 ID、重复 ID、非法触发时间。
 - ScheduledEvent 循环间隔非法或剩余触发次数为 0。

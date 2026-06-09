@@ -366,6 +366,13 @@ pub enum ScheduledEventKind {
         energy_delta: i16,
         mood_delta: i16,
     },
+    RollCharacterState {
+        character_id: String,
+        energy_min_delta: i16,
+        energy_max_delta: i16,
+        mood_min_delta: i16,
+        mood_max_delta: i16,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1043,6 +1050,24 @@ impl WorldState {
                     "事件 {} 触发：{} 状态更新。",
                     event.id, display_name
                 ));
+                Ok(())
+            }
+            ScheduledEventKind::RollCharacterState {
+                character_id,
+                energy_min_delta,
+                energy_max_delta,
+                mood_min_delta,
+                mood_max_delta,
+            } => {
+                self.roll_character_state(
+                    character_id,
+                    *energy_min_delta,
+                    *energy_max_delta,
+                    *mood_min_delta,
+                    *mood_max_delta,
+                )?;
+                self.event_log
+                    .push(format!("事件 {} 触发：随机状态结算。", event.id));
                 Ok(())
             }
         }
@@ -2033,6 +2058,79 @@ mod tests {
             .position(|entry| entry.contains("low_priority"))
             .unwrap();
         assert!(high_index < low_index);
+    }
+
+    #[test]
+    fn scheduled_event_rolls_character_state_deterministically() {
+        let mut world = WorldState::bootstrap_demo();
+        world.scheduled_events.clear();
+        world
+            .apply_command(EngineCommand::ScheduleEvent {
+                event: ScheduledEvent {
+                    id: "random_state_tick".to_string(),
+                    due: ScheduledTime::new(1, 8, 10),
+                    priority: 0,
+                    repeat: None,
+                    conditions: Vec::new(),
+                    kind: ScheduledEventKind::RollCharacterState {
+                        character_id: "demo_heroine".to_string(),
+                        energy_min_delta: -3,
+                        energy_max_delta: 0,
+                        mood_min_delta: -2,
+                        mood_max_delta: 4,
+                    },
+                },
+            })
+            .unwrap();
+
+        world
+            .apply_command(EngineCommand::AdvanceTime { minutes: 10 })
+            .unwrap();
+
+        assert_eq!(world.random.cursor, 2);
+        assert!((77..=80).contains(&world.characters[0].state.energy));
+        assert!((8..=14).contains(&world.characters[0].state.mood));
+
+        let mut replay_base = WorldState::bootstrap_demo();
+        replay_base.scheduled_events.clear();
+        let replayed = replay_command_log(replay_base, &world.replay_log()).unwrap();
+        assert_eq!(replayed, world);
+    }
+
+    #[test]
+    fn invalid_scheduled_random_event_is_transactional() {
+        let mut world = WorldState::bootstrap_demo();
+        world.scheduled_events.clear();
+        world
+            .apply_command(EngineCommand::ScheduleEvent {
+                event: ScheduledEvent {
+                    id: "bad_random_event".to_string(),
+                    due: ScheduledTime::new(1, 8, 10),
+                    priority: 0,
+                    repeat: None,
+                    conditions: Vec::new(),
+                    kind: ScheduledEventKind::RollCharacterState {
+                        character_id: "demo_heroine".to_string(),
+                        energy_min_delta: 1,
+                        energy_max_delta: -1,
+                        mood_min_delta: 0,
+                        mood_max_delta: 1,
+                    },
+                },
+            })
+            .unwrap();
+        let original = world.clone();
+
+        let result = world.apply_command(EngineCommand::AdvanceTime { minutes: 10 });
+
+        assert_eq!(
+            result,
+            Err(EngineError::InvalidRandomRange {
+                min_delta: 1,
+                max_delta: -1,
+            })
+        );
+        assert_eq!(world, original);
     }
 
     #[test]

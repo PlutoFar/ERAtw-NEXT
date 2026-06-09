@@ -200,6 +200,49 @@ describe("demo engine adapter", () => {
     ).toHaveLength(2);
   });
 
+  it("rolls scheduled character state events deterministically", () => {
+    const base = createDemoWorld();
+    base.scheduled_events = [];
+    const scheduled = applyDemoCommand(base, {
+      type: "schedule_event",
+      event: {
+        id: "random_state_tick",
+        due: { day: 1, hour: 8, minute: 10 },
+        priority: 0,
+        repeat: null,
+        conditions: [],
+        kind: {
+          type: "roll_character_state",
+          character_id: "demo_heroine",
+          energy_min_delta: -3,
+          energy_max_delta: 0,
+          mood_min_delta: -2,
+          mood_max_delta: 4,
+        },
+      },
+    });
+
+    const first = applyDemoCommand(scheduled, {
+      type: "advance_time",
+      minutes: 10,
+    });
+    const replayBase = createDemoWorld();
+    replayBase.scheduled_events = [];
+    const replayed = replayDemoCommandLog(replayBase, {
+      schema_version: 1,
+      engine_version: first.engine_version,
+      initial_random: first.command_log_initial_random!,
+      commands: first.command_log,
+    });
+
+    expect(first).toEqual(replayed);
+    expect(first.random.cursor).toBe("2");
+    expect(first.characters[0].state.energy).toBeGreaterThanOrEqual(77);
+    expect(first.characters[0].state.energy).toBeLessThanOrEqual(80);
+    expect(first.characters[0].state.mood).toBeGreaterThanOrEqual(8);
+    expect(first.characters[0].state.mood).toBeLessThanOrEqual(14);
+  });
+
   it("rejects invalid repeating events", () => {
     const world = createDemoWorld();
     const rejected = applyDemoCommand(world, {
@@ -1163,6 +1206,31 @@ describe("demo engine adapter", () => {
       {
         code: "invalid_effect_random_range",
         target: "sample_event_dialogue:sample_event_entry:acknowledge",
+      },
+    ]);
+    expect(unchanged.installed_content_packages).toEqual([]);
+  });
+
+  it("preflights browser content package scheduled random event ranges", async () => {
+    const client = createBrowserMockEngineClient();
+    const packageData = createSampleContentPackage();
+    packageData.scheduled_events[0].kind = {
+      type: "roll_character_state",
+      character_id: "sample_guest",
+      energy_min_delta: 2,
+      energy_max_delta: -1,
+      mood_min_delta: -1,
+      mood_max_delta: 1,
+    };
+
+    const preflight = await client.preflightContentPackageInstall(packageData);
+    const unchanged = await client.installContentPackage(packageData);
+
+    expect(preflight.ready).toBe(false);
+    expect(preflight.validation?.issues).toEqual([
+      {
+        code: "invalid_scheduled_event_random_range",
+        target: "scheduled_event:sample_content_dialogue_at_0820",
       },
     ]);
     expect(unchanged.installed_content_packages).toEqual([]);

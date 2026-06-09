@@ -219,6 +219,7 @@ pub enum ContentIssueCode {
     DuplicateScheduledEventId,
     InvalidScheduledEventTime,
     InvalidScheduledRepeat,
+    InvalidScheduledEventRandomRange,
     EmptyScheduledEventReference,
 }
 
@@ -1096,6 +1097,9 @@ fn ensure_scheduled_event_refs_exist(
         ScheduledEventKind::AdjustCharacterState { character_id, .. } => {
             ensure_character_ref_exists(world, &target, character_id)?;
         }
+        ScheduledEventKind::RollCharacterState { character_id, .. } => {
+            ensure_character_ref_exists(world, &target, character_id)?;
+        }
     }
 
     Ok(())
@@ -1416,6 +1420,20 @@ fn validate_scheduled_event_kind(
         ScheduledEventKind::AdjustCharacterState { character_id, .. } => {
             if character_id.trim().is_empty() {
                 report.push(ContentIssueCode::EmptyScheduledEventReference, target);
+            }
+        }
+        ScheduledEventKind::RollCharacterState {
+            character_id,
+            energy_min_delta,
+            energy_max_delta,
+            mood_min_delta,
+            mood_max_delta,
+        } => {
+            if character_id.trim().is_empty() {
+                report.push(ContentIssueCode::EmptyScheduledEventReference, target);
+            }
+            if energy_min_delta > energy_max_delta || mood_min_delta > mood_max_delta {
+                report.push(ContentIssueCode::InvalidScheduledEventRandomRange, target);
             }
         }
     }
@@ -2361,10 +2379,29 @@ mod tests {
             energy_delta: 0,
             mood_delta: 1,
         };
+        let invalid_random_range = ScheduledEvent {
+            id: "invalid_random".to_string(),
+            due: ScheduledTime::new(1, 8, 20),
+            priority: 0,
+            repeat: None,
+            conditions: Vec::new(),
+            kind: ScheduledEventKind::RollCharacterState {
+                character_id: "sample_guest".to_string(),
+                energy_min_delta: 1,
+                energy_max_delta: -1,
+                mood_min_delta: 0,
+                mood_max_delta: 1,
+            },
+        };
         let package = package_with(
             "core.events",
             Vec::new(),
-            vec![duplicate.clone(), duplicate, invalid_time],
+            vec![
+                duplicate.clone(),
+                duplicate,
+                invalid_time,
+                invalid_random_range,
+            ],
         );
 
         let report = package.validate().unwrap();
@@ -2379,6 +2416,7 @@ mod tests {
                 ContentIssueCode::InvalidConditionTime,
                 ContentIssueCode::InvalidScheduledEventTime,
                 ContentIssueCode::EmptyScheduledEventReference,
+                ContentIssueCode::InvalidScheduledEventRandomRange,
             ]
         );
     }

@@ -9,7 +9,7 @@
 - `ScheduledTime`：以 day/hour/minute 表达事件触发时间，序列化进入 `WorldState`。
 - `ScheduledEvent`：稳定事件 ID、到期时间、优先级、可选循环规则、条件列表和事件类型。
 - `ScheduledRepeat`：定义循环间隔和可选剩余触发次数。
-- `ScheduledEventKind`：当前支持天气切换、对话启动、关系调整、角色状态调整。
+- `ScheduledEventKind`：当前支持天气切换、对话启动、关系调整、角色状态调整和角色状态随机结算。
 - `EngineCommand::ScheduleEvent`：通过 command API 注册事件，前端不直接修改事件队列。
 - `EngineCommand::CancelEvent`：通过 command API 取消仍在队列中的事件。
 - `Relationship`：保存来源 ID、目标角色 ID、好感和信赖，进入 `WorldState` 与存档。
@@ -20,6 +20,7 @@
 - `EngineReplayLog` / `replay_command_log`：从初始世界、初始 RNG 和成功命令列表重放世界，用于存档诊断和故障复现。
 - `EngineCommand::RollCharacterMood`：当前用于验证随机命令、状态结算和回放一致性。
 - `DialogueEffect::RollCharacterState`：内容效果可用同一 RNG 对角色体力和心情做有界随机结算。
+- `ScheduledEventKind::RollCharacterState`：定时事件可用同一 RNG 对角色体力和心情做有界随机结算，支持 replay log 重放。
 - `replay_commands`：从初始世界和命令列表重放出确定结果。
 - 内容包安装后的 `ScheduledEventKind::StartDialogue` 可启动同包新增的 `DialogueScene`，由跨模块调度测试覆盖。
 
@@ -48,6 +49,7 @@
 - 随机命令失败时不推进 `cursor`，成功后才进入 `command_log`。
 - 随机范围必须满足 `min_delta <= max_delta`，否则命令整体回滚。
 - Dialogue 随机效果使用 `WorldState.random`，非法范围或缺失角色会让整条选择回滚且不消费 RNG。
+- ScheduledEvent 随机效果使用同一 `WorldState.random`；非法范围或缺失角色会让触发该事件的 `AdvanceTime` 命令整体回滚且不消费 RNG。
 - 旧存档缺少 `random` 字段时使用默认 demo seed 迁移读取。
 
 ## 后续

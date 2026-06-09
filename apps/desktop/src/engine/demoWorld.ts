@@ -556,12 +556,31 @@ const applyScheduledEventKind = (
     return;
   }
 
-  applyCharacterStateDelta(
-    world,
-    kind.character_id,
-    kind.energy_delta,
-    kind.mood_delta,
-  );
+  if (kind.type === "roll_character_state") {
+    if (
+      kind.energy_min_delta > kind.energy_max_delta ||
+      kind.mood_min_delta > kind.mood_max_delta
+    ) {
+      return;
+    }
+    const energyDelta = rollInclusive(
+      world,
+      kind.energy_min_delta,
+      kind.energy_max_delta,
+    );
+    const moodDelta = rollInclusive(world, kind.mood_min_delta, kind.mood_max_delta);
+    applyCharacterStateDelta(world, kind.character_id, energyDelta, moodDelta);
+    const character = world.characters.find((item) => item.id === kind.character_id);
+    world.event_log = [
+      `事件 ${eventId} 触发：${
+        character?.display_name ?? kind.character_id
+      } 随机状态结算。`,
+      ...world.event_log,
+    ];
+    return;
+  }
+
+  applyCharacterStateDelta(world, kind.character_id, kind.energy_delta, kind.mood_delta);
   const character = world.characters.find((item) => item.id === kind.character_id);
   world.event_log = [
     `事件 ${eventId} 触发：${character?.display_name ?? kind.character_id} 状态更新。`,

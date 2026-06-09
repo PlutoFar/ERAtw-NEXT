@@ -405,6 +405,14 @@ export type ScheduledEventKind =
       character_id: string;
       energy_delta: number;
       mood_delta: number;
+    }
+  | {
+      type: "roll_character_state";
+      character_id: string;
+      energy_min_delta: number;
+      energy_max_delta: number;
+      mood_min_delta: number;
+      mood_max_delta: number;
     };
 
 export interface ScheduledEvent {
@@ -556,6 +564,7 @@ export type ContentIssueCode =
   | "duplicate_scheduled_event_id"
   | "invalid_scheduled_event_time"
   | "invalid_scheduled_repeat"
+  | "invalid_scheduled_event_random_range"
   | "empty_scheduled_event_reference";
 
 export interface ContentIssue {
