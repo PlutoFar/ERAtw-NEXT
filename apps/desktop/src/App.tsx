@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import {
   Clock3,
@@ -64,7 +64,7 @@ const formatScheduledEventTime = (world: WorldState) => {
   ).padStart(2, "0")}`;
 };
 
-const DEFAULT_SLOT_ID = "slot_1";
+const SAVE_SLOTS = ["slot_1", "slot_2", "slot_3"] as const;
 
 export const App = () => {
   const {
@@ -81,6 +81,9 @@ export const App = () => {
     world,
   } =
     useEngine();
+  const [selectedSlotId, setSelectedSlotId] = useState<(typeof SAVE_SLOTS)[number]>(
+    SAVE_SLOTS[0],
+  );
 
   useEffect(() => {
     void load();
@@ -236,23 +239,38 @@ export const App = () => {
             >
               <MessageSquareText size={17} /> 示例包
             </button>
+            <div className="save-slot-panel" aria-label="save slots">
+              {SAVE_SLOTS.map((slotId, index) => (
+                <button
+                  key={slotId}
+                  type="button"
+                  className={selectedSlotId === slotId ? "active-slot" : undefined}
+                  onClick={() => setSelectedSlotId(slotId)}
+                  disabled={loading}
+                  aria-pressed={selectedSlotId === slotId}
+                >
+                  槽位 {index + 1}
+                </button>
+              ))}
+            </div>
+            <p className="slot-text">当前槽位：{selectedSlotId}</p>
             <button
               type="button"
-              onClick={() => saveSlot(DEFAULT_SLOT_ID)}
+              onClick={() => saveSlot(selectedSlotId)}
               disabled={loading}
             >
               保存
             </button>
             <button
               type="button"
-              onClick={() => loadSlot(DEFAULT_SLOT_ID)}
+              onClick={() => loadSlot(selectedSlotId)}
               disabled={loading}
             >
               读取
             </button>
             <button
               type="button"
-              onClick={() => recoverSlot(DEFAULT_SLOT_ID)}
+              onClick={() => recoverSlot(selectedSlotId)}
               disabled={loading}
             >
               <RotateCcw size={17} /> 恢复

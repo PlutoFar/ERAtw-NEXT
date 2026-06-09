@@ -58,11 +58,39 @@ describe("App", () => {
   it("saves through the engine store", async () => {
     render(<App />);
 
+    expect(await screen.findByText("当前槽位：slot_1")).toBeInTheDocument();
     const saveButton = await screen.findByRole("button", { name: "保存" });
     fireEvent.click(saveButton);
 
     await waitFor(() => {
       expect(screen.getByText(/browser-memory:\/\/slot_1.json/)).toBeInTheDocument();
+    });
+  });
+
+  it("saves and loads the selected slot independently", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "槽位 2" }));
+    expect(screen.getByText("当前槽位：slot_2")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /移动/ }));
+    await waitFor(() => {
+      expect(screen.getByText("庭园")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => {
+      expect(screen.getByText(/browser-memory:\/\/slot_2.json/)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /移动/ }));
+    await waitFor(() => {
+      expect(screen.getByText("校门")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "读取" }));
+    await waitFor(() => {
+      expect(screen.getByText("庭园")).toBeInTheDocument();
     });
   });
 
