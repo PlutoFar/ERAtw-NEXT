@@ -692,6 +692,23 @@ pub fn install_mod_for_engine(
     execute_mod_install_plan(plan)
 }
 
+pub fn install_mod_package(
+    package_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+) -> Result<ModInstallReport, ModDiscoveryError> {
+    install_mod_package_for_engine(package_root, install_root, None)
+}
+
+pub fn install_mod_package_for_engine(
+    package_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+) -> Result<ModInstallReport, ModDiscoveryError> {
+    let package = check_mod_package_for_engine(package_root, engine_version)?;
+    let plan = plan_mod_install_for_engine(package.content_root, install_root, engine_version)?;
+    execute_mod_install_plan(plan)
+}
+
 pub fn execute_mod_install_plan(
     plan: ModInstallPlan,
 ) -> Result<ModInstallReport, ModDiscoveryError> {
@@ -2045,6 +2062,106 @@ mod tests {
 
         let _ = fs::remove_dir_all(install_root);
         let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn install_mod_package_checks_and_installs_content_root() {
+        let source_root = temp_mod_dir("install_package_source");
+        let package_output_root = temp_mod_dir("install_package_output");
+        let install_root = temp_mod_dir("install_package_root");
+        fs::create_dir_all(source_root.join("assets")).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+        fs::write(source_root.join("assets/readme.txt"), "from package").unwrap();
+        let package =
+            package_mod_project_for_engine(&source_root, &package_output_root, Some("0.1.0-m0"))
+                .unwrap();
+
+        let report =
+            install_mod_package_for_engine(&package.package_root, &install_root, Some("0.1.0-m0"))
+                .unwrap();
+
+        assert_eq!(report.manifest.namespace, "example.package");
+        assert_eq!(report.target_root, install_root.join("example.package"));
+        assert_eq!(
+            fs::read_to_string(install_root.join("example.package/assets/readme.txt")).unwrap(),
+            "from package"
+        );
+        assert!(!install_root.join(".installing-example.package").exists());
+
+        let _ = fs::remove_dir_all(install_root);
+        let _ = fs::remove_dir_all(package_output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn install_mod_package_rejects_existing_target_without_overwrite() {
+        let source_root = temp_mod_dir("install_package_existing_source");
+        let package_output_root = temp_mod_dir("install_package_existing_output");
+        let install_root = temp_mod_dir("install_package_existing_root");
+        let target_root = install_root.join("example.package");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::create_dir_all(&target_root).unwrap();
+        fs::write(target_root.join("keep.txt"), "existing").unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+        let package = package_mod_project(&source_root, &package_output_root).unwrap();
+
+        let result = install_mod_package(&package.package_root, &install_root);
+
+        assert!(matches!(
+            result,
+            Err(ModDiscoveryError::InstallTargetExists(_))
+        ));
+        assert_eq!(
+            fs::read_to_string(target_root.join("keep.txt")).unwrap(),
+            "existing"
+        );
+
+        let _ = fs::remove_dir_all(install_root);
+        let _ = fs::remove_dir_all(package_output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn install_mod_package_rejects_bad_package_before_install_root_is_created() {
+        let package_root = temp_mod_dir("install_package_bad");
+        let install_root = temp_mod_dir("install_package_bad_root");
+        fs::create_dir_all(package_root.join("content")).unwrap();
+        fs::write(
+            package_root.join("content/manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            package_root.join("eratw-mod-package.json"),
+            serde_json::to_string_pretty(&ModPackageManifest {
+                schema_version: "bad".to_string(),
+                namespace: "example.package".to_string(),
+                version: "0.1.0".to_string(),
+                manifest_path: "content/manifest.json".to_string(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let result = install_mod_package(&package_root, &install_root);
+
+        assert_eq!(
+            result,
+            Err(ModDiscoveryError::UnsupportedPackageSchema(
+                "bad".to_string()
+            ))
+        );
+        assert!(!install_root.exists());
+
+        let _ = fs::remove_dir_all(package_root);
     }
 
     #[test]

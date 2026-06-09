@@ -24,7 +24,7 @@ M0 proves the new project can stand alone:
 - Mod install planning validates target namespace and emits planned filesystem actions
 - Mod install execution stages copies before moving into the final namespace directory
 - Mod uninstall planning and execution move installs through uninstall staging before deletion
-- Mod CLI scaffolds, validates, packages, and checks example Mod release directories
+- Mod CLI scaffolds, validates, packages, checks, and installs example Mod release directories
 
 ## Development
 
@@ -48,6 +48,7 @@ cargo run -p eratw_mod_cli -- new D:\tmp\my-first-mod --namespace example.my_fir
 cargo run -p eratw_mod_cli -- validate examples/mods/minimal-character --engine-version 0.1.0-m0
 cargo run -p eratw_mod_cli -- pack examples/mods/minimal-character D:\tmp\eratw-mod-packages --engine-version 0.1.0-m0
 cargo run -p eratw_mod_cli -- check-package D:\tmp\eratw-mod-packages\example.minimal_character-0.1.0 --engine-version 0.1.0-m0
+cargo run -p eratw_mod_cli -- install-package D:\tmp\eratw-mod-packages\example.minimal_character-0.1.0 D:\tmp\eratw-installed-mods --engine-version 0.1.0-m0
 ```
 
 ## Content Audit

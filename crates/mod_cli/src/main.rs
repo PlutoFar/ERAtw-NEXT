@@ -1,6 +1,6 @@
 use eratw_mod_runtime::{
-    check_mod_package_for_engine, package_mod_project_for_engine, scaffold_mod_template,
-    validate_mod_project_for_engine, ModDiscoveryError, ModTemplateOptions,
+    check_mod_package_for_engine, install_mod_package_for_engine, package_mod_project_for_engine,
+    scaffold_mod_template, validate_mod_project_for_engine, ModDiscoveryError, ModTemplateOptions,
 };
 use std::{env, path::PathBuf, process::ExitCode};
 
@@ -23,6 +23,11 @@ enum Command {
     },
     CheckPackage {
         package_root: PathBuf,
+        engine_version: Option<String>,
+    },
+    InstallPackage {
+        package_root: PathBuf,
+        install_root: PathBuf,
         engine_version: Option<String>,
     },
     Help,
@@ -114,6 +119,22 @@ fn run(args: Vec<String>) -> Result<String, String> {
                 )
             })
             .map_err(format_mod_error),
+        Command::InstallPackage {
+            package_root,
+            install_root,
+            engine_version,
+        } => {
+            install_mod_package_for_engine(&package_root, &install_root, engine_version.as_deref())
+                .map(|report| {
+                    format!(
+                        "installed mod package {} {} to {}",
+                        report.manifest.namespace,
+                        report.manifest.version,
+                        report.target_root.display()
+                    )
+                })
+                .map_err(format_mod_error)
+        }
         Command::Help => Ok(usage()),
     }
 }
@@ -194,6 +215,23 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
                 engine_version: options.engine_version,
             })
         }
+        "install-package" => {
+            if includes_help_option(&args[1..]) {
+                return Ok(Command::Help);
+            }
+            let (positionals, options) = parse_options(&args[1..])?;
+            if positionals.len() != 2 {
+                return Err(format!(
+                    "{}\n\ninstall-package expects package root and install root paths",
+                    usage()
+                ));
+            }
+            Ok(Command::InstallPackage {
+                package_root: PathBuf::from(&positionals[0]),
+                install_root: PathBuf::from(&positionals[1]),
+                engine_version: options.engine_version,
+            })
+        }
         "-h" | "--help" | "help" => Ok(Command::Help),
         unknown => Err(format!("{}\n\nunknown command: {unknown}", usage())),
     }
@@ -270,6 +308,7 @@ fn usage() -> String {
         "  eratw-mod validate <mod-root> [--engine-version <version>]",
         "  eratw-mod pack <mod-root> <output-root> [--engine-version <version>]",
         "  eratw-mod check-package <package-root> [--engine-version <version>]",
+        "  eratw-mod install-package <package-root> <install-root> [--engine-version <version>]",
     ]
     .join("\n")
 }
@@ -392,6 +431,39 @@ mod tests {
 
         assert!(output.contains("checked mod package example.cli 0.1.0"));
 
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn install_package_command_installs_checked_package() {
+        let source_root = temp_dir("install_package_command_source");
+        let output_root = temp_dir("install_package_command_output");
+        let install_root = temp_dir("install_package_command_root");
+        write_manifest(&source_root, "example.cli");
+        run(vec![
+            "pack".to_string(),
+            source_root.to_string_lossy().to_string(),
+            output_root.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+
+        let output = run(vec![
+            "install-package".to_string(),
+            output_root
+                .join("example.cli-0.1.0")
+                .to_string_lossy()
+                .to_string(),
+            install_root.to_string_lossy().to_string(),
+            "--engine-version".to_string(),
+            "0.1.0-m0".to_string(),
+        ])
+        .unwrap();
+
+        assert!(output.contains("installed mod package example.cli 0.1.0"));
+        assert!(install_root.join("example.cli/manifest.json").exists());
+
+        let _ = fs::remove_dir_all(install_root);
         let _ = fs::remove_dir_all(output_root);
         let _ = fs::remove_dir_all(source_root);
     }
