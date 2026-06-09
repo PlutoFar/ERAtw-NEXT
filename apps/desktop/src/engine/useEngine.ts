@@ -4,6 +4,7 @@ import type {
   ContentPackage,
   EngineCommand,
   ModRegistry,
+  SavePreflightReport,
   SaveRecoveryReport,
   SaveSlotReport,
   WorldState,
@@ -15,11 +16,13 @@ interface EngineStore {
   loading: boolean;
   error: string | null;
   lastSave: SaveSlotReport | null;
+  lastLoadPreflight: SavePreflightReport | null;
   lastRecovery: SaveRecoveryReport | null;
   load: () => Promise<void>;
   dispatch: (command: EngineCommand) => Promise<void>;
   installContentPackage: (packageData: ContentPackage) => Promise<void>;
   saveSlot: (slotId: string) => Promise<void>;
+  preflightLoadSlot: (slotId: string) => Promise<void>;
   loadSlot: (slotId: string) => Promise<void>;
   recoverSlot: (slotId: string) => Promise<void>;
 }
@@ -39,12 +42,15 @@ const formatContentPreflightIssues = (
   >["issues"],
 ) => issues.map((issue) => issue.message).join("; ");
 
+const DEFAULT_MOD_ROOT = "examples/mods";
+
 export const useEngine = create<EngineStore>((set, get) => ({
   client: createEngineClient(),
   world: null,
   loading: false,
   error: null,
   lastSave: null,
+  lastLoadPreflight: null,
   lastRecovery: null,
   async load() {
     set({ loading: true, error: null });
@@ -86,16 +92,30 @@ export const useEngine = create<EngineStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const lastSave = await get().client.saveSlot(slotId, Date.now());
-      set({ lastSave, lastRecovery: null, loading: false });
+      set({ lastSave, lastLoadPreflight: null, lastRecovery: null, loading: false });
     } catch (error) {
       set({ error: String(error), loading: false });
+    }
+  },
+  async preflightLoadSlot(slotId) {
+    set({ loading: true, error: null });
+    try {
+      const lastLoadPreflight = await get().client.preflightLoadSlot(
+        slotId,
+        DEFAULT_MOD_ROOT,
+        [],
+        get().world?.engine_version,
+      );
+      set({ lastLoadPreflight, loading: false });
+    } catch (error) {
+      set({ error: String(error), lastLoadPreflight: null, loading: false });
     }
   },
   async loadSlot(slotId) {
     set({ loading: true, error: null });
     try {
       const world = await get().client.loadSlot(slotId);
-      set({ world, loading: false });
+      set({ world, lastLoadPreflight: null, loading: false });
     } catch (error) {
       set({ error: String(error), loading: false });
     }

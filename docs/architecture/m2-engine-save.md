@@ -15,8 +15,8 @@
 - `write_save_atomic`：写入同目录临时文件，覆盖前复制备份，再替换主存档，并轮转保留最近 10 个普通备份。
 - `recover_save_from_latest_backup`：当主存档损坏时，选择同目录最新可验证的普通 `.bak` 恢复主存档，并先把损坏的主存档备份为 `.failed.{timestamp}.bak`。
 - `read_save`：读取 JSON 存档，执行 schema migration，再做基础校验。
-- Tauri `engine_save_slot` / `engine_recover_slot` / `engine_load_slot`：按 slot id 写入、从最新备份恢复、读取应用数据目录下的 `saves/{slot}.json`。
-- 桌面 UI：当前支持 3 个槽位的保存、读取和从最新备份恢复，并展示当前槽位、主存档、覆盖备份、恢复来源和失败主档备份路径。
+- Tauri `engine_save_slot` / `engine_preflight_load_slot` / `engine_recover_slot` / `engine_load_slot`：按 slot id 写入、预检、从最新备份恢复、读取应用数据目录下的 `saves/{slot}.json`。
+- 桌面 UI：当前支持 3 个槽位的保存、预检后确认读取和从最新备份恢复，并展示当前槽位、主存档、覆盖备份、恢复来源、失败主档备份路径和预检阻断原因。
 - `WorldState.command_log` 随 `SaveEnvelope` 序列化，用于后续确定性回放和故障复现。
 - `SaveEnvelope::new` 会从 `WorldState.installed_content_packages` 派生 `mod_dependencies`；当前使用 `package_id` 作为存档依赖 namespace。
 
@@ -34,5 +34,4 @@
 
 ## 后续
 
-- 将桌面读档 UI 切到预检优先的确认流程。
 - 将 deterministic replay seed 接入当前事件调度器和 command log。

@@ -3,7 +3,13 @@ import { createSampleContentPackage } from "./sampleContentPackage";
 import { createDemoWorld } from "./demoWorld";
 import { useEngine } from "./useEngine";
 import type { EngineClient } from "./client";
-import type { ModRegistry, SaveEnvelope, SaveRecoveryReport, WorldState } from "../types";
+import type {
+  ModRegistry,
+  SaveEnvelope,
+  SavePreflightReport,
+  SaveRecoveryReport,
+  WorldState,
+} from "../types";
 
 const createMockClient = (
   world: WorldState,
@@ -26,6 +32,23 @@ const createMockClient = (
     path: "memory://slot_1.json",
     recovered_from: "memory://slot_1.json.1.bak",
     failed_primary_backup_path: "memory://slot_1.json.2.bak",
+    save: recoveredSave,
+  };
+  const preflightReport: SavePreflightReport = {
+    slot_id: "slot_1",
+    path: "memory://slot_1.json",
+    ready: true,
+    registry: { enabled: [] },
+    discovery: {
+      root_path: "examples/mods",
+      discovered: [],
+      errors: [],
+    },
+    validation: {
+      missing_required_mods: [],
+      incompatible_schema: null,
+      engine_version_mismatch: false,
+    },
     save: recoveredSave,
   };
 
@@ -87,9 +110,7 @@ const createMockClient = (
       throw new Error("not used");
     }),
     recoverSlot: vi.fn(async () => structuredClone(recoveryReport)),
-    preflightLoadSlot: vi.fn(async () => {
-      throw new Error("not used");
-    }),
+    preflightLoadSlot: vi.fn(async () => structuredClone(preflightReport)),
     loadSlot: vi.fn(async () => structuredClone(world)),
   };
 };
@@ -101,6 +122,7 @@ describe("useEngine", () => {
       loading: false,
       error: null,
       lastSave: null,
+      lastLoadPreflight: null,
       lastRecovery: null,
     });
   });
@@ -157,5 +179,26 @@ describe("useEngine", () => {
     expect(useEngine.getState().lastRecovery?.recovered_from).toBe(
       "memory://slot_1.json.1.bak",
     );
+  });
+
+  it("preflights a save slot before loading", async () => {
+    const world = createDemoWorld();
+    const calls = {
+      preflightRegistries: [] as ModRegistry[],
+      installRegistries: [] as ModRegistry[],
+    };
+    const client = createMockClient(world, calls);
+    useEngine.setState({ client, world });
+
+    await useEngine.getState().preflightLoadSlot("slot_1");
+
+    expect(client.preflightLoadSlot).toHaveBeenCalledWith(
+      "slot_1",
+      "examples/mods",
+      [],
+      "0.1.0-m0",
+    );
+    expect(useEngine.getState().lastLoadPreflight?.ready).toBe(true);
+    expect(useEngine.getState().world).toEqual(world);
   });
 });

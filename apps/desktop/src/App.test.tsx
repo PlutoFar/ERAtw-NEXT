@@ -12,6 +12,7 @@ describe("App", () => {
       loading: false,
       error: null,
       lastSave: null,
+      lastLoadPreflight: null,
       lastRecovery: null,
     });
   });
@@ -88,7 +89,13 @@ describe("App", () => {
       expect(screen.getByText("校门")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "读取" }));
+    fireEvent.click(screen.getByRole("button", { name: "预检读取" }));
+    await waitFor(() => {
+      expect(screen.getByText(/读档预检：可读取/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "确认读取" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "确认读取" }));
     await waitFor(() => {
       expect(screen.getByText("庭园")).toBeInTheDocument();
     });

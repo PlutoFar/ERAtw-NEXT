@@ -298,6 +298,8 @@ button {
 .dialogue-panel p,
 .empty-text,
 .error-text,
+.preflight-error-text,
+.preflight-text,
 .save-text,
 .recovery-text {
   margin: 0;
@@ -342,6 +344,21 @@ button {
   color: #a8d8b9;
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+.preflight-text,
+.preflight-error-text {
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.preflight-text {
+  color: #a8d8b9;
+}
+
+.preflight-error-text {
+  color: #ffb0a8;
 }
 
 .recovery-text {

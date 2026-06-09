@@ -71,11 +71,13 @@ export const App = () => {
     dispatch,
     error,
     installContentPackage,
+    lastLoadPreflight,
     lastRecovery,
     lastSave,
     load,
     loadSlot,
     loading,
+    preflightLoadSlot,
     recoverSlot,
     saveSlot,
     world,
@@ -263,11 +265,20 @@ export const App = () => {
             </button>
             <button
               type="button"
-              onClick={() => loadSlot(selectedSlotId)}
+              onClick={() => preflightLoadSlot(selectedSlotId)}
               disabled={loading}
             >
-              读取
+              预检读取
             </button>
+            {lastLoadPreflight?.slot_id === selectedSlotId && lastLoadPreflight.ready ? (
+              <button
+                type="button"
+                onClick={() => loadSlot(selectedSlotId)}
+                disabled={loading}
+              >
+                确认读取
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => recoverSlot(selectedSlotId)}
@@ -285,6 +296,38 @@ export const App = () => {
                 <>
                   <br />
                   上次存档已备份：{lastSave.backup_path}
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          {lastLoadPreflight?.slot_id === selectedSlotId ? (
+            <p
+              className={
+                lastLoadPreflight.ready ? "preflight-text" : "preflight-error-text"
+              }
+            >
+              读档预检：{lastLoadPreflight.ready ? "可读取" : "已阻止"}
+              <br />
+              路径：{lastLoadPreflight.path}
+              {lastLoadPreflight.validation.missing_required_mods.length > 0 ? (
+                <>
+                  <br />
+                  缺少 Mod：
+                  {lastLoadPreflight.validation.missing_required_mods
+                    .map((dependency) => `${dependency.namespace}@${dependency.version}`)
+                    .join("、")}
+                </>
+              ) : null}
+              {lastLoadPreflight.validation.incompatible_schema !== null ? (
+                <>
+                  <br />
+                  不兼容 schema：{lastLoadPreflight.validation.incompatible_schema}
+                </>
+              ) : null}
+              {lastLoadPreflight.validation.engine_version_mismatch ? (
+                <>
+                  <br />
+                  引擎版本不同：{lastLoadPreflight.save.engine_version}
                 </>
               ) : null}
             </p>
