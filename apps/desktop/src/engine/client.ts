@@ -40,9 +40,9 @@ export interface EngineClient {
     packageData: ContentPackage,
     registry?: ModRegistry | null,
   ): Promise<ContentInstallPreflightReport>;
-  planResources(root: string): Promise<ResourceResolutionReport>;
-  inspectResources(root: string): Promise<ResourceResolutionReport>;
-  preflightResources(root: string): Promise<ResourcePreflightReport>;
+  planResources(root: string, lowSpec?: boolean): Promise<ResourceResolutionReport>;
+  inspectResources(root: string, lowSpec?: boolean): Promise<ResourceResolutionReport>;
+  preflightResources(root: string, lowSpec?: boolean): Promise<ResourcePreflightReport>;
   discoverMods(
     root: string,
     engineVersion?: string | null,
@@ -110,12 +110,12 @@ export const createTauriEngineClient = (): EngineClient => ({
         registry,
       },
     }),
-  planResources: (root) =>
-    invoke<ResourceResolutionReport>("engine_plan_resources", { root }),
-  inspectResources: (root) =>
-    invoke<ResourceResolutionReport>("engine_inspect_resources", { root }),
-  preflightResources: (root) =>
-    invoke<ResourcePreflightReport>("engine_preflight_resources", { root }),
+  planResources: (root, lowSpec = false) =>
+    invoke<ResourceResolutionReport>("engine_plan_resources", { root, lowSpec }),
+  inspectResources: (root, lowSpec = false) =>
+    invoke<ResourceResolutionReport>("engine_inspect_resources", { root, lowSpec }),
+  preflightResources: (root, lowSpec = false) =>
+    invoke<ResourcePreflightReport>("engine_preflight_resources", { root, lowSpec }),
   discoverMods: (root, engineVersion = null, authorizedUnsafeCapabilities = []) =>
     invoke<ModDiscoveryReport>("engine_discover_mods", {
       root,
@@ -421,16 +421,132 @@ const joinResourcePath = (root: string, sourcePath: string) => {
   return normalizedRoot ? `${normalizedRoot}/${normalizedSource}` : normalizedSource;
 };
 
-const planResourcesForBrowserWorld = (world: WorldState, root: string) => ({
+const loadStrategyForMediaType = (
+  mediaType: ResourceAsset["media_type"],
+  lowSpec: boolean,
+) => {
+  if (!lowSpec) {
+    return "eager" as const;
+  }
+  if (mediaType === "image") {
+    return "thumbnail_only" as const;
+  }
+  if (mediaType === "audio" || mediaType === "other") {
+    return "deferred" as const;
+  }
+  return "eager" as const;
+};
+
+const mediaTypeKey = (mediaType: ResourceAsset["media_type"]) => mediaType;
+
+const normalizeResourceCacheSource = (sourcePath: string) =>
+  sourcePath.replaceAll("\\", "/");
+
+const sanitizeCacheName = (value: string) => {
+  let output = "";
+  let previousWasSeparator = false;
+
+  for (const character of value) {
+    if (/^[A-Za-z0-9]$/.test(character)) {
+      output += character.toLowerCase();
+      previousWasSeparator = false;
+    } else if (character === "." || character === "-" || character === "_") {
+      if (!previousWasSeparator) {
+        output += character;
+      }
+      previousWasSeparator = true;
+    } else if (!previousWasSeparator) {
+      output += "_";
+      previousWasSeparator = true;
+    }
+  }
+
+  const trimmed = output.replace(/^[._-]+|[._-]+$/g, "");
+  return trimmed || "resource";
+};
+
+const fnv1a64Hex = (input: string) => {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  const bytes = new TextEncoder().encode(input);
+
+  for (const byte of bytes) {
+    hash ^= BigInt(byte);
+    hash = (hash * prime) & mask;
+  }
+
+  return hash.toString(16).padStart(16, "0");
+};
+
+const cacheKeyForResource = (resource: ResourceAsset) => {
+  const identity = [
+    resource.resource_id,
+    normalizeResourceCacheSource(resource.source_path),
+    mediaTypeKey(resource.media_type),
+    resource.sha256 ?? "",
+  ].join("\n");
+  return `${sanitizeCacheName(resource.resource_id)}-${fnv1a64Hex(identity)}`;
+};
+
+const cacheFileExtension = (resource: ResourceAsset) => {
+  const normalized = normalizeResourceCacheSource(resource.source_path);
+  const fileName = normalized.split("/").at(-1) ?? "";
+  const extension = fileName.includes(".") ? fileName.split(".").at(-1) : null;
+
+  if (
+    extension &&
+    extension.length <= 12 &&
+    /^[A-Za-z0-9]+$/.test(extension)
+  ) {
+    return extension.toLowerCase();
+  }
+
+  if (resource.media_type === "image") {
+    return "webp";
+  }
+  if (resource.media_type === "audio") {
+    return "ogg";
+  }
+  if (resource.media_type === "font") {
+    return "ttf";
+  }
+  return "bin";
+};
+
+const cachePathForResource = (
+  root: string,
+  resource: ResourceAsset,
+  cacheKey: string,
+) => joinResourcePath(root, `.eratw-cache/resources/${cacheKey}.${cacheFileExtension(resource)}`);
+
+const thumbnailPathForResource = (root: string, cacheKey: string) =>
+  joinResourcePath(root, `.eratw-cache/thumbnails/${cacheKey}.webp`);
+
+const planResourcesForBrowserWorld = (
+  world: WorldState,
+  root: string,
+  lowSpec = false,
+): ResourceResolutionReport => ({
   root,
+  low_spec: lowSpec,
   entries: world.resources.map((resource) => {
     const safe = isSafeResourceSourcePath(resource.source_path);
+    const loadStrategy = loadStrategyForMediaType(resource.media_type, lowSpec);
+    const cacheKey = cacheKeyForResource(resource);
     return {
       resource_id: resource.resource_id,
       source_path: resource.source_path,
       resolved_path: safe ? joinResourcePath(root, resource.source_path) : null,
       media_type: resource.media_type,
       status: safe ? ("planned" as const) : ("unsafe_path" as const),
+      load_strategy: loadStrategy,
+      cache_key: cacheKey,
+      cache_path: safe ? cachePathForResource(root, resource, cacheKey) : null,
+      thumbnail_path:
+        safe && loadStrategy === "thumbnail_only"
+          ? thumbnailPathForResource(root, cacheKey)
+          : null,
       fallback: fallbackForMediaType(resource.media_type),
       expected_sha256: resource.sha256,
       actual_sha256: null,
@@ -446,8 +562,9 @@ const isUnsafeResourceResolution = (
 const preflightResourcesForBrowserWorld = (
   world: WorldState,
   root: string,
+  lowSpec = false,
 ): ResourcePreflightReport => {
-  const resolution = planResourcesForBrowserWorld(world, root);
+  const resolution = planResourcesForBrowserWorld(world, root, lowSpec);
   const issues: ResourcePreflightIssue[] = resolution.entries
     .filter(isUnsafeResourceResolution)
     .map((entry) => ({
@@ -460,6 +577,7 @@ const preflightResourcesForBrowserWorld = (
 
   return {
     root,
+    low_spec: lowSpec,
     ready: issues.length === 0,
     resolution,
     issues,
@@ -1378,14 +1496,16 @@ export const createBrowserMockEngineClient = (): EngineClient => {
         preflightPackageIntoBrowserWorld(world, packageData, registry),
       );
     },
-    async planResources(root) {
-      return structuredClone(planResourcesForBrowserWorld(world, root));
+    async planResources(root, lowSpec = false) {
+      return structuredClone(planResourcesForBrowserWorld(world, root, lowSpec));
     },
-    async inspectResources(root) {
-      return structuredClone(planResourcesForBrowserWorld(world, root));
+    async inspectResources(root, lowSpec = false) {
+      return structuredClone(planResourcesForBrowserWorld(world, root, lowSpec));
     },
-    async preflightResources(root) {
-      return structuredClone(preflightResourcesForBrowserWorld(world, root));
+    async preflightResources(root, lowSpec = false) {
+      return structuredClone(
+        preflightResourcesForBrowserWorld(world, root, lowSpec),
+      );
     },
     async discoverMods(root, engineVersion = null, authorizedUnsafeCapabilities = []) {
       return structuredClone(

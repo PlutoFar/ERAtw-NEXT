@@ -62,12 +62,18 @@ export type ResourceFallback =
   | "default_font"
   | "missing_resource";
 
+export type ResourceLoadStrategy = "eager" | "deferred" | "thumbnail_only";
+
 export interface ResourceResolution {
   resource_id: string;
   source_path: string;
   resolved_path: string | null;
   media_type: ResourceMediaType;
   status: ResourceResolutionStatus;
+  load_strategy: ResourceLoadStrategy;
+  cache_key: string;
+  cache_path: string | null;
+  thumbnail_path: string | null;
   fallback: ResourceFallback;
   expected_sha256: string | null;
   actual_sha256: string | null;
@@ -75,6 +81,7 @@ export interface ResourceResolution {
 
 export interface ResourceResolutionReport {
   root: string;
+  low_spec: boolean;
   entries: ResourceResolution[];
 }
 
@@ -94,6 +101,7 @@ export interface ResourcePreflightIssue {
 
 export interface ResourcePreflightReport {
   root: string;
+  low_spec: boolean;
   ready: boolean;
   resolution: ResourceResolutionReport;
   issues: ResourcePreflightIssue[];

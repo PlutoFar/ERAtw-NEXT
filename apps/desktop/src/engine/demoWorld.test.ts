@@ -738,16 +738,26 @@ describe("demo engine adapter", () => {
 
     const report = await client.planResources("mods/sample");
 
+    expect(report.low_spec).toBe(false);
     expect(report.entries[0]).toMatchObject({
       resource_id: "core.demo.heroine.neutral",
       source_path: "assets/demo/heroine-neutral.webp",
       resolved_path: "mods/sample/assets/demo/heroine-neutral.webp",
       media_type: "image",
       status: "planned",
+      load_strategy: "eager",
       fallback: "placeholder_image",
       expected_sha256: null,
       actual_sha256: null,
     });
+    expect(report.entries[0].cache_key).toMatch(
+      /^core\.demo\.heroine\.neutral-[a-f0-9]{16}$/,
+    );
+    expect(report.entries[0].cache_path).toContain(
+      "mods/sample/.eratw-cache/resources/core.demo.heroine.neutral-",
+    );
+    expect(report.entries[0].cache_path).toMatch(/\.webp$/);
+    expect(report.entries[0].thumbnail_path).toBeNull();
   });
 
   it("preflights browser resource loads", async () => {
@@ -762,6 +772,27 @@ describe("demo engine adapter", () => {
       status: "planned",
       fallback: "placeholder_image",
     });
+  });
+
+  it("plans browser resource loads for low spec mode", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.preflightResources("mods/sample", true);
+
+    expect(report.ready).toBe(true);
+    expect(report.low_spec).toBe(true);
+    expect(report.resolution.low_spec).toBe(true);
+    expect(report.resolution.entries[0]).toMatchObject({
+      resource_id: "core.demo.heroine.neutral",
+      load_strategy: "thumbnail_only",
+      cache_path: expect.stringContaining(
+        "mods/sample/.eratw-cache/resources/core.demo.heroine.neutral-",
+      ) as string,
+      thumbnail_path: expect.stringContaining(
+        "mods/sample/.eratw-cache/thumbnails/core.demo.heroine.neutral-",
+      ) as string,
+    });
+    expect(report.resolution.entries[0].thumbnail_path).toMatch(/\.webp$/);
   });
 
   it("discovers browser mod manifests through the engine client", async () => {

@@ -4,8 +4,9 @@ use eratw_content::{
 };
 use eratw_engine::{
     resource::{
-        inspect_resource_files, plan_resource_loads, preflight_resource_loads,
-        ResourcePreflightReport, ResourceResolutionReport,
+        inspect_resource_files_with_options, plan_resource_loads_with_options,
+        preflight_resource_loads_with_options, ResourcePlanningOptions, ResourcePreflightReport,
+        ResourceResolutionReport,
     },
     save::{
         preflight_save_against_registry, read_save, recover_save_from_latest_backup,
@@ -261,28 +262,49 @@ fn engine_preflight_content_package_install(
 #[tauri::command]
 fn engine_plan_resources(
     root: String,
+    low_spec: Option<bool>,
     state: tauri::State<'_, Mutex<WorldState>>,
 ) -> ResourceResolutionReport {
     let world = state.lock().expect("engine state lock poisoned");
-    plan_resource_loads(&world.resources, root)
+    plan_resource_loads_with_options(
+        &world.resources,
+        root,
+        ResourcePlanningOptions {
+            low_spec: low_spec.unwrap_or_default(),
+        },
+    )
 }
 
 #[tauri::command]
 fn engine_inspect_resources(
     root: String,
+    low_spec: Option<bool>,
     state: tauri::State<'_, Mutex<WorldState>>,
 ) -> ResourceResolutionReport {
     let world = state.lock().expect("engine state lock poisoned");
-    inspect_resource_files(&world.resources, root)
+    inspect_resource_files_with_options(
+        &world.resources,
+        root,
+        ResourcePlanningOptions {
+            low_spec: low_spec.unwrap_or_default(),
+        },
+    )
 }
 
 #[tauri::command]
 fn engine_preflight_resources(
     root: String,
+    low_spec: Option<bool>,
     state: tauri::State<'_, Mutex<WorldState>>,
 ) -> ResourcePreflightReport {
     let world = state.lock().expect("engine state lock poisoned");
-    preflight_resource_loads(&world.resources, root)
+    preflight_resource_loads_with_options(
+        &world.resources,
+        root,
+        ResourcePlanningOptions {
+            low_spec: low_spec.unwrap_or_default(),
+        },
+    )
 }
 
 #[tauri::command]

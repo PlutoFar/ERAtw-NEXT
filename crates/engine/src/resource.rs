@@ -8,14 +8,30 @@ use std::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourcePlanningOptions {
+    #[serde(default)]
+    pub low_spec: bool,
+}
+
+impl Default for ResourcePlanningOptions {
+    fn default() -> Self {
+        Self { low_spec: false }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceResolutionReport {
     pub root: String,
+    #[serde(default)]
+    pub low_spec: bool,
     pub entries: Vec<ResourceResolution>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourcePreflightReport {
     pub root: String,
+    #[serde(default)]
+    pub low_spec: bool,
     pub ready: bool,
     pub resolution: ResourceResolutionReport,
     pub issues: Vec<ResourcePreflightIssue>,
@@ -39,6 +55,15 @@ pub enum ResourcePreflightIssueCode {
     IoError,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceLoadStrategy {
+    #[default]
+    Eager,
+    Deferred,
+    ThumbnailOnly,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceResolution {
     pub resource_id: String,
@@ -46,6 +71,14 @@ pub struct ResourceResolution {
     pub resolved_path: Option<String>,
     pub media_type: ResourceMediaType,
     pub status: ResourceResolutionStatus,
+    #[serde(default)]
+    pub load_strategy: ResourceLoadStrategy,
+    #[serde(default)]
+    pub cache_key: String,
+    #[serde(default)]
+    pub cache_path: Option<String>,
+    #[serde(default)]
+    pub thumbnail_path: Option<String>,
     pub fallback: ResourceFallback,
     pub expected_sha256: Option<String>,
     pub actual_sha256: Option<String>,
@@ -75,21 +108,45 @@ pub fn plan_resource_loads(
     resources: &[ResourceAsset],
     root: impl AsRef<Path>,
 ) -> ResourceResolutionReport {
-    resolve_resources(resources, root, false)
+    plan_resource_loads_with_options(resources, root, ResourcePlanningOptions::default())
+}
+
+pub fn plan_resource_loads_with_options(
+    resources: &[ResourceAsset],
+    root: impl AsRef<Path>,
+    options: ResourcePlanningOptions,
+) -> ResourceResolutionReport {
+    resolve_resources(resources, root, false, options)
 }
 
 pub fn inspect_resource_files(
     resources: &[ResourceAsset],
     root: impl AsRef<Path>,
 ) -> ResourceResolutionReport {
-    resolve_resources(resources, root, true)
+    inspect_resource_files_with_options(resources, root, ResourcePlanningOptions::default())
+}
+
+pub fn inspect_resource_files_with_options(
+    resources: &[ResourceAsset],
+    root: impl AsRef<Path>,
+    options: ResourcePlanningOptions,
+) -> ResourceResolutionReport {
+    resolve_resources(resources, root, true, options)
 }
 
 pub fn preflight_resource_loads(
     resources: &[ResourceAsset],
     root: impl AsRef<Path>,
 ) -> ResourcePreflightReport {
-    let resolution = inspect_resource_files(resources, root);
+    preflight_resource_loads_with_options(resources, root, ResourcePlanningOptions::default())
+}
+
+pub fn preflight_resource_loads_with_options(
+    resources: &[ResourceAsset],
+    root: impl AsRef<Path>,
+    options: ResourcePlanningOptions,
+) -> ResourcePreflightReport {
+    let resolution = inspect_resource_files_with_options(resources, root, options);
     let issues = resolution
         .entries
         .iter()
@@ -98,6 +155,7 @@ pub fn preflight_resource_loads(
 
     ResourcePreflightReport {
         root: resolution.root.clone(),
+        low_spec: resolution.low_spec,
         ready: issues.is_empty(),
         resolution,
         issues,
@@ -116,15 +174,17 @@ fn resolve_resources(
     resources: &[ResourceAsset],
     root: impl AsRef<Path>,
     inspect_files: bool,
+    options: ResourcePlanningOptions,
 ) -> ResourceResolutionReport {
     let root = root.as_ref();
     let entries = resources
         .iter()
-        .map(|resource| resolve_resource(root, resource, inspect_files))
+        .map(|resource| resolve_resource(root, resource, inspect_files, &options))
         .collect();
 
     ResourceResolutionReport {
         root: root.to_string_lossy().to_string(),
+        low_spec: options.low_spec,
         entries,
     }
 }
@@ -133,8 +193,11 @@ fn resolve_resource(
     root: &Path,
     resource: &ResourceAsset,
     inspect_files: bool,
+    options: &ResourcePlanningOptions,
 ) -> ResourceResolution {
     let fallback = fallback_for_media_type(&resource.media_type);
+    let load_strategy = load_strategy_for_media_type(&resource.media_type, options.low_spec);
+    let cache_key = cache_key_for_resource(resource);
     let Some(path) = resolve_resource_path(root, &resource.source_path) else {
         return ResourceResolution {
             resource_id: resource.resource_id.clone(),
@@ -142,11 +205,18 @@ fn resolve_resource(
             resolved_path: None,
             media_type: resource.media_type.clone(),
             status: ResourceResolutionStatus::UnsafePath,
+            load_strategy,
+            cache_key,
+            cache_path: None,
+            thumbnail_path: None,
             fallback,
             expected_sha256: resource.sha256.clone(),
             actual_sha256: None,
         };
     };
+
+    let cache_path = Some(cache_path_for_resource(root, resource, &cache_key));
+    let thumbnail_path = thumbnail_path_for_resource(root, &cache_key, &load_strategy);
 
     if !inspect_files {
         return ResourceResolution {
@@ -155,6 +225,10 @@ fn resolve_resource(
             resolved_path: Some(path.to_string_lossy().to_string()),
             media_type: resource.media_type.clone(),
             status: ResourceResolutionStatus::Planned,
+            load_strategy,
+            cache_key,
+            cache_path,
+            thumbnail_path,
             fallback,
             expected_sha256: resource.sha256.clone(),
             actual_sha256: None,
@@ -203,6 +277,10 @@ fn resolve_resource(
         resolved_path: Some(path.to_string_lossy().to_string()),
         media_type: resource.media_type.clone(),
         status,
+        load_strategy,
+        cache_key,
+        cache_path,
+        thumbnail_path,
         fallback,
         expected_sha256: resource.sha256.clone(),
         actual_sha256,
@@ -297,6 +375,139 @@ fn fallback_for_media_type(media_type: &ResourceMediaType) -> ResourceFallback {
     }
 }
 
+fn load_strategy_for_media_type(
+    media_type: &ResourceMediaType,
+    low_spec: bool,
+) -> ResourceLoadStrategy {
+    if !low_spec {
+        return ResourceLoadStrategy::Eager;
+    }
+
+    match media_type {
+        ResourceMediaType::Image => ResourceLoadStrategy::ThumbnailOnly,
+        ResourceMediaType::Audio | ResourceMediaType::Other => ResourceLoadStrategy::Deferred,
+        ResourceMediaType::Font => ResourceLoadStrategy::Eager,
+    }
+}
+
+fn cache_key_for_resource(resource: &ResourceAsset) -> String {
+    let readable_name = sanitize_cache_name(&resource.resource_id);
+    let identity = format!(
+        "{}\n{}\n{}\n{}",
+        resource.resource_id,
+        normalize_resource_cache_source(&resource.source_path),
+        media_type_key(&resource.media_type),
+        resource.sha256.as_deref().unwrap_or_default()
+    );
+    format!("{readable_name}-{}", fnv1a64_hex(&identity))
+}
+
+fn cache_path_for_resource(root: &Path, resource: &ResourceAsset, cache_key: &str) -> String {
+    root.join(".eratw-cache")
+        .join("resources")
+        .join(format!(
+            "{cache_key}.{}",
+            cache_file_extension(resource)
+                .unwrap_or_else(|| default_cache_extension(&resource.media_type).to_string())
+        ))
+        .to_string_lossy()
+        .to_string()
+}
+
+fn thumbnail_path_for_resource(
+    root: &Path,
+    cache_key: &str,
+    load_strategy: &ResourceLoadStrategy,
+) -> Option<String> {
+    matches!(load_strategy, ResourceLoadStrategy::ThumbnailOnly).then(|| {
+        root.join(".eratw-cache")
+            .join("thumbnails")
+            .join(format!("{cache_key}.webp"))
+            .to_string_lossy()
+            .to_string()
+    })
+}
+
+fn media_type_key(media_type: &ResourceMediaType) -> &'static str {
+    match media_type {
+        ResourceMediaType::Image => "image",
+        ResourceMediaType::Audio => "audio",
+        ResourceMediaType::Font => "font",
+        ResourceMediaType::Other => "other",
+    }
+}
+
+fn cache_file_extension(resource: &ResourceAsset) -> Option<String> {
+    Path::new(&resource.source_path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .filter(|extension| {
+            !extension.is_empty()
+                && extension.len() <= 12
+                && extension
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric())
+        })
+}
+
+fn default_cache_extension(media_type: &ResourceMediaType) -> &'static str {
+    match media_type {
+        ResourceMediaType::Image => "webp",
+        ResourceMediaType::Audio => "ogg",
+        ResourceMediaType::Font => "ttf",
+        ResourceMediaType::Other => "bin",
+    }
+}
+
+fn normalize_resource_cache_source(source_path: &str) -> String {
+    source_path.replace('\\', "/")
+}
+
+fn sanitize_cache_name(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut previous_was_separator = false;
+
+    for character in value.chars() {
+        let next = if character.is_ascii_alphanumeric() {
+            previous_was_separator = false;
+            Some(character.to_ascii_lowercase())
+        } else if matches!(character, '.' | '-' | '_') {
+            if previous_was_separator {
+                None
+            } else {
+                previous_was_separator = true;
+                Some(character)
+            }
+        } else if previous_was_separator {
+            None
+        } else {
+            previous_was_separator = true;
+            Some('_')
+        };
+
+        if let Some(character) = next {
+            output.push(character);
+        }
+    }
+
+    let output = output.trim_matches(&['.', '-', '_'][..]);
+    if output.is_empty() {
+        "resource".to_string()
+    } else {
+        output.to_string()
+    }
+}
+
+fn fnv1a64_hex(input: &str) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in input.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
 fn sha256_file(path: &Path) -> io::Result<String> {
     let mut file = fs::File::open(path)?;
     let mut digest = Sha256::new();
@@ -354,7 +565,16 @@ mod tests {
         );
 
         assert_eq!(report.entries.len(), 1);
+        assert!(!report.low_spec);
         assert_eq!(report.entries[0].status, ResourceResolutionStatus::Planned);
+        assert_eq!(report.entries[0].load_strategy, ResourceLoadStrategy::Eager);
+        assert!(report.entries[0].cache_key.starts_with("portrait-"));
+        assert!(report.entries[0]
+            .cache_path
+            .as_ref()
+            .unwrap()
+            .contains(".eratw-cache"));
+        assert_eq!(report.entries[0].thumbnail_path, None);
         assert_eq!(
             report.entries[0].fallback,
             ResourceFallback::PlaceholderImage
@@ -371,6 +591,61 @@ mod tests {
                     .unwrap()
                     .ends_with("mods/sample/assets/heroine.webp")
         );
+    }
+
+    #[test]
+    fn low_spec_resource_plan_uses_thumbnails_and_deferred_loads() {
+        let report = plan_resource_loads_with_options(
+            &[
+                resource(
+                    "portrait.heroine",
+                    "assets/heroine.webp",
+                    ResourceMediaType::Image,
+                    None,
+                ),
+                resource("voice", "assets/voice.ogg", ResourceMediaType::Audio, None),
+                resource("font", "assets/ui.ttf", ResourceMediaType::Font, None),
+                resource("data", "assets/data.bin", ResourceMediaType::Other, None),
+                resource("unsafe", "../outside.webp", ResourceMediaType::Image, None),
+            ],
+            "mods/sample",
+            ResourcePlanningOptions { low_spec: true },
+        );
+
+        assert!(report.low_spec);
+        assert_eq!(
+            report
+                .entries
+                .iter()
+                .map(|entry| &entry.load_strategy)
+                .collect::<Vec<_>>(),
+            vec![
+                &ResourceLoadStrategy::ThumbnailOnly,
+                &ResourceLoadStrategy::Deferred,
+                &ResourceLoadStrategy::Eager,
+                &ResourceLoadStrategy::Deferred,
+                &ResourceLoadStrategy::ThumbnailOnly,
+            ]
+        );
+        assert!(report.entries[0]
+            .thumbnail_path
+            .as_ref()
+            .unwrap()
+            .ends_with(".webp"));
+        assert!(report.entries[0]
+            .thumbnail_path
+            .as_ref()
+            .unwrap()
+            .contains(".eratw-cache"));
+        assert_eq!(report.entries[1].thumbnail_path, None);
+        assert!(report.entries[1]
+            .cache_path
+            .as_ref()
+            .unwrap()
+            .ends_with(".ogg"));
+        assert_eq!(report.entries[4].resolved_path, None);
+        assert_eq!(report.entries[4].cache_path, None);
+        assert_eq!(report.entries[4].thumbnail_path, None);
     }
 
     #[test]

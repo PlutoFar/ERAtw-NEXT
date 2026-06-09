@@ -74,12 +74,13 @@ const createMockClient = (
         issues: [],
       };
     }),
-    planResources: vi.fn(async () => ({ root: "", entries: [] })),
-    inspectResources: vi.fn(async () => ({ root: "", entries: [] })),
+    planResources: vi.fn(async () => ({ root: "", low_spec: false, entries: [] })),
+    inspectResources: vi.fn(async () => ({ root: "", low_spec: false, entries: [] })),
     preflightResources: vi.fn(async () => ({
       root: "",
+      low_spec: false,
       ready: true,
-      resolution: { root: "", entries: [] },
+      resolution: { root: "", low_spec: false, entries: [] },
       issues: [],
     })),
     discoverMods: vi.fn(async (root) => ({
