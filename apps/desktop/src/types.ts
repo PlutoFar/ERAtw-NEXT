@@ -43,6 +43,21 @@ export interface WorldState {
   event_log: string[];
 }
 
+export interface SaveModDependency {
+  namespace: string;
+  version: string;
+  required: boolean;
+}
+
+export interface SaveEnvelope {
+  schema_version: number;
+  engine_version: string;
+  saved_at_unix_ms: number;
+  slot_id: string;
+  mod_dependencies: SaveModDependency[];
+  world: WorldState;
+}
+
 export type EngineCommand =
   | { type: "advance_time"; minutes: number }
   | { type: "move_character"; character_id: string; location_id: string }

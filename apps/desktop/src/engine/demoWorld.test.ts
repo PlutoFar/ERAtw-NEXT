@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createBrowserMockEngineClient } from "./client";
 import { applyDemoCommand, createDemoWorld } from "./demoWorld";
 
 describe("demo engine adapter", () => {
@@ -25,5 +26,15 @@ describe("demo engine adapter", () => {
 
     expect(world.active_dialogue).toHaveLength(2);
     expect(world.active_dialogue[1].text).toContain("不执行旧 ERB");
+  });
+
+  it("creates a browser save preview envelope", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const save = await client.savePreview("slot-1", 1000);
+
+    expect(save.schema_version).toBe(1);
+    expect(save.slot_id).toBe("slot-1");
+    expect(save.world.engine_version).toBe("0.1.0-m0");
   });
 });

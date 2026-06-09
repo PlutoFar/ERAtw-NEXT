@@ -12,6 +12,7 @@ M0 proves the new project can stand alone:
 - Workspace structure for engine, content, mod runtime, tools, docs, and examples
 - CI, tests, architecture notes, and content boundary notes
 - M1 legacy content audit CLI and draft asset manifest output
+- M2 save envelope foundation in the Rust engine
 
 ## Development
 
