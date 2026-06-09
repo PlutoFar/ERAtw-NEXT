@@ -206,6 +206,9 @@ pub enum ContentIssueCode {
     EmptyDialogueNodeId,
     EmptyDialogueText,
     EmptyDialogueResourceRef,
+    InvalidDialoguePlaceholder,
+    UnknownDialoguePlaceholder,
+    DialoguePlaceholderTypeMismatch,
     MissingEntryNode,
     MissingChoiceNextNode,
     EmptyConditionReference,
@@ -641,6 +644,12 @@ fn validate_dialogue_scene(scene: &DialogueScene, report: &mut ContentValidation
                 ContentIssueCode::EmptyDialogueText,
                 format!("{}:{}", scene.id, node.id),
             );
+        } else {
+            validate_dialogue_placeholders(
+                &node.text,
+                &format!("{}:{}:text", scene.id, node.id),
+                report,
+            );
         }
 
         for resource_ref in &node.resource_refs {
@@ -653,9 +662,23 @@ fn validate_dialogue_scene(scene: &DialogueScene, report: &mut ContentValidation
         }
 
         for choice in &node.choices {
+            validate_dialogue_placeholders(
+                &choice.label,
+                &format!("{}:{}:{}:label", scene.id, node.id, choice.id),
+                report,
+            );
+
             for condition in &choice.conditions {
                 validate_dialogue_condition(
                     condition,
+                    &format!("{}:{}:{}", scene.id, node.id, choice.id),
+                    report,
+                );
+            }
+
+            for effect in &choice.effects {
+                validate_dialogue_effect_placeholders(
+                    effect,
                     &format!("{}:{}:{}", scene.id, node.id, choice.id),
                     report,
                 );
@@ -692,6 +715,128 @@ fn validate_dialogue_scene(scene: &DialogueScene, report: &mut ContentValidation
             format!("{}:{}", scene.id, unreachable),
         );
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlaceholderValueType {
+    Text,
+    Number,
+}
+
+fn validate_dialogue_effect_placeholders(
+    effect: &DialogueEffect,
+    target_prefix: &str,
+    report: &mut ContentValidationReport,
+) {
+    if let DialogueEffect::AddLog { message } = effect {
+        validate_dialogue_placeholders(message, &format!("{target_prefix}:add_log"), report);
+    }
+}
+
+fn validate_dialogue_placeholders(text: &str, target: &str, report: &mut ContentValidationReport) {
+    let mut search_from = 0;
+
+    while search_from < text.len() {
+        let remainder = &text[search_from..];
+        let next_open = remainder.find("{{");
+        let next_close = remainder.find("}}");
+
+        match (next_open, next_close) {
+            (None, None) => return,
+            (None, Some(_)) => {
+                report.push(ContentIssueCode::InvalidDialoguePlaceholder, target);
+                return;
+            }
+            (Some(open), Some(close)) if close < open => {
+                report.push(ContentIssueCode::InvalidDialoguePlaceholder, target);
+                search_from += close + 2;
+            }
+            (Some(open), _) => {
+                let placeholder_start = search_from + open + 2;
+                let Some(close) = text[placeholder_start..].find("}}") else {
+                    report.push(ContentIssueCode::InvalidDialoguePlaceholder, target);
+                    return;
+                };
+                let placeholder_end = placeholder_start + close;
+                validate_dialogue_placeholder(
+                    text[placeholder_start..placeholder_end].trim(),
+                    target,
+                    report,
+                );
+                search_from = placeholder_end + 2;
+            }
+        }
+    }
+}
+
+fn validate_dialogue_placeholder(
+    placeholder: &str,
+    target: &str,
+    report: &mut ContentValidationReport,
+) {
+    if placeholder.is_empty() || placeholder.contains("{{") || placeholder.contains("}}") {
+        report.push(ContentIssueCode::InvalidDialoguePlaceholder, target);
+        return;
+    }
+
+    let mut parts = placeholder.split(':');
+    let variable_name = parts.next().unwrap_or_default().trim();
+    let declared_type = parts.next().map(str::trim);
+    if parts.next().is_some() || !is_valid_placeholder_variable_name(variable_name) {
+        report.push(ContentIssueCode::InvalidDialoguePlaceholder, target);
+        return;
+    }
+
+    let Some(actual_type) = dialogue_placeholder_type(variable_name) else {
+        report.push(ContentIssueCode::UnknownDialoguePlaceholder, target);
+        return;
+    };
+
+    if let Some(declared_type) = declared_type {
+        let Some(expected_type) = parse_placeholder_type(declared_type) else {
+            report.push(ContentIssueCode::InvalidDialoguePlaceholder, target);
+            return;
+        };
+
+        if expected_type != actual_type {
+            report.push(ContentIssueCode::DialoguePlaceholderTypeMismatch, target);
+        }
+    }
+}
+
+fn dialogue_placeholder_type(variable_name: &str) -> Option<PlaceholderValueType> {
+    match variable_name {
+        "speaker.id"
+        | "speaker.name"
+        | "speaker.location_id"
+        | "scene.id"
+        | "node.id"
+        | "player.id"
+        | "clock.season"
+        | "clock.weather" => Some(PlaceholderValueType::Text),
+        "speaker.energy" | "speaker.mood" | "clock.day" | "clock.hour" | "clock.minute" => {
+            Some(PlaceholderValueType::Number)
+        }
+        _ => None,
+    }
+}
+
+fn parse_placeholder_type(value_type: &str) -> Option<PlaceholderValueType> {
+    match value_type {
+        "text" | "string" => Some(PlaceholderValueType::Text),
+        "number" => Some(PlaceholderValueType::Number),
+        _ => None,
+    }
+}
+
+fn is_valid_placeholder_variable_name(variable_name: &str) -> bool {
+    !variable_name.is_empty()
+        && variable_name.split('.').all(|segment| {
+            let mut chars = segment.chars();
+            matches!(chars.next(), Some(first) if first.is_ascii_lowercase())
+                && chars
+                    .all(|char| char.is_ascii_lowercase() || char.is_ascii_digit() || char == '_')
+        })
 }
 
 fn validate_dialogue_condition(
@@ -1563,6 +1708,65 @@ mod tests {
             vec![
                 ContentIssueCode::EmptyConditionReference,
                 ContentIssueCode::InvalidConditionTime,
+            ]
+        );
+    }
+
+    #[test]
+    fn dialogue_validation_accepts_typed_placeholders() {
+        let mut node = node_with_choice("entry", None);
+        node.text =
+            "你好，{{ speaker.name:text }}。现在是第 {{ clock.day:number }} 日。".to_string();
+        node.choices = vec![DialogueChoice {
+            id: "ack".to_string(),
+            label: "查看 {{ clock.weather:string }}".to_string(),
+            next_node_id: None,
+            conditions: Vec::new(),
+            effects: vec![DialogueEffect::AddLog {
+                message: "{{ speaker.id }} 已确认。".to_string(),
+            }],
+        }];
+        let package = package_with("core.demo", vec![scene_with_nodes(vec![node])], Vec::new());
+
+        let report = package.validate().unwrap();
+
+        assert!(report.is_clean());
+    }
+
+    #[test]
+    fn dialogue_validation_reports_placeholder_issues() {
+        let mut node = node_with_choice("entry", None);
+        node.text = [
+            "{{ speaker.name:number }}",
+            "{{ legacy.var }}",
+            "{{ speaker.name:object }}",
+            "{{ }}",
+            "{{ clock.day }",
+        ]
+        .join("\n");
+        node.choices = vec![DialogueChoice {
+            id: "bad_label".to_string(),
+            label: "确认 {{ clock.day:text }}".to_string(),
+            next_node_id: None,
+            conditions: Vec::new(),
+            effects: vec![DialogueEffect::AddLog {
+                message: "日志 {{ unknown.value }}".to_string(),
+            }],
+        }];
+        let package = package_with("core.demo", vec![scene_with_nodes(vec![node])], Vec::new());
+
+        let report = package.validate().unwrap();
+
+        assert_eq!(
+            issue_codes(&report),
+            vec![
+                ContentIssueCode::DialoguePlaceholderTypeMismatch,
+                ContentIssueCode::UnknownDialoguePlaceholder,
+                ContentIssueCode::InvalidDialoguePlaceholder,
+                ContentIssueCode::InvalidDialoguePlaceholder,
+                ContentIssueCode::InvalidDialoguePlaceholder,
+                ContentIssueCode::DialoguePlaceholderTypeMismatch,
+                ContentIssueCode::UnknownDialoguePlaceholder,
             ]
         );
     }

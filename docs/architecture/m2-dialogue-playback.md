@@ -11,6 +11,7 @@
 - `DialogueChoice`：选择 ID、显示文本、下一节点和效果列表。
 - `DialogueCondition`：当前支持地点、角色心情、关系好感、天气和时间判断。
 - `DialogueEffect`：当前支持角色状态调整、关系调整、天气切换和日志写入。
+- Dialogue 占位符：`{{variable}}` 或 `{{variable:type}}`，当前在节点文本、选择标签和 `AddLog` 文本中做语法、白名单和类型校验。
 - `EngineCommand::ChooseDialogue`：前端只提交选择命令，状态由 engine 结算。
 - `eratw_content::ContentPackage`：封装 manifest、Location、Character、Relationship、ResourceAsset、DialogueScene 与 ScheduledEvent 列表。
 - `ContentPackage::validate`：在运行前报告角色/地点/关系结构错误、资源元数据缺失、入口缺失、死链、重复 ID、不可达节点、非法调度事件等问题。
@@ -28,11 +29,11 @@
 - ResourceAsset 的 `source_path` 只能是相对安全路径；运行时通过资源解析报告提供 planned/missing/hash_mismatch 等状态和降级 fallback。
 - 内容包新增角色必须引用已存在或同包新增的地点；关系、条件、效果和事件动作必须引用已存在或同包新增的角色/关系。
 - 内容包校验返回结构化 issue code 和 target，供 CLI、编辑器和运行前检查复用。
+- 占位符变量必须来自受控白名单；`speaker.*`、`scene.id`、`node.id`、`player.id`、`clock.*` 当前按 `text` 或 `number` 分类，显式类型不匹配会阻断内容包安装。
 - 内容包必需依赖缺失、依赖版本不匹配、正向或反向冲突声明命中时，安装失败且世界不变。
 - 内容包安装失败时返回错误，不修改输入 `WorldState`。
 - 内容包事件可启动同包新增的 DialogueScene，安装后由 engine scheduler 正常触发。
 
 ## 后续
 
-- 增加占位符和变量类型校验。
 - 为条件、资源引用覆盖和占位符增加更完整内容测试。

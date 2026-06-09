@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { applyDemoCommand, createDemoWorld } from "./demoWorld";
 import type {
   ContentPackage,
+  ContentIssue,
   ContentInstallPreflightReport,
   EngineCommand,
   ModDiscoveryReport,
@@ -265,6 +266,112 @@ const isValidResource = (resource: ContentPackage["resources"][number]) =>
 
 const isBuiltInCharacter = (characterId: string) =>
   characterId === "player" || characterId === "system";
+
+type PlaceholderValueType = "text" | "number";
+
+const dialoguePlaceholderTypes: Record<string, PlaceholderValueType> = {
+  "speaker.id": "text",
+  "speaker.name": "text",
+  "speaker.location_id": "text",
+  "scene.id": "text",
+  "node.id": "text",
+  "player.id": "text",
+  "clock.season": "text",
+  "clock.weather": "text",
+  "speaker.energy": "number",
+  "speaker.mood": "number",
+  "clock.day": "number",
+  "clock.hour": "number",
+  "clock.minute": "number",
+};
+
+const parsePlaceholderType = (valueType: string): PlaceholderValueType | null => {
+  if (valueType === "text" || valueType === "string") {
+    return "text";
+  }
+  if (valueType === "number") {
+    return "number";
+  }
+  return null;
+};
+
+const isValidPlaceholderVariableName = (variableName: string) =>
+  variableName.length > 0 &&
+  variableName.split(".").every((segment) => /^[a-z][a-z0-9_]*$/.test(segment));
+
+const validatePlaceholder = (
+  placeholder: string,
+  target: string,
+  issues: ContentIssue[],
+) => {
+  if (!placeholder || placeholder.includes("{{") || placeholder.includes("}}")) {
+    issues.push({ code: "invalid_dialogue_placeholder", target });
+    return;
+  }
+
+  const parts = placeholder.split(":");
+  if (parts.length > 2) {
+    issues.push({ code: "invalid_dialogue_placeholder", target });
+    return;
+  }
+
+  const variableName = parts[0]?.trim() ?? "";
+  const declaredType = parts[1]?.trim();
+  if (!isValidPlaceholderVariableName(variableName)) {
+    issues.push({ code: "invalid_dialogue_placeholder", target });
+    return;
+  }
+
+  const actualType = dialoguePlaceholderTypes[variableName];
+  if (!actualType) {
+    issues.push({ code: "unknown_dialogue_placeholder", target });
+    return;
+  }
+
+  if (declaredType !== undefined) {
+    const expectedType = parsePlaceholderType(declaredType);
+    if (!expectedType) {
+      issues.push({ code: "invalid_dialogue_placeholder", target });
+      return;
+    }
+    if (expectedType !== actualType) {
+      issues.push({ code: "dialogue_placeholder_type_mismatch", target });
+    }
+  }
+};
+
+const validateDialoguePlaceholders = (
+  text: string,
+  target: string,
+  issues: ContentIssue[],
+) => {
+  let searchFrom = 0;
+
+  while (searchFrom < text.length) {
+    const nextOpen = text.indexOf("{{", searchFrom);
+    const nextClose = text.indexOf("}}", searchFrom);
+
+    if (nextOpen === -1 && nextClose === -1) {
+      return;
+    }
+
+    if (nextOpen === -1 || (nextClose !== -1 && nextClose < nextOpen)) {
+      issues.push({ code: "invalid_dialogue_placeholder", target });
+      searchFrom = nextClose === -1 ? text.length : nextClose + 2;
+      continue;
+    }
+
+    const placeholderStart = nextOpen + 2;
+    const close = text.indexOf("}}", placeholderStart);
+    if (close === -1) {
+      issues.push({ code: "invalid_dialogue_placeholder", target });
+      return;
+    }
+
+    validatePlaceholder(text.slice(placeholderStart, close).trim(), target, issues);
+    searchFrom = close + 2;
+  }
+};
 
 const hasCharacter = (characterIds: Set<string>, characterId: string) =>
   isBuiltInCharacter(characterId) || characterIds.has(characterId);
@@ -910,6 +1017,44 @@ const scheduledKindRefsExist = (
   return true;
 };
 
+const validateBrowserContentPackage = (
+  packageData: ContentPackage,
+): ContentIssue[] => {
+  const issues: ContentIssue[] = [];
+
+  for (const scene of packageData.dialogue_scenes) {
+    for (const node of scene.nodes) {
+      if (node.text.trim()) {
+        validateDialoguePlaceholders(
+          node.text,
+          `${scene.id}:${node.id}:text`,
+          issues,
+        );
+      }
+
+      for (const choice of node.choices) {
+        validateDialoguePlaceholders(
+          choice.label,
+          `${scene.id}:${node.id}:${choice.id}:label`,
+          issues,
+        );
+
+        for (const effect of choice.effects) {
+          if (effect.type === "add_log") {
+            validateDialoguePlaceholders(
+              effect.message,
+              `${scene.id}:${node.id}:${choice.id}:add_log`,
+              issues,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  return issues;
+};
+
 const installPackageIntoBrowserWorld = (
   world: WorldState,
   packageData: ContentPackage,
@@ -921,6 +1066,10 @@ const installPackageIntoBrowserWorld = (
     !packageData.manifest.package_id.trim() ||
     !packageData.manifest.version.trim()
   ) {
+    return world;
+  }
+
+  if (validateBrowserContentPackage(packageData).length > 0) {
     return world;
   }
 
@@ -1141,6 +1290,16 @@ const preflightPackageIntoBrowserWorld = (
     validation: { issues: [] },
     issues: [],
   };
+
+  const validationIssues = validateBrowserContentPackage(packageData);
+  if (validationIssues.length > 0) {
+    report.validation = { issues: validationIssues };
+    report.issues.push({
+      code: "validation_failed",
+      message: `content validation failed with ${validationIssues.length} issue(s)`,
+    });
+    return report;
+  }
 
   const installed = installPackageIntoBrowserWorld(world, packageData, registry);
   if (installed !== world) {

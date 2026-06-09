@@ -971,6 +971,29 @@ describe("demo engine adapter", () => {
     expect(unchanged.resources).toHaveLength(1);
     expect(unchanged.installed_content_packages).toEqual([]);
   });
+
+  it("preflights browser content package dialogue placeholders", async () => {
+    const client = createBrowserMockEngineClient();
+    const packageData = createSampleContentPackage();
+    packageData.dialogue_scenes[0].nodes[0].text =
+      "未知变量 {{ legacy.mood }} 和类型错误 {{ clock.day:text }}。";
+
+    const preflight = await client.preflightContentPackageInstall(packageData);
+    const unchanged = await client.installContentPackage(packageData);
+
+    expect(preflight.ready).toBe(false);
+    expect(preflight.issues).toEqual([
+      {
+        code: "validation_failed",
+        message: "content validation failed with 2 issue(s)",
+      },
+    ]);
+    expect(preflight.validation?.issues.map((issue) => issue.code)).toEqual([
+      "unknown_dialogue_placeholder",
+      "dialogue_placeholder_type_mismatch",
+    ]);
+    expect(unchanged.installed_content_packages).toEqual([]);
+  });
 });
 
 const sampleBrowserMod = (namespace: string) => ({
