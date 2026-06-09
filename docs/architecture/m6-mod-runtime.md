@@ -19,7 +19,7 @@
 - `preflight_mod_install` / `preflight_mod_package_install`：在写入文件前输出安装预检报告，包含目标目录、staging 残留、安装根类型、包/manifest/engine/能力校验问题。
 - `install_mod` / `install_mod_for_engine`：执行安装计划，先复制到 `.installing-{namespace}` staging，成功后移动到正式 namespace 目录；失败时清理 staging，目标已存在时拒绝覆盖。
 - `install_mod_package` / `install_mod_package_for_engine`：先校验发布包，再安装包内 `content/` 目录，复用安装 staging 和拒绝覆盖语义。
-- `plan_mod_uninstall` / `uninstall_mod`：按 namespace 生成卸载计划，先移动正式目录到 `.uninstalling-{namespace}` staging，再删除 staging，避免半删除状态被发现器当作可加载 Mod。
+- `plan_mod_uninstall` / `uninstall_mod`：按 namespace 生成卸载计划，先移动正式目录到 `.uninstalling-{namespace}` staging，再删除 staging，避免半删除状态被发现器当作可加载 Mod；如果删除 staging 失败，会尽量把 staging 移回正式目录完成回滚。
 - `discover_mods` / `discover_mods_for_engine`：扫描 Mod 根目录的一级子目录，分别返回成功发现的 manifest 和每个失败 manifest 的结构化错误。
 - `ModRegistry` / `mod_registry_from_enablement_plan`：把当前启用计划转换为稳定 namespace/version/conflicts 快照，供存档依赖预检和内容包安装依赖/冲突检查使用。
 - `preflight_content_package_install` / `preflight_content_package_install_with_registry`：在写入世界状态前检查内容包 schema、依赖、冲突、实体重复和资源/角色/地点/事件引用问题。
@@ -47,7 +47,7 @@
 - 内容包安装预检不修改 `WorldState`，能在正式安装前报告 schema、registry 依赖/冲突和引用错误。
 - 前端内容包安装流程默认先预检再安装，并保证预检和安装使用同一个 registry 快照，避免 UI 直连旧的 world-derived 安装路径。
 - 资源预检不修改文件系统，缺失、不安全路径、hash 不匹配和 IO 错误都作为 blocking issue；报告仍包含 fallback，UI 可据此降级显示。
-- Mod 卸载执行要求目标目录存在；卸载前清理同名 uninstall staging，再通过移动到 staging 后删除完成卸载。
+- Mod 卸载执行要求目标目录存在；卸载前清理同名 uninstall staging，再通过移动到 staging 后删除完成卸载；删除 staging 失败时会尝试回滚到原 target，避免已安装 Mod 只剩 `.uninstalling-*` 残留。
 - 禁用 Mod 不进入加载顺序；如果启用 Mod 依赖被禁用的必需 Mod，启用计划返回缺失依赖错误。
 - 存档读取兼容路径仍允许存档世界自带的内容包记录通过；读档预检路径使用外部 `ModRegistry` 严格检查，能在真正载入前报告缺失或版本不匹配的必需 Mod。
 - 前端只接收 discovery DTO，不依赖 Rust 内部错误枚举，避免后续 runtime 错误模型调整直接破坏 UI。
@@ -98,4 +98,4 @@ example.minimal_character-0.1.0/
 
 ## 后续
 
-- 增加更完整的错误恢复、安装撤销、卸载回滚和资源缺失恢复 UI。
+- 增加更完整的错误恢复、安装撤销和资源缺失恢复 UI。

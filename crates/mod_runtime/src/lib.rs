@@ -1122,6 +1122,13 @@ pub fn uninstall_mod(
 pub fn execute_mod_uninstall_plan(
     plan: ModUninstallPlan,
 ) -> Result<ModUninstallReport, ModDiscoveryError> {
+    execute_mod_uninstall_plan_with_remove_dir_all(plan, |path| fs::remove_dir_all(path))
+}
+
+fn execute_mod_uninstall_plan_with_remove_dir_all(
+    plan: ModUninstallPlan,
+    mut remove_dir_all: impl FnMut(&Path) -> io::Result<()>,
+) -> Result<ModUninstallReport, ModDiscoveryError> {
     if !plan.target_root.exists() {
         return Err(ModDiscoveryError::InstallTargetMissing(
             plan.target_root.to_string_lossy().to_string(),
@@ -1134,11 +1141,31 @@ pub fn execute_mod_uninstall_plan(
     }
 
     if plan.staging_root.exists() {
-        fs::remove_dir_all(&plan.staging_root)?;
+        remove_dir_all(&plan.staging_root)?;
     }
 
     fs::rename(&plan.target_root, &plan.staging_root)?;
-    fs::remove_dir_all(&plan.staging_root)?;
+    if let Err(delete_error) = remove_dir_all(&plan.staging_root) {
+        match fs::rename(&plan.staging_root, &plan.target_root) {
+            Ok(()) => {
+                return Err(ModDiscoveryError::Io(format!(
+                    "failed to delete uninstall staging {}: {}; rolled back to {}",
+                    plan.staging_root.to_string_lossy(),
+                    delete_error,
+                    plan.target_root.to_string_lossy()
+                )));
+            }
+            Err(rollback_error) => {
+                return Err(ModDiscoveryError::Io(format!(
+                    "failed to delete uninstall staging {}: {}; rollback to {} failed: {}",
+                    plan.staging_root.to_string_lossy(),
+                    delete_error,
+                    plan.target_root.to_string_lossy(),
+                    rollback_error
+                )));
+            }
+        }
+    }
 
     Ok(ModUninstallReport {
         namespace: plan.namespace,
@@ -3037,6 +3064,35 @@ mod tests {
             report.actions[1],
             ModInstallAction::DeleteDirectory { .. }
         ));
+
+        let _ = fs::remove_dir_all(install_root);
+    }
+
+    #[test]
+    fn uninstall_mod_rolls_back_when_staging_delete_fails() {
+        let install_root = temp_mod_dir("uninstall_rollback");
+        let target_root = install_root.join("example.installable");
+        fs::create_dir_all(target_root.join("assets")).unwrap();
+        fs::write(target_root.join("assets/readme.txt"), "keep").unwrap();
+        let plan = plan_mod_uninstall(&install_root, "example.installable").unwrap();
+        let staging_root = plan.staging_root.clone();
+
+        let result = execute_mod_uninstall_plan_with_remove_dir_all(plan, |_| {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "simulated delete failure",
+            ))
+        });
+
+        assert!(
+            matches!(result, Err(ModDiscoveryError::Io(message)) if message.contains("rolled back"))
+        );
+        assert!(target_root.exists());
+        assert_eq!(
+            fs::read_to_string(target_root.join("assets/readme.txt")).unwrap(),
+            "keep"
+        );
+        assert!(!staging_root.exists());
 
         let _ = fs::remove_dir_all(install_root);
     }
