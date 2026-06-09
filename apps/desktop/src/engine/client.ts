@@ -10,6 +10,7 @@ import type {
   ModInstallPlanReport,
   ModLoadErrorReport,
   ModManifest,
+  ModCapability,
   ModUninstallPlanReport,
   ModUninstallReport,
   ResourceAsset,
@@ -25,16 +26,22 @@ export interface EngineClient {
   installContentPackage(packageData: ContentPackage): Promise<WorldState>;
   planResources(root: string): Promise<ResourceResolutionReport>;
   inspectResources(root: string): Promise<ResourceResolutionReport>;
-  discoverMods(root: string, engineVersion?: string | null): Promise<ModDiscoveryReport>;
+  discoverMods(
+    root: string,
+    engineVersion?: string | null,
+    authorizedUnsafeCapabilities?: ModCapability[],
+  ): Promise<ModDiscoveryReport>;
   planModInstall(
     sourceRoot: string,
     installRoot: string,
     engineVersion?: string | null,
+    authorizedUnsafeCapabilities?: ModCapability[],
   ): Promise<ModInstallPlanReport>;
   installMod(
     sourceRoot: string,
     installRoot: string,
     engineVersion?: string | null,
+    authorizedUnsafeCapabilities?: ModCapability[],
   ): Promise<ModInstallReport>;
   planModUninstall(
     installRoot: string,
@@ -45,6 +52,7 @@ export interface EngineClient {
     manifests: ModManifest[],
     enablement: ModEnablement[],
     engineVersion?: string | null,
+    authorizedUnsafeCapabilities?: ModCapability[],
   ): Promise<ModEnablementPlanReport>;
   savePreview(slotId: string, savedAtUnixMs: number): Promise<SaveEnvelope>;
   saveSlot(slotId: string, savedAtUnixMs: number): Promise<SaveSlotReport>;
@@ -65,25 +73,38 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<ResourceResolutionReport>("engine_plan_resources", { root }),
   inspectResources: (root) =>
     invoke<ResourceResolutionReport>("engine_inspect_resources", { root }),
-  discoverMods: (root, engineVersion = null) =>
+  discoverMods: (root, engineVersion = null, authorizedUnsafeCapabilities = []) =>
     invoke<ModDiscoveryReport>("engine_discover_mods", {
       root,
       engineVersion,
+      authorizedUnsafeCapabilities,
     }),
-  planModInstall: (sourceRoot, installRoot, engineVersion = null) =>
+  planModInstall: (
+    sourceRoot,
+    installRoot,
+    engineVersion = null,
+    authorizedUnsafeCapabilities = [],
+  ) =>
     invoke<ModInstallPlanReport>("engine_plan_mod_install", {
       request: {
         sourceRoot,
         installRoot,
         engineVersion,
+        authorizedUnsafeCapabilities,
       },
     }),
-  installMod: (sourceRoot, installRoot, engineVersion = null) =>
+  installMod: (
+    sourceRoot,
+    installRoot,
+    engineVersion = null,
+    authorizedUnsafeCapabilities = [],
+  ) =>
     invoke<ModInstallReport>("engine_install_mod", {
       request: {
         sourceRoot,
         installRoot,
         engineVersion,
+        authorizedUnsafeCapabilities,
       },
     }),
   planModUninstall: (installRoot, namespace) =>
@@ -100,12 +121,18 @@ export const createTauriEngineClient = (): EngineClient => ({
         namespace,
       },
     }),
-  planEnabledMods: (manifests, enablement, engineVersion = null) =>
+  planEnabledMods: (
+    manifests,
+    enablement,
+    engineVersion = null,
+    authorizedUnsafeCapabilities = [],
+  ) =>
     invoke<ModEnablementPlanReport>("engine_plan_enabled_mods", {
       request: {
         manifests,
         enablement,
         engineVersion,
+        authorizedUnsafeCapabilities,
       },
     }),
   savePreview: (slotId, savedAtUnixMs) =>
@@ -241,6 +268,29 @@ const sampleBrowserModManifest = (): ModManifest => ({
   capabilities: ["content"],
 });
 
+const unsafeModCapabilities = new Set<ModCapability>([
+  "local_file_access",
+  "network_access",
+  "system_command",
+]);
+
+const ensureAuthorizedCapabilities = (
+  manifest: ModManifest,
+  authorizedUnsafeCapabilities: ModCapability[],
+) => {
+  const authorized = new Set(authorizedUnsafeCapabilities);
+  const denied = manifest.capabilities.find(
+    (capability) => unsafeModCapabilities.has(capability) && !authorized.has(capability),
+  );
+  if (denied) {
+    throw {
+      path: "",
+      kind: "unsafe_capability",
+      message: `unsafe capability is not allowed by default: ${manifest.namespace} -> ${denied}`,
+    };
+  }
+};
+
 const joinModPath = (root: string, sourcePath: string) => {
   const normalizedRoot = root.replaceAll("\\", "/").replace(/\/+$/, "");
   return normalizedRoot ? `${normalizedRoot}/${sourcePath}` : sourcePath;
@@ -249,10 +299,27 @@ const joinModPath = (root: string, sourcePath: string) => {
 const discoverBrowserMods = (
   root: string,
   engineVersion: string | null | undefined,
+  authorizedUnsafeCapabilities: ModCapability[] = [],
 ): ModDiscoveryReport => {
   const manifest = sampleBrowserModManifest();
   const modRoot = joinModPath(root, "minimal-character");
   const manifestPath = joinModPath(root, "minimal-character/manifest.json");
+
+  try {
+    ensureAuthorizedCapabilities(manifest, authorizedUnsafeCapabilities);
+  } catch (error) {
+    const issue = error as ModDiscoveryReport["errors"][number];
+    return {
+      root_path: root,
+      discovered: [],
+      errors: [
+        {
+          ...issue,
+          path: manifestPath,
+        },
+      ],
+    };
+  }
 
   if (engineVersion && manifest.engine_version !== engineVersion) {
     return {
@@ -293,8 +360,10 @@ const planBrowserModInstall = (
   sourceRoot: string,
   installRoot: string,
   engineVersion: string | null | undefined,
+  authorizedUnsafeCapabilities: ModCapability[] = [],
 ): ModInstallPlanReport => {
   const manifest = sampleBrowserModManifest();
+  ensureAuthorizedCapabilities(manifest, authorizedUnsafeCapabilities);
   if (engineVersion && manifest.engine_version !== engineVersion) {
     throw {
       path: "",
@@ -346,8 +415,14 @@ const installBrowserMod = (
   sourceRoot: string,
   installRoot: string,
   engineVersion: string | null | undefined,
+  authorizedUnsafeCapabilities: ModCapability[] = [],
 ): ModInstallReport => {
-  const plan = planBrowserModInstall(sourceRoot, installRoot, engineVersion);
+  const plan = planBrowserModInstall(
+    sourceRoot,
+    installRoot,
+    engineVersion,
+    authorizedUnsafeCapabilities,
+  );
   return {
     target_root: plan.target_root,
     manifest: plan.manifest,
@@ -418,6 +493,7 @@ const planBrowserEnabledMods = (
   manifests: ModManifest[],
   enablement: ModEnablement[],
   engineVersion: string | null | undefined,
+  authorizedUnsafeCapabilities: ModCapability[] = [],
 ): ModEnablementPlanReport => {
   const requested = new Map<string, boolean>();
   for (const entry of enablement) {
@@ -456,6 +532,8 @@ const planBrowserEnabledMods = (
   );
 
   for (const manifest of enabled) {
+    ensureAuthorizedCapabilities(manifest, authorizedUnsafeCapabilities);
+
     if (engineVersion && manifest.engine_version !== engineVersion) {
       throw modLoadError(
         "incompatible_engine_version",
@@ -888,16 +966,40 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     async inspectResources(root) {
       return structuredClone(planResourcesForBrowserWorld(world, root));
     },
-    async discoverMods(root, engineVersion = null) {
-      return structuredClone(discoverBrowserMods(root, engineVersion));
-    },
-    async planModInstall(sourceRoot, installRoot, engineVersion = null) {
+    async discoverMods(root, engineVersion = null, authorizedUnsafeCapabilities = []) {
       return structuredClone(
-        planBrowserModInstall(sourceRoot, installRoot, engineVersion),
+        discoverBrowserMods(root, engineVersion, authorizedUnsafeCapabilities),
       );
     },
-    async installMod(sourceRoot, installRoot, engineVersion = null) {
-      return structuredClone(installBrowserMod(sourceRoot, installRoot, engineVersion));
+    async planModInstall(
+      sourceRoot,
+      installRoot,
+      engineVersion = null,
+      authorizedUnsafeCapabilities = [],
+    ) {
+      return structuredClone(
+        planBrowserModInstall(
+          sourceRoot,
+          installRoot,
+          engineVersion,
+          authorizedUnsafeCapabilities,
+        ),
+      );
+    },
+    async installMod(
+      sourceRoot,
+      installRoot,
+      engineVersion = null,
+      authorizedUnsafeCapabilities = [],
+    ) {
+      return structuredClone(
+        installBrowserMod(
+          sourceRoot,
+          installRoot,
+          engineVersion,
+          authorizedUnsafeCapabilities,
+        ),
+      );
     },
     async planModUninstall(installRoot, namespace) {
       return structuredClone(planBrowserModUninstall(installRoot, namespace));
@@ -905,8 +1007,20 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     async uninstallMod(installRoot, namespace) {
       return structuredClone(uninstallBrowserMod(installRoot, namespace));
     },
-    async planEnabledMods(manifests, enablement, engineVersion = null) {
-      return structuredClone(planBrowserEnabledMods(manifests, enablement, engineVersion));
+    async planEnabledMods(
+      manifests,
+      enablement,
+      engineVersion = null,
+      authorizedUnsafeCapabilities = [],
+    ) {
+      return structuredClone(
+        planBrowserEnabledMods(
+          manifests,
+          enablement,
+          engineVersion,
+          authorizedUnsafeCapabilities,
+        ),
+      );
     },
     async savePreview(slotId, savedAtUnixMs) {
       return {

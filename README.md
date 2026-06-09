@@ -25,6 +25,7 @@ M0 proves the new project can stand alone:
 - Mod install execution stages copies before moving into the final namespace directory
 - Mod uninstall planning and execution move installs through uninstall staging before deletion
 - Mod CLI scaffolds, validates, packages, checks, and installs example Mod release directories
+- Mod validation keeps unsafe capabilities denied by default, with explicit CLI/API authorization for trusted workflows
 
 ## Development
 
@@ -49,6 +50,7 @@ cargo run -p eratw_mod_cli -- validate examples/mods/minimal-character --engine-
 cargo run -p eratw_mod_cli -- pack examples/mods/minimal-character D:\tmp\eratw-mod-packages --engine-version 0.1.0-m0
 cargo run -p eratw_mod_cli -- check-package D:\tmp\eratw-mod-packages\example.minimal_character-0.1.0 --engine-version 0.1.0-m0
 cargo run -p eratw_mod_cli -- install-package D:\tmp\eratw-mod-packages\example.minimal_character-0.1.0 D:\tmp\eratw-installed-mods --engine-version 0.1.0-m0
+cargo run -p eratw_mod_cli -- validate D:\tmp\trusted-mod --allow-capability network_access
 ```
 
 ## Content Audit

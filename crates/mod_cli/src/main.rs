@@ -1,6 +1,8 @@
 use eratw_mod_runtime::{
-    check_mod_package_for_engine, install_mod_package_for_engine, package_mod_project_for_engine,
-    scaffold_mod_template, validate_mod_project_for_engine, ModDiscoveryError, ModTemplateOptions,
+    check_mod_package_for_engine_with_policy, install_mod_package_for_engine_with_policy,
+    package_mod_project_for_engine_with_policy, parse_mod_capability, scaffold_mod_template,
+    validate_mod_project_for_engine_with_policy, ModCapability, ModDiscoveryError,
+    ModSecurityPolicy, ModTemplateOptions,
 };
 use std::{env, path::PathBuf, process::ExitCode};
 
@@ -15,20 +17,24 @@ enum Command {
     Validate {
         root: PathBuf,
         engine_version: Option<String>,
+        allowed_capabilities: Vec<ModCapability>,
     },
     Pack {
         source_root: PathBuf,
         output_root: PathBuf,
         engine_version: Option<String>,
+        allowed_capabilities: Vec<ModCapability>,
     },
     CheckPackage {
         package_root: PathBuf,
         engine_version: Option<String>,
+        allowed_capabilities: Vec<ModCapability>,
     },
     InstallPackage {
         package_root: PathBuf,
         install_root: PathBuf,
         engine_version: Option<String>,
+        allowed_capabilities: Vec<ModCapability>,
     },
     Help,
 }
@@ -82,59 +88,79 @@ fn run(args: Vec<String>) -> Result<String, String> {
         Command::Validate {
             root,
             engine_version,
-        } => validate_mod_project_for_engine(&root, engine_version.as_deref())
-            .map(|report| {
-                format!(
-                    "valid mod {} {} at {}",
-                    report.manifest.namespace,
-                    report.manifest.version,
-                    report.root_path.display()
-                )
-            })
-            .map_err(format_mod_error),
+            allowed_capabilities,
+        } => validate_mod_project_for_engine_with_policy(
+            &root,
+            engine_version.as_deref(),
+            &security_policy(allowed_capabilities),
+        )
+        .map(|report| {
+            format!(
+                "valid mod {} {} at {}",
+                report.manifest.namespace,
+                report.manifest.version,
+                report.root_path.display()
+            )
+        })
+        .map_err(format_mod_error),
         Command::Pack {
             source_root,
             output_root,
             engine_version,
-        } => package_mod_project_for_engine(&source_root, &output_root, engine_version.as_deref())
-            .map(|report| {
-                format!(
-                    "packed mod {} {} to {}",
-                    report.manifest.namespace,
-                    report.manifest.version,
-                    report.package_root.display()
-                )
-            })
-            .map_err(format_mod_error),
+            allowed_capabilities,
+        } => package_mod_project_for_engine_with_policy(
+            &source_root,
+            &output_root,
+            engine_version.as_deref(),
+            &security_policy(allowed_capabilities),
+        )
+        .map(|report| {
+            format!(
+                "packed mod {} {} to {}",
+                report.manifest.namespace,
+                report.manifest.version,
+                report.package_root.display()
+            )
+        })
+        .map_err(format_mod_error),
         Command::CheckPackage {
             package_root,
             engine_version,
-        } => check_mod_package_for_engine(&package_root, engine_version.as_deref())
-            .map(|report| {
-                format!(
-                    "checked mod package {} {} at {}",
-                    report.manifest.namespace,
-                    report.manifest.version,
-                    report.package_root.display()
-                )
-            })
-            .map_err(format_mod_error),
+            allowed_capabilities,
+        } => check_mod_package_for_engine_with_policy(
+            &package_root,
+            engine_version.as_deref(),
+            &security_policy(allowed_capabilities),
+        )
+        .map(|report| {
+            format!(
+                "checked mod package {} {} at {}",
+                report.manifest.namespace,
+                report.manifest.version,
+                report.package_root.display()
+            )
+        })
+        .map_err(format_mod_error),
         Command::InstallPackage {
             package_root,
             install_root,
             engine_version,
-        } => {
-            install_mod_package_for_engine(&package_root, &install_root, engine_version.as_deref())
-                .map(|report| {
-                    format!(
-                        "installed mod package {} {} to {}",
-                        report.manifest.namespace,
-                        report.manifest.version,
-                        report.target_root.display()
-                    )
-                })
-                .map_err(format_mod_error)
-        }
+            allowed_capabilities,
+        } => install_mod_package_for_engine_with_policy(
+            &package_root,
+            &install_root,
+            engine_version.as_deref(),
+            &security_policy(allowed_capabilities),
+        )
+        .map(|report| {
+            format!(
+                "installed mod package {} {} to {}",
+                report.manifest.namespace,
+                report.manifest.version,
+                report.target_root.display()
+            )
+        })
+        .map_err(format_mod_error),
         Command::Help => Ok(usage()),
     }
 }
@@ -180,6 +206,7 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
             Ok(Command::Validate {
                 root: PathBuf::from(&positionals[0]),
                 engine_version: options.engine_version,
+                allowed_capabilities: options.allowed_capabilities,
             })
         }
         "pack" => {
@@ -197,6 +224,7 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
                 source_root: PathBuf::from(&positionals[0]),
                 output_root: PathBuf::from(&positionals[1]),
                 engine_version: options.engine_version,
+                allowed_capabilities: options.allowed_capabilities,
             })
         }
         "check-package" => {
@@ -213,6 +241,7 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
             Ok(Command::CheckPackage {
                 package_root: PathBuf::from(&positionals[0]),
                 engine_version: options.engine_version,
+                allowed_capabilities: options.allowed_capabilities,
             })
         }
         "install-package" => {
@@ -230,6 +259,7 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
                 package_root: PathBuf::from(&positionals[0]),
                 install_root: PathBuf::from(&positionals[1]),
                 engine_version: options.engine_version,
+                allowed_capabilities: options.allowed_capabilities,
             })
         }
         "-h" | "--help" | "help" => Ok(Command::Help),
@@ -243,6 +273,7 @@ struct ParsedOptions {
     name: Option<String>,
     version: Option<String>,
     engine_version: Option<String>,
+    allowed_capabilities: Vec<ModCapability>,
 }
 
 fn parse_options(args: &[String]) -> Result<(Vec<String>, ParsedOptions), String> {
@@ -279,6 +310,16 @@ fn parse_options(args: &[String]) -> Result<(Vec<String>, ParsedOptions), String
                 };
                 options.engine_version = Some(version.clone());
             }
+            "--allow-capability" => {
+                index += 1;
+                let Some(capability) = args.get(index) else {
+                    return Err("--allow-capability requires a value".to_string());
+                };
+                let Some(capability) = parse_mod_capability(capability) else {
+                    return Err(format!("unknown mod capability: {capability}"));
+                };
+                options.allowed_capabilities.push(capability);
+            }
             option if option.starts_with('-') => {
                 return Err(format!("unknown option: {option}"));
             }
@@ -299,16 +340,20 @@ fn format_mod_error(error: ModDiscoveryError) -> String {
     format!("mod command failed: {error}")
 }
 
+fn security_policy(allowed_capabilities: Vec<ModCapability>) -> ModSecurityPolicy {
+    ModSecurityPolicy::with_authorized_unsafe_capabilities(allowed_capabilities)
+}
+
 fn usage() -> String {
     [
         "ERAtw-NEXT Mod CLI",
         "",
         "Usage:",
         "  eratw-mod new <mod-root> --namespace <namespace> [--name <name>] [--version <version>] [--engine-version <version>]",
-        "  eratw-mod validate <mod-root> [--engine-version <version>]",
-        "  eratw-mod pack <mod-root> <output-root> [--engine-version <version>]",
-        "  eratw-mod check-package <package-root> [--engine-version <version>]",
-        "  eratw-mod install-package <package-root> <install-root> [--engine-version <version>]",
+        "  eratw-mod validate <mod-root> [--engine-version <version>] [--allow-capability <capability>]",
+        "  eratw-mod pack <mod-root> <output-root> [--engine-version <version>] [--allow-capability <capability>]",
+        "  eratw-mod check-package <package-root> [--engine-version <version>] [--allow-capability <capability>]",
+        "  eratw-mod install-package <package-root> <install-root> [--engine-version <version>] [--allow-capability <capability>]",
     ]
     .join("\n")
 }
@@ -375,6 +420,30 @@ mod tests {
         .unwrap();
 
         assert!(output.contains("valid mod example.cli 0.1.0"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn validate_command_requires_explicit_capability_authorization() {
+        let root = temp_dir("validate_command_policy");
+        write_manifest_with_capabilities(&root, "example.cli", &["network_access"]);
+
+        let denied = run(vec![
+            "validate".to_string(),
+            root.to_string_lossy().to_string(),
+        ])
+        .unwrap_err();
+        let allowed = run(vec![
+            "validate".to_string(),
+            root.to_string_lossy().to_string(),
+            "--allow-capability".to_string(),
+            "network_access".to_string(),
+        ])
+        .unwrap();
+
+        assert!(denied.contains("unsafe capability"));
+        assert!(allowed.contains("valid mod example.cli 0.1.0"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -469,6 +538,51 @@ mod tests {
     }
 
     #[test]
+    fn install_package_command_uses_explicit_capability_authorization() {
+        let source_root = temp_dir("install_package_command_policy_source");
+        let output_root = temp_dir("install_package_command_policy_output");
+        let install_root = temp_dir("install_package_command_policy_root");
+        write_manifest_with_capabilities(&source_root, "example.cli", &["system_command"]);
+        run(vec![
+            "pack".to_string(),
+            source_root.to_string_lossy().to_string(),
+            output_root.to_string_lossy().to_string(),
+            "--allow-capability".to_string(),
+            "system_command".to_string(),
+        ])
+        .unwrap();
+
+        let denied = run(vec![
+            "install-package".to_string(),
+            output_root
+                .join("example.cli-0.1.0")
+                .to_string_lossy()
+                .to_string(),
+            install_root.to_string_lossy().to_string(),
+        ])
+        .unwrap_err();
+        let allowed = run(vec![
+            "install-package".to_string(),
+            output_root
+                .join("example.cli-0.1.0")
+                .to_string_lossy()
+                .to_string(),
+            install_root.to_string_lossy().to_string(),
+            "--allow-capability".to_string(),
+            "system_command".to_string(),
+        ])
+        .unwrap();
+
+        assert!(denied.contains("unsafe capability"));
+        assert!(allowed.contains("installed mod package example.cli 0.1.0"));
+        assert!(install_root.join("example.cli/manifest.json").exists());
+
+        let _ = fs::remove_dir_all(install_root);
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
     fn unknown_command_returns_usage_error() {
         let error = run(vec!["wat".to_string()]).unwrap_err();
 
@@ -485,7 +599,16 @@ mod tests {
     }
 
     fn write_manifest(root: &PathBuf, namespace: &str) {
+        write_manifest_with_capabilities(root, namespace, &["content"]);
+    }
+
+    fn write_manifest_with_capabilities(root: &PathBuf, namespace: &str, capabilities: &[&str]) {
         fs::create_dir_all(root).unwrap();
+        let capabilities = capabilities
+            .iter()
+            .map(|capability| format!(r#""{capability}""#))
+            .collect::<Vec<_>>()
+            .join(", ");
         fs::write(
             root.join("manifest.json"),
             format!(
@@ -497,7 +620,7 @@ mod tests {
   "load_order": 0,
   "dependencies": [],
   "conflicts": [],
-  "capabilities": ["content"]
+  "capabilities": [{capabilities}]
 }}"#
             ),
         )

@@ -5,11 +5,12 @@ use eratw_engine::{
     EngineCommand, WorldState,
 };
 use eratw_mod_runtime::{
-    discover_mods_for_engine, install_mod_for_engine, plan_enabled_mods_for_engine,
-    plan_mod_install_for_engine, plan_mod_uninstall, uninstall_mod, DisabledMod, DiscoveredMod,
+    discover_mods_for_engine_with_policy, install_mod_for_engine_with_policy, parse_mod_capability,
+    plan_enabled_mods_for_engine_with_policy, plan_mod_install_for_engine_with_policy,
+    plan_mod_uninstall, uninstall_mod, DisabledMod, DiscoveredMod, ModCapability,
     ModDiscoveryError, ModDiscoveryIssue, ModDiscoveryReport, ModEnablement, ModEnablementPlan,
     ModInstallAction, ModInstallPlan, ModInstallReport, ModLoadError, ModManifest,
-    ModUninstallPlan, ModUninstallReport, ModValidationError,
+    ModSecurityPolicy, ModUninstallPlan, ModUninstallReport, ModValidationError,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -51,6 +52,8 @@ struct ModInstallRequest {
     install_root: String,
     #[serde(alias = "engineVersion")]
     engine_version: Option<String>,
+    #[serde(default, alias = "authorizedUnsafeCapabilities")]
+    authorized_unsafe_capabilities: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -108,6 +111,8 @@ struct ModEnablementRequest {
     enablement: Vec<ModEnablement>,
     #[serde(alias = "engineVersion")]
     engine_version: Option<String>,
+    #[serde(default, alias = "authorizedUnsafeCapabilities")]
+    authorized_unsafe_capabilities: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -177,18 +182,26 @@ fn engine_inspect_resources(
 }
 
 #[tauri::command]
-fn engine_discover_mods(root: String, engine_version: Option<String>) -> ModDiscoveryReportDto {
-    discover_mods_for_engine(root, engine_version.as_deref()).into()
+fn engine_discover_mods(
+    root: String,
+    engine_version: Option<String>,
+    authorized_unsafe_capabilities: Option<Vec<String>>,
+) -> Result<ModDiscoveryReportDto, ModDiscoveryIssueReport> {
+    let authorized_unsafe_capabilities = authorized_unsafe_capabilities.unwrap_or_default();
+    let policy = security_policy(&authorized_unsafe_capabilities)?;
+    Ok(discover_mods_for_engine_with_policy(root, engine_version.as_deref(), &policy).into())
 }
 
 #[tauri::command]
 fn engine_plan_mod_install(
     request: ModInstallRequest,
 ) -> Result<ModInstallPlanReport, ModDiscoveryIssueReport> {
-    plan_mod_install_for_engine(
+    let policy = security_policy(&request.authorized_unsafe_capabilities)?;
+    plan_mod_install_for_engine_with_policy(
         request.source_root,
         request.install_root,
         request.engine_version.as_deref(),
+        &policy,
     )
     .map(Into::into)
     .map_err(|error| ModDiscoveryIssueReport {
@@ -202,10 +215,12 @@ fn engine_plan_mod_install(
 fn engine_install_mod(
     request: ModInstallRequest,
 ) -> Result<ModInstallReportDto, ModDiscoveryIssueReport> {
-    install_mod_for_engine(
+    let policy = security_policy(&request.authorized_unsafe_capabilities)?;
+    install_mod_for_engine_with_policy(
         request.source_root,
         request.install_root,
         request.engine_version.as_deref(),
+        &policy,
     )
     .map(Into::into)
     .map_err(|error| ModDiscoveryIssueReport {
@@ -245,10 +260,12 @@ fn engine_uninstall_mod(
 fn engine_plan_enabled_mods(
     request: ModEnablementRequest,
 ) -> Result<ModEnablementPlanReport, ModLoadErrorReport> {
-    plan_enabled_mods_for_engine(
+    let policy = security_policy_for_load(&request.authorized_unsafe_capabilities)?;
+    plan_enabled_mods_for_engine_with_policy(
         request.manifests,
         request.enablement,
         request.engine_version.as_deref(),
+        &policy,
     )
     .map(Into::into)
     .map_err(Into::into)
@@ -321,6 +338,52 @@ fn sanitize_slot_id(slot_id: &str) -> Result<String, String> {
         Ok(slot_id.to_string())
     } else {
         Err("save slot id may only contain ascii letters, numbers, '-' and '_'".to_string())
+    }
+}
+
+fn security_policy(
+    authorized_unsafe_capabilities: &[String],
+) -> Result<ModSecurityPolicy, ModDiscoveryIssueReport> {
+    parse_security_policy(authorized_unsafe_capabilities)
+        .ok_or_else(|| unknown_capability_issue(authorized_unsafe_capabilities))
+}
+
+fn security_policy_for_load(
+    authorized_unsafe_capabilities: &[String],
+) -> Result<ModSecurityPolicy, ModLoadErrorReport> {
+    parse_security_policy(authorized_unsafe_capabilities).ok_or_else(|| ModLoadErrorReport {
+        kind: "unknown_capability".to_string(),
+        message: format!(
+            "unknown mod capability authorization: {}",
+            authorized_unsafe_capabilities
+                .iter()
+                .find(|capability| parse_mod_capability(capability).is_none())
+                .cloned()
+                .unwrap_or_default()
+        ),
+    })
+}
+
+fn parse_security_policy(authorized_unsafe_capabilities: &[String]) -> Option<ModSecurityPolicy> {
+    let capabilities = authorized_unsafe_capabilities
+        .iter()
+        .map(|capability| parse_mod_capability(capability))
+        .collect::<Option<Vec<ModCapability>>>()?;
+    Some(ModSecurityPolicy::with_authorized_unsafe_capabilities(
+        capabilities,
+    ))
+}
+
+fn unknown_capability_issue(authorized_unsafe_capabilities: &[String]) -> ModDiscoveryIssueReport {
+    let capability = authorized_unsafe_capabilities
+        .iter()
+        .find(|capability| parse_mod_capability(capability).is_none())
+        .cloned()
+        .unwrap_or_default();
+    ModDiscoveryIssueReport {
+        path: String::new(),
+        kind: "unknown_capability".to_string(),
+        message: format!("unknown mod capability authorization: {capability}"),
     }
 }
 
@@ -531,7 +594,9 @@ mod tests {
         let report = engine_discover_mods(
             root.to_string_lossy().to_string(),
             Some("0.1.0-m0".to_string()),
-        );
+            None,
+        )
+        .unwrap();
 
         assert_eq!(report.discovered.len(), 1);
         assert_eq!(report.errors, Vec::<ModDiscoveryIssueReport>::new());
@@ -550,7 +615,7 @@ mod tests {
         fs::create_dir_all(&mod_root).unwrap();
         fs::write(mod_root.join("manifest.json"), "{broken").unwrap();
 
-        let report = engine_discover_mods(root.to_string_lossy().to_string(), None);
+        let report = engine_discover_mods(root.to_string_lossy().to_string(), None, None).unwrap();
 
         assert_eq!(report.discovered.len(), 0);
         assert_eq!(report.errors.len(), 1);
@@ -574,6 +639,7 @@ mod tests {
             source_root: source_root.to_string_lossy().to_string(),
             install_root: install_root.to_string_lossy().to_string(),
             engine_version: Some("0.1.0-m0".to_string()),
+            authorized_unsafe_capabilities: Vec::new(),
         })
         .unwrap();
 
@@ -606,10 +672,53 @@ mod tests {
             source_root: source_root.to_string_lossy().to_string(),
             install_root: install_root.to_string_lossy().to_string(),
             engine_version: None,
+            authorized_unsafe_capabilities: Vec::new(),
         })
         .unwrap_err();
 
         assert_eq!(report.kind, "unsafe_install_namespace");
+
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn engine_plan_mod_install_uses_explicit_capability_authorization() {
+        let source_root = temp_mod_root("install_command_policy_source");
+        let install_root = temp_mod_root("install_command_policy_target");
+        let mut manifest = manifest("example.policy");
+        manifest.capabilities = vec![eratw_mod_runtime::ModCapability::NetworkAccess];
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let denied = engine_plan_mod_install(ModInstallRequest {
+            source_root: source_root.to_string_lossy().to_string(),
+            install_root: install_root.to_string_lossy().to_string(),
+            engine_version: Some("0.1.0-m0".to_string()),
+            authorized_unsafe_capabilities: Vec::new(),
+        })
+        .unwrap_err();
+        let allowed = engine_plan_mod_install(ModInstallRequest {
+            source_root: source_root.to_string_lossy().to_string(),
+            install_root: install_root.to_string_lossy().to_string(),
+            engine_version: Some("0.1.0-m0".to_string()),
+            authorized_unsafe_capabilities: vec!["network_access".to_string()],
+        })
+        .unwrap();
+        let unknown = engine_plan_mod_install(ModInstallRequest {
+            source_root: source_root.to_string_lossy().to_string(),
+            install_root: install_root.to_string_lossy().to_string(),
+            engine_version: Some("0.1.0-m0".to_string()),
+            authorized_unsafe_capabilities: vec!["unknown".to_string()],
+        })
+        .unwrap_err();
+
+        assert_eq!(denied.kind, "unsafe_capability");
+        assert_eq!(allowed.manifest.namespace, "example.policy");
+        assert_eq!(unknown.kind, "unknown_capability");
 
         let _ = fs::remove_dir_all(source_root);
     }
@@ -630,6 +739,7 @@ mod tests {
             source_root: source_root.to_string_lossy().to_string(),
             install_root: install_root.to_string_lossy().to_string(),
             engine_version: Some("0.1.0-m0".to_string()),
+            authorized_unsafe_capabilities: Vec::new(),
         })
         .unwrap();
 
@@ -702,6 +812,7 @@ mod tests {
                 enabled: false,
             }],
             engine_version: Some("0.1.0-m0".to_string()),
+            authorized_unsafe_capabilities: Vec::new(),
         })
         .unwrap();
 
@@ -734,10 +845,35 @@ mod tests {
                 enabled: false,
             }],
             engine_version: None,
+            authorized_unsafe_capabilities: Vec::new(),
         })
         .unwrap_err();
 
         assert_eq!(report.kind, "missing_dependency");
+    }
+
+    #[test]
+    fn engine_plan_enabled_mods_uses_explicit_capability_authorization() {
+        let mut manifest = manifest("example.policy");
+        manifest.capabilities = vec![eratw_mod_runtime::ModCapability::SystemCommand];
+
+        let denied = engine_plan_enabled_mods(ModEnablementRequest {
+            manifests: vec![manifest.clone()],
+            enablement: Vec::new(),
+            engine_version: Some("0.1.0-m0".to_string()),
+            authorized_unsafe_capabilities: Vec::new(),
+        })
+        .unwrap_err();
+        let allowed = engine_plan_enabled_mods(ModEnablementRequest {
+            manifests: vec![manifest],
+            enablement: Vec::new(),
+            engine_version: Some("0.1.0-m0".to_string()),
+            authorized_unsafe_capabilities: vec!["system_command".to_string()],
+        })
+        .unwrap();
+
+        assert_eq!(denied.kind, "unsafe_capability");
+        assert_eq!(allowed.enabled[0].namespace, "example.policy");
     }
 
     fn manifest(namespace: &str) -> ModManifest {

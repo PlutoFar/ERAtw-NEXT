@@ -112,6 +112,7 @@ export interface DiscoveredModReport {
 export type ModDiscoveryIssueKind =
   | "io"
   | "json"
+  | "unknown_capability"
   | "unsafe_install_namespace"
   | "unsafe_package_version"
   | "template_target_not_empty"
@@ -213,6 +214,7 @@ export interface ModEnablementPlanReport {
 }
 
 export type ModLoadErrorKind =
+  | "unknown_capability"
   | "missing_namespace"
   | "missing_name"
   | "missing_version"

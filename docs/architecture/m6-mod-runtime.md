@@ -5,11 +5,12 @@
 - `ModManifest`：声明 namespace、名称、版本、兼容 engine 版本、加载权重、依赖、冲突和能力。
 - `ModDependency`：声明依赖 namespace、可选版本约束和是否必需。
 - `ModCapability`：当前支持 `content`、`theme`、`rules_extension`，以及默认拒绝的高危能力。
+- `ModSecurityPolicy`：记录调用方显式授权的高危能力，默认空策略拒绝 `local_file_access`、`network_access` 和 `system_command`。
 - `ModEnablement`：记录玩家/工具层对某个 namespace 的启用或禁用选择。
-- `validate_manifest`：拒绝空 namespace/name/version/engine_version、重复依赖、重复冲突和默认高危能力。
-- `plan_load_order`：在启用 Mod 集合上执行依赖检查、版本检查、冲突检查、循环依赖检查，并输出稳定加载顺序。
-- `plan_enabled_mods` / `plan_enabled_mods_for_engine`：先应用启用/禁用选择，再对启用集合执行加载计划；被禁用 Mod 单独进入 disabled 列表。
-- `read_manifest_file`：读取单个 `manifest.json`，完成 JSON 解析和 manifest 安全校验。
+- `validate_manifest` / `validate_manifest_with_policy`：拒绝空 namespace/name/version/engine_version、重复依赖、重复冲突和未授权高危能力。
+- `plan_load_order` / `plan_load_order_with_policy`：在启用 Mod 集合上执行依赖检查、版本检查、冲突检查、循环依赖检查，并输出稳定加载顺序。
+- `plan_enabled_mods` / `plan_enabled_mods_for_engine_with_policy`：先应用启用/禁用选择，再对启用集合执行加载计划；被禁用 Mod 单独进入 disabled 列表。
+- `read_manifest_file` / `read_manifest_file_with_policy`：读取单个 `manifest.json`，完成 JSON 解析和 manifest 安全校验。
 - `scaffold_mod_template`：生成最小可验证 Mod 项目，包含 `manifest.json`、`README.md` 和 `content/character.json`。
 - `validate_mod_project` / `validate_mod_project_for_engine`：以 Mod 项目根目录为输入，校验 `manifest.json`、engine 版本和可安装 namespace，输出作者工具可展示的验证报告。
 - `package_mod_project` / `package_mod_project_for_engine`：把验证通过的 Mod 项目复制到发布包目录，输出 `eratw-mod-package.json` 包清单和 `content/` 内容根目录。
@@ -19,13 +20,13 @@
 - `install_mod_package` / `install_mod_package_for_engine`：先校验发布包，再安装包内 `content/` 目录，复用安装 staging 和拒绝覆盖语义。
 - `plan_mod_uninstall` / `uninstall_mod`：按 namespace 生成卸载计划，先移动正式目录到 `.uninstalling-{namespace}` staging，再删除 staging，避免半删除状态被发现器当作可加载 Mod。
 - `discover_mods` / `discover_mods_for_engine`：扫描 Mod 根目录的一级子目录，分别返回成功发现的 manifest 和每个失败 manifest 的结构化错误。
-- `eratw-mod` CLI：提供作者侧 `new`、`validate`、`pack`、`check-package` 和 `install-package` 命令，作为 Mod SDK 的最小模板/验证/打包/发布检查/安装入口。
-- Tauri `engine_discover_mods` / `engine_plan_mod_install` / `engine_install_mod` / `engine_plan_mod_uninstall` / `engine_uninstall_mod` / `engine_plan_enabled_mods`：桌面层把发现报告、安装/卸载计划、安装/卸载结果和启用计划转换成前端稳定 DTO，包含可展示的错误类型和消息。
+- `eratw-mod` CLI：提供作者侧 `new`、`validate`、`pack`、`check-package` 和 `install-package` 命令，作为 Mod SDK 的最小模板/验证/打包/发布检查/安装入口；`--allow-capability <capability>` 用于显式授权受信 Mod 的高危能力。
+- Tauri `engine_discover_mods` / `engine_plan_mod_install` / `engine_install_mod` / `engine_plan_mod_uninstall` / `engine_uninstall_mod` / `engine_plan_enabled_mods`：桌面层把发现报告、安装/卸载计划、安装/卸载结果和启用计划转换成前端稳定 DTO，包含可展示的错误类型和消息；安装/启用请求可带 `authorizedUnsafeCapabilities`，未知授权返回 `unknown_capability`。
 - 运行时内容包安装成功后会写入 `WorldState.installed_content_packages`，包含 package_id、version、dependencies 和 conflicts；存档外壳据此生成 `mod_dependencies`，为后续 Mod registry 接管启停检查预留稳定入口。
 
 ## 安全默认值
 
-- 默认拒绝 `local_file_access`、`network_access` 和 `system_command`。
+- 默认拒绝 `local_file_access`、`network_access` 和 `system_command`；只有调用方通过 `ModSecurityPolicy`、CLI `--allow-capability` 或桌面 API `authorizedUnsafeCapabilities` 显式授权时才放行。
 - 缺失必需依赖时不加载；缺失可选依赖时允许继续。
 - 依赖版本不匹配、声明冲突或循环依赖都会返回结构化错误。
 - 加载顺序先保证依赖在被依赖者之前，再在当前可加载集合内按 `load_order` 和 namespace 排序。
@@ -71,6 +72,7 @@ cargo run -p eratw_mod_cli -- validate examples/mods/minimal-character --engine-
 cargo run -p eratw_mod_cli -- pack examples/mods/minimal-character D:\tmp\eratw-mod-packages --engine-version 0.1.0-m0
 cargo run -p eratw_mod_cli -- check-package D:\tmp\eratw-mod-packages\example.minimal_character-0.1.0 --engine-version 0.1.0-m0
 cargo run -p eratw_mod_cli -- install-package D:\tmp\eratw-mod-packages\example.minimal_character-0.1.0 D:\tmp\eratw-installed-mods --engine-version 0.1.0-m0
+cargo run -p eratw_mod_cli -- validate D:\tmp\trusted-mod --allow-capability network_access
 ```
 
 `pack` 输出目录结构：

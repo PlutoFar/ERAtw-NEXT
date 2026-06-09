@@ -736,6 +736,31 @@ describe("demo engine adapter", () => {
     });
   });
 
+  it("requires explicit browser mod capability authorization", async () => {
+    const client = createBrowserMockEngineClient();
+    const unsafeMod = {
+      ...sampleBrowserMod("example.unsafe"),
+      capabilities: ["network_access" as const],
+    };
+
+    await expect(
+      client.planEnabledMods([unsafeMod], [], "0.1.0-m0"),
+    ).rejects.toMatchObject({
+      kind: "unsafe_capability",
+    });
+
+    const plan = await client.planEnabledMods(
+      [unsafeMod],
+      [],
+      "0.1.0-m0",
+      ["network_access"],
+    );
+
+    expect(plan.enabled.map((manifest) => manifest.namespace)).toEqual([
+      "example.unsafe",
+    ]);
+  });
+
   it("rejects browser content packages with unsafe resource paths", async () => {
     const client = createBrowserMockEngineClient();
     const packageData = createSampleContentPackage();

@@ -68,7 +68,7 @@ impl From<ModDependencyWire> for ModDependency {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModCapability {
     Content,
@@ -220,6 +220,31 @@ pub struct ModTemplateReport {
     pub manifest: ModManifest,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModSecurityPolicy {
+    pub authorized_unsafe_capabilities: Vec<ModCapability>,
+}
+
+impl ModSecurityPolicy {
+    pub fn deny_unsafe_capabilities() -> Self {
+        Self::default()
+    }
+
+    pub fn with_authorized_unsafe_capabilities(mut capabilities: Vec<ModCapability>) -> Self {
+        capabilities.sort();
+        capabilities.dedup();
+        Self {
+            authorized_unsafe_capabilities: capabilities,
+        }
+    }
+
+    fn authorizes_unsafe_capability(&self, capability: &ModCapability) -> bool {
+        self.authorized_unsafe_capabilities
+            .iter()
+            .any(|authorized| authorized == capability)
+    }
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ModValidationError {
     #[error("namespace is required")]
@@ -332,6 +357,13 @@ impl From<serde_json::Error> for ModDiscoveryError {
 }
 
 pub fn validate_manifest(manifest: &ModManifest) -> Result<(), ModValidationError> {
+    validate_manifest_with_policy(manifest, &ModSecurityPolicy::default())
+}
+
+pub fn validate_manifest_with_policy(
+    manifest: &ModManifest,
+    policy: &ModSecurityPolicy,
+) -> Result<(), ModValidationError> {
     if manifest.namespace.trim().is_empty() {
         return Err(ModValidationError::MissingNamespace);
     }
@@ -380,7 +412,7 @@ pub fn validate_manifest(manifest: &ModManifest) -> Result<(), ModValidationErro
     }
 
     for capability in &manifest.capabilities {
-        if is_unsafe_capability(capability) {
+        if is_unsafe_capability(capability) && !policy.authorizes_unsafe_capability(capability) {
             return Err(ModValidationError::UnsafeCapability {
                 manifest_namespace: manifest.namespace.clone(),
                 capability: capability_label(capability).to_string(),
@@ -395,7 +427,19 @@ pub fn validate_manifest_for_engine(
     manifest: &ModManifest,
     engine_version: &str,
 ) -> Result<(), ModValidationError> {
-    validate_manifest(manifest)?;
+    validate_manifest_for_engine_with_policy(
+        manifest,
+        engine_version,
+        &ModSecurityPolicy::default(),
+    )
+}
+
+pub fn validate_manifest_for_engine_with_policy(
+    manifest: &ModManifest,
+    engine_version: &str,
+    policy: &ModSecurityPolicy,
+) -> Result<(), ModValidationError> {
+    validate_manifest_with_policy(manifest, policy)?;
 
     if manifest.engine_version != engine_version {
         return Err(ModValidationError::IncompatibleEngineVersion {
@@ -409,10 +453,29 @@ pub fn validate_manifest_for_engine(
 }
 
 pub fn read_manifest_file(path: impl AsRef<Path>) -> Result<ModManifest, ModDiscoveryError> {
+    read_manifest_file_with_policy(path, &ModSecurityPolicy::default())
+}
+
+pub fn read_manifest_file_with_policy(
+    path: impl AsRef<Path>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModManifest, ModDiscoveryError> {
     let encoded = fs::read_to_string(path)?;
     let manifest: ModManifest = serde_json::from_str(&encoded)?;
-    validate_manifest(&manifest)?;
+    validate_manifest_with_policy(&manifest, policy)?;
     Ok(manifest)
+}
+
+pub fn parse_mod_capability(value: &str) -> Option<ModCapability> {
+    match value.trim() {
+        "content" => Some(ModCapability::Content),
+        "theme" => Some(ModCapability::Theme),
+        "rules_extension" => Some(ModCapability::RulesExtension),
+        "local_file_access" => Some(ModCapability::LocalFileAccess),
+        "network_access" => Some(ModCapability::NetworkAccess),
+        "system_command" => Some(ModCapability::SystemCommand),
+        _ => None,
+    }
 }
 
 pub fn validate_mod_project(
@@ -425,6 +488,21 @@ pub fn validate_mod_project_for_engine(
     root: impl AsRef<Path>,
     engine_version: Option<&str>,
 ) -> Result<ModProjectValidationReport, ModDiscoveryError> {
+    validate_mod_project_for_engine_with_policy(root, engine_version, &ModSecurityPolicy::default())
+}
+
+pub fn validate_mod_project_with_policy(
+    root: impl AsRef<Path>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModProjectValidationReport, ModDiscoveryError> {
+    validate_mod_project_for_engine_with_policy(root, None, policy)
+}
+
+pub fn validate_mod_project_for_engine_with_policy(
+    root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModProjectValidationReport, ModDiscoveryError> {
     let root = root.as_ref();
     if is_mod_staging_directory(root) {
         return Err(ModDiscoveryError::UnsafeInstallNamespace(
@@ -436,9 +514,9 @@ pub fn validate_mod_project_for_engine(
     }
 
     let manifest_path = root.join("manifest.json");
-    let manifest = read_manifest_file(&manifest_path)?;
+    let manifest = read_manifest_file_with_policy(&manifest_path, policy)?;
     if let Some(engine_version) = engine_version {
-        validate_manifest_for_engine(&manifest, engine_version)?;
+        validate_manifest_for_engine_with_policy(&manifest, engine_version, policy)?;
     }
     safe_install_namespace(&manifest.namespace)?;
 
@@ -461,7 +539,30 @@ pub fn package_mod_project_for_engine(
     output_root: impl AsRef<Path>,
     engine_version: Option<&str>,
 ) -> Result<ModPackageReport, ModDiscoveryError> {
-    let validation = validate_mod_project_for_engine(&source_root, engine_version)?;
+    package_mod_project_for_engine_with_policy(
+        source_root,
+        output_root,
+        engine_version,
+        &ModSecurityPolicy::default(),
+    )
+}
+
+pub fn package_mod_project_with_policy(
+    source_root: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModPackageReport, ModDiscoveryError> {
+    package_mod_project_for_engine_with_policy(source_root, output_root, None, policy)
+}
+
+pub fn package_mod_project_for_engine_with_policy(
+    source_root: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModPackageReport, ModDiscoveryError> {
+    let validation =
+        validate_mod_project_for_engine_with_policy(&source_root, engine_version, policy)?;
     let source_root = validation.root_path;
     let output_root = output_root.as_ref();
     let package_version = safe_package_component(&validation.manifest.version)?;
@@ -585,6 +686,25 @@ pub fn check_mod_package_for_engine(
     package_root: impl AsRef<Path>,
     engine_version: Option<&str>,
 ) -> Result<ModPackageCheckReport, ModDiscoveryError> {
+    check_mod_package_for_engine_with_policy(
+        package_root,
+        engine_version,
+        &ModSecurityPolicy::default(),
+    )
+}
+
+pub fn check_mod_package_with_policy(
+    package_root: impl AsRef<Path>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModPackageCheckReport, ModDiscoveryError> {
+    check_mod_package_for_engine_with_policy(package_root, None, policy)
+}
+
+pub fn check_mod_package_for_engine_with_policy(
+    package_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModPackageCheckReport, ModDiscoveryError> {
     let package_root = package_root.as_ref();
     let package_manifest_path = package_root.join("eratw-mod-package.json");
     let encoded = fs::read_to_string(&package_manifest_path)?;
@@ -601,9 +721,9 @@ pub fn check_mod_package_for_engine(
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| package_root.to_path_buf());
-    let manifest = read_manifest_file(&content_manifest_path)?;
+    let manifest = read_manifest_file_with_policy(&content_manifest_path, policy)?;
     if let Some(engine_version) = engine_version {
-        validate_manifest_for_engine(&manifest, engine_version)?;
+        validate_manifest_for_engine_with_policy(&manifest, engine_version, policy)?;
     }
     safe_install_namespace(&manifest.namespace)?;
 
@@ -640,12 +760,34 @@ pub fn plan_mod_install_for_engine(
     install_root: impl AsRef<Path>,
     engine_version: Option<&str>,
 ) -> Result<ModInstallPlan, ModDiscoveryError> {
+    plan_mod_install_for_engine_with_policy(
+        source_root,
+        install_root,
+        engine_version,
+        &ModSecurityPolicy::default(),
+    )
+}
+
+pub fn plan_mod_install_with_policy(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModInstallPlan, ModDiscoveryError> {
+    plan_mod_install_for_engine_with_policy(source_root, install_root, None, policy)
+}
+
+pub fn plan_mod_install_for_engine_with_policy(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModInstallPlan, ModDiscoveryError> {
     let source_root = source_root.as_ref();
     let install_root = install_root.as_ref();
     let manifest_path = source_root.join("manifest.json");
-    let manifest = read_manifest_file(&manifest_path).and_then(|manifest| {
+    let manifest = read_manifest_file_with_policy(&manifest_path, policy).and_then(|manifest| {
         if let Some(engine_version) = engine_version {
-            validate_manifest_for_engine(&manifest, engine_version)?;
+            validate_manifest_for_engine_with_policy(&manifest, engine_version, policy)?;
         }
         Ok(manifest)
     })?;
@@ -688,7 +830,30 @@ pub fn install_mod_for_engine(
     install_root: impl AsRef<Path>,
     engine_version: Option<&str>,
 ) -> Result<ModInstallReport, ModDiscoveryError> {
-    let plan = plan_mod_install_for_engine(source_root, install_root, engine_version)?;
+    install_mod_for_engine_with_policy(
+        source_root,
+        install_root,
+        engine_version,
+        &ModSecurityPolicy::default(),
+    )
+}
+
+pub fn install_mod_with_policy(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModInstallReport, ModDiscoveryError> {
+    install_mod_for_engine_with_policy(source_root, install_root, None, policy)
+}
+
+pub fn install_mod_for_engine_with_policy(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModInstallReport, ModDiscoveryError> {
+    let plan =
+        plan_mod_install_for_engine_with_policy(source_root, install_root, engine_version, policy)?;
     execute_mod_install_plan(plan)
 }
 
@@ -704,8 +869,35 @@ pub fn install_mod_package_for_engine(
     install_root: impl AsRef<Path>,
     engine_version: Option<&str>,
 ) -> Result<ModInstallReport, ModDiscoveryError> {
-    let package = check_mod_package_for_engine(package_root, engine_version)?;
-    let plan = plan_mod_install_for_engine(package.content_root, install_root, engine_version)?;
+    install_mod_package_for_engine_with_policy(
+        package_root,
+        install_root,
+        engine_version,
+        &ModSecurityPolicy::default(),
+    )
+}
+
+pub fn install_mod_package_with_policy(
+    package_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModInstallReport, ModDiscoveryError> {
+    install_mod_package_for_engine_with_policy(package_root, install_root, None, policy)
+}
+
+pub fn install_mod_package_for_engine_with_policy(
+    package_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModInstallReport, ModDiscoveryError> {
+    let package = check_mod_package_for_engine_with_policy(package_root, engine_version, policy)?;
+    let plan = plan_mod_install_for_engine_with_policy(
+        package.content_root,
+        install_root,
+        engine_version,
+        policy,
+    )?;
     execute_mod_install_plan(plan)
 }
 
@@ -809,6 +1001,21 @@ pub fn discover_mods_for_engine(
     root: impl AsRef<Path>,
     engine_version: Option<&str>,
 ) -> ModDiscoveryReport {
+    discover_mods_for_engine_with_policy(root, engine_version, &ModSecurityPolicy::default())
+}
+
+pub fn discover_mods_with_policy(
+    root: impl AsRef<Path>,
+    policy: &ModSecurityPolicy,
+) -> ModDiscoveryReport {
+    discover_mods_for_engine_with_policy(root, None, policy)
+}
+
+pub fn discover_mods_for_engine_with_policy(
+    root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> ModDiscoveryReport {
     let root = root.as_ref();
     let mut report = ModDiscoveryReport {
         root_path: root.to_path_buf(),
@@ -844,9 +1051,9 @@ pub fn discover_mods_for_engine(
         }
 
         let manifest_path = mod_root.join("manifest.json");
-        match read_manifest_file(&manifest_path).and_then(|manifest| {
+        match read_manifest_file_with_policy(&manifest_path, policy).and_then(|manifest| {
             if let Some(engine_version) = engine_version {
-                validate_manifest_for_engine(&manifest, engine_version)?;
+                validate_manifest_for_engine_with_policy(&manifest, engine_version, policy)?;
             }
             Ok(manifest)
         }) {
@@ -882,12 +1089,27 @@ pub fn plan_load_order_for_engine(
     manifests: Vec<ModManifest>,
     engine_version: Option<&str>,
 ) -> Result<ModLoadPlan, ModLoadError> {
+    plan_load_order_for_engine_with_policy(manifests, engine_version, &ModSecurityPolicy::default())
+}
+
+pub fn plan_load_order_with_policy(
+    manifests: Vec<ModManifest>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModLoadPlan, ModLoadError> {
+    plan_load_order_for_engine_with_policy(manifests, None, policy)
+}
+
+pub fn plan_load_order_for_engine_with_policy(
+    manifests: Vec<ModManifest>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModLoadPlan, ModLoadError> {
     let mut by_namespace = BTreeMap::new();
     for manifest in manifests {
         if let Some(engine_version) = engine_version {
-            validate_manifest_for_engine(&manifest, engine_version)?;
+            validate_manifest_for_engine_with_policy(&manifest, engine_version, policy)?;
         } else {
-            validate_manifest(&manifest)?;
+            validate_manifest_with_policy(&manifest, policy)?;
         }
         if by_namespace.contains_key(&manifest.namespace) {
             return Err(ModLoadError::DuplicateNamespace(manifest.namespace.clone()));
@@ -957,6 +1179,28 @@ pub fn plan_enabled_mods_for_engine(
     enablement: Vec<ModEnablement>,
     engine_version: Option<&str>,
 ) -> Result<ModEnablementPlan, ModLoadError> {
+    plan_enabled_mods_for_engine_with_policy(
+        manifests,
+        enablement,
+        engine_version,
+        &ModSecurityPolicy::default(),
+    )
+}
+
+pub fn plan_enabled_mods_with_policy(
+    manifests: Vec<ModManifest>,
+    enablement: Vec<ModEnablement>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModEnablementPlan, ModLoadError> {
+    plan_enabled_mods_for_engine_with_policy(manifests, enablement, None, policy)
+}
+
+pub fn plan_enabled_mods_for_engine_with_policy(
+    manifests: Vec<ModManifest>,
+    enablement: Vec<ModEnablement>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> Result<ModEnablementPlan, ModLoadError> {
     let requested = requested_enablement(enablement)?;
     let manifest_namespaces = manifest_namespaces(&manifests)?;
     for namespace in requested.keys() {
@@ -978,7 +1222,7 @@ pub fn plan_enabled_mods_for_engine(
         }
     }
 
-    let enabled = plan_load_order_for_engine(enabled, engine_version)?;
+    let enabled = plan_load_order_for_engine_with_policy(enabled, engine_version, policy)?;
     disabled.sort_by(|left, right| {
         left.manifest
             .namespace
@@ -1296,6 +1540,24 @@ mod tests {
     }
 
     #[test]
+    fn unsafe_capabilities_can_be_authorized_explicitly() {
+        let mut manifest = manifest("example.unsafe");
+        manifest.capabilities = vec![ModCapability::NetworkAccess, ModCapability::SystemCommand];
+        let policy = ModSecurityPolicy::with_authorized_unsafe_capabilities(vec![
+            ModCapability::NetworkAccess,
+            ModCapability::SystemCommand,
+        ]);
+
+        validate_manifest_with_policy(&manifest, &policy).unwrap();
+        validate_manifest_for_engine_with_policy(&manifest, "0.1.0-m0", &policy).unwrap();
+        assert_eq!(
+            parse_mod_capability("network_access"),
+            Some(ModCapability::NetworkAccess)
+        );
+        assert_eq!(parse_mod_capability("nope"), None);
+    }
+
+    #[test]
     fn duplicate_dependencies_are_rejected() {
         let mut manifest = manifest("example.duplicate");
         manifest.dependencies = vec![
@@ -1549,6 +1811,32 @@ mod tests {
     }
 
     #[test]
+    fn enablement_plan_uses_explicit_capability_authorization() {
+        let mut manifest = manifest("example.unsafe");
+        manifest.capabilities = vec![ModCapability::LocalFileAccess];
+        let policy = ModSecurityPolicy::with_authorized_unsafe_capabilities(vec![
+            ModCapability::LocalFileAccess,
+        ]);
+
+        let denied = plan_enabled_mods(vec![manifest.clone()], Vec::new());
+        let allowed = plan_enabled_mods_for_engine_with_policy(
+            vec![manifest],
+            Vec::new(),
+            Some("0.1.0-m0"),
+            &policy,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            denied,
+            Err(ModLoadError::Validation(
+                ModValidationError::UnsafeCapability { .. }
+            ))
+        ));
+        assert_eq!(namespaces(&allowed.enabled), vec!["example.unsafe"]);
+    }
+
+    #[test]
     fn validate_mod_project_reads_manifest_and_engine_version() {
         let source_root = temp_mod_dir("project_validate");
         fs::create_dir_all(&source_root).unwrap();
@@ -1565,6 +1853,37 @@ mod tests {
         assert_eq!(report.manifest.namespace, "example.project");
 
         let _ = fs::remove_dir_all(report.root_path);
+    }
+
+    #[test]
+    fn validate_mod_project_uses_explicit_capability_authorization() {
+        let source_root = temp_mod_dir("project_validate_policy");
+        fs::create_dir_all(&source_root).unwrap();
+        let mut manifest = manifest("example.policy");
+        manifest.capabilities = vec![ModCapability::NetworkAccess];
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let policy = ModSecurityPolicy::with_authorized_unsafe_capabilities(vec![
+            ModCapability::NetworkAccess,
+        ]);
+
+        let denied = validate_mod_project(&source_root);
+        let allowed =
+            validate_mod_project_for_engine_with_policy(&source_root, Some("0.1.0-m0"), &policy)
+                .unwrap();
+
+        assert!(matches!(
+            denied,
+            Err(ModDiscoveryError::Validation(
+                ModValidationError::UnsafeCapability { .. }
+            ))
+        ));
+        assert_eq!(allowed.manifest.namespace, "example.policy");
+
+        let _ = fs::remove_dir_all(source_root);
     }
 
     #[test]
@@ -2162,6 +2481,53 @@ mod tests {
         assert!(!install_root.exists());
 
         let _ = fs::remove_dir_all(package_root);
+    }
+
+    #[test]
+    fn install_mod_package_uses_explicit_capability_authorization() {
+        let source_root = temp_mod_dir("install_package_policy_source");
+        let package_output_root = temp_mod_dir("install_package_policy_output");
+        let install_root = temp_mod_dir("install_package_policy_root");
+        fs::create_dir_all(&source_root).unwrap();
+        let mut manifest = manifest("example.policy");
+        manifest.capabilities = vec![ModCapability::SystemCommand];
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let policy = ModSecurityPolicy::with_authorized_unsafe_capabilities(vec![
+            ModCapability::SystemCommand,
+        ]);
+        let package = package_mod_project_for_engine_with_policy(
+            &source_root,
+            &package_output_root,
+            Some("0.1.0-m0"),
+            &policy,
+        )
+        .unwrap();
+
+        let denied = install_mod_package(&package.package_root, &install_root);
+        let allowed = install_mod_package_for_engine_with_policy(
+            &package.package_root,
+            &install_root,
+            Some("0.1.0-m0"),
+            &policy,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            denied,
+            Err(ModDiscoveryError::Validation(
+                ModValidationError::UnsafeCapability { .. }
+            ))
+        ));
+        assert_eq!(allowed.manifest.namespace, "example.policy");
+        assert!(install_root.join("example.policy/manifest.json").exists());
+
+        let _ = fs::remove_dir_all(install_root);
+        let _ = fs::remove_dir_all(package_output_root);
+        let _ = fs::remove_dir_all(source_root);
     }
 
     #[test]
