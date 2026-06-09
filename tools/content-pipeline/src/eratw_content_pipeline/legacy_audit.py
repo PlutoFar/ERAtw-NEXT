@@ -12,11 +12,15 @@ from typing import Iterable
 
 
 ERB_SUFFIXES = {".erb"}
+ERH_SUFFIXES = {".erh", ".erd"}
 CSV_SUFFIXES = {".csv"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
-AUDIO_SUFFIXES = {".ogg", ".mp3", ".wav", ".flac", ".m4a"}
+AUDIO_SUFFIXES = {".ogg", ".mp3", ".wav", ".flac", ".m4a", ".mid", ".midi"}
 FONT_SUFFIXES = {".ttf", ".otf", ".ttc", ".woff", ".woff2"}
-TEXT_SUFFIXES = {".txt", ".md", ".json", ".cfg", ".config", ".dat", ".log"}
+TEXT_SUFFIXES = {".txt", ".md", ".json", ".cfg", ".config", ".dat", ".log", ".xml", ".khp"}
+ARCHIVE_SUFFIXES = {".zip", ".7z", ".rar"}
+DOCUMENT_SUFFIXES = {".docx", ".pdf", ".xls", ".xlsx"}
+TOOL_SCRIPT_SUFFIXES = {".py", ".bat", ".ps1"}
 
 LEGACY_RUNTIME_SUFFIXES = {".exe", ".dll", ".sav"}
 
@@ -151,7 +155,7 @@ def audit_legacy_source(options: AuditOptions) -> LegacyAuditReport:
         )
         setattr(record, "_source_path", str(path))
 
-        if category in {"erb", "csv", "text"}:
+        if category in {"erb", "legacy_header", "csv", "text"}:
             inspect_text_file(path, record, options.sample_text_bytes)
             referenced_resources.update(record.resource_refs)
             issues.extend(text_issues(record))
@@ -455,6 +459,8 @@ def categorize_file(path: Path) -> str:
 
     if suffix in ERB_SUFFIXES:
         return "erb"
+    if suffix in ERH_SUFFIXES:
+        return "legacy_header"
     if suffix in CSV_SUFFIXES:
         return "csv"
     if suffix in IMAGE_SUFFIXES:
@@ -465,6 +471,12 @@ def categorize_file(path: Path) -> str:
         return "font"
     if suffix in LEGACY_RUNTIME_SUFFIXES or "sav" in parts:
         return "legacy_runtime"
+    if suffix in ARCHIVE_SUFFIXES:
+        return "archive"
+    if suffix in DOCUMENT_SUFFIXES:
+        return "document"
+    if suffix in TOOL_SCRIPT_SUFFIXES:
+        return "tool_script"
     if suffix in TEXT_SUFFIXES:
         return "text"
     return "other"

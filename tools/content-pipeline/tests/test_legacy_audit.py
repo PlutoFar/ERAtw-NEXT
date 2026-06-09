@@ -15,6 +15,7 @@ def write_bytes(path: Path, data: bytes) -> None:
 def test_audit_legacy_source_classifies_files(tmp_path: Path) -> None:
     source = tmp_path / "legacy"
     write_bytes(source / "ERB" / "demo.ERB", "@EVENT\nPRINTFORML 你好 image.webp\n".encode("utf-8"))
+    write_bytes(source / "ERB" / "DIM.ERH", "#DIM WORLD_STATE\n".encode("utf-8"))
     write_bytes(source / "CSV" / "Chara" / "Chara1 霊夢.csv", "番号,1,\n名前,博麗 霊夢,\n呼び名,霊夢,\n".encode("utf-8"))
     write_bytes(source / "CSV" / "Train.csv", "id,name\n1,示例\n".encode("utf-8"))
     write_bytes(source / "ERB" / "キャラデータ" / "Chara_data_1_霊夢.ERB", "@DATA\n".encode("utf-8"))
@@ -24,14 +25,22 @@ def test_audit_legacy_source_classifies_files(tmp_path: Path) -> None:
     )
     write_bytes(source / "resources" / "image.webp", b"fake-webp")
     write_bytes(source / "sound" / "theme.mp3", b"fake-mp3")
+    write_bytes(source / "sound" / "theme.mid", b"fake-midi")
+    write_bytes(source / "docs" / "guide.pdf", b"fake-pdf")
+    write_bytes(source / "patches" / "old.zip", b"fake-zip")
+    write_bytes(source / "mkResourceXml.py", b"print('tool')\n")
     write_bytes(source / "sav" / "old.sav", b"legacy-save")
 
     report = audit_legacy_source(AuditOptions(source=source, out=tmp_path / "out"))
 
     assert report.summary["erb"] == 3
     assert report.summary["csv"] == 2
+    assert report.summary["legacy_header"] == 1
     assert report.summary["image"] == 1
-    assert report.summary["audio"] == 1
+    assert report.summary["audio"] == 2
+    assert report.summary["document"] == 1
+    assert report.summary["archive"] == 1
+    assert report.summary["tool_script"] == 1
     assert report.summary["legacy_runtime"] == 1
     assert report.summary["characters"] == 1
     assert report.summary["dialogue_files"] == 1

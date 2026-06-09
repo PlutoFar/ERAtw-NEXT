@@ -13,15 +13,19 @@
 - Total size: 626536495 bytes
 - ERB: 3752
 - CSV: 261
+- Legacy headers: 80
 - Images: 1311
-- Audio: 2
+- Audio: 4
 - Fonts: 5
+- Archives: 21
+- Documents: 8
+- Tool scripts: 3
 - Legacy runtime or saves excluded: 13
-- Referenced resource names sampled from text: 566
+- Referenced resource names sampled from text: 577
 - Characters: 162
 - Dialogue/reference ERB files: 2284
-- Matched resource references: 480
-- Missing resource references: 86
+- Matched resource references: 486
+- Missing resource references: 91
 
 ## 风险信号
 
