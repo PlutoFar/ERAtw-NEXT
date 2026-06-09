@@ -83,6 +83,29 @@ pub struct ModLoadPlan {
     pub manifests: Vec<ModManifest>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModEnablement {
+    pub namespace: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisabledMod {
+    pub manifest: ModManifest,
+    pub reason: DisabledModReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DisabledModReason {
+    UserDisabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModEnablementPlan {
+    pub enabled: ModLoadPlan,
+    pub disabled: Vec<DisabledMod>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredMod {
     pub root_path: PathBuf,
@@ -150,6 +173,10 @@ pub enum ModDiscoveryError {
 pub enum ModLoadError {
     #[error(transparent)]
     Validation(#[from] ModValidationError),
+    #[error("duplicate mod enablement declaration: {0}")]
+    DuplicateEnablement(String),
+    #[error("unknown mod enablement declaration: {0}")]
+    UnknownEnablement(String),
     #[error("duplicate mod namespace: {0}")]
     DuplicateNamespace(String),
     #[error("required mod dependency is missing: {manifest_namespace} -> {dependency_namespace}")]
@@ -412,6 +439,75 @@ pub fn plan_load_order_for_engine(
     Ok(ModLoadPlan { manifests: ordered })
 }
 
+pub fn plan_enabled_mods(
+    manifests: Vec<ModManifest>,
+    enablement: Vec<ModEnablement>,
+) -> Result<ModEnablementPlan, ModLoadError> {
+    plan_enabled_mods_for_engine(manifests, enablement, None)
+}
+
+pub fn plan_enabled_mods_for_engine(
+    manifests: Vec<ModManifest>,
+    enablement: Vec<ModEnablement>,
+    engine_version: Option<&str>,
+) -> Result<ModEnablementPlan, ModLoadError> {
+    let requested = requested_enablement(enablement)?;
+    let manifest_namespaces = manifest_namespaces(&manifests)?;
+    for namespace in requested.keys() {
+        if !manifest_namespaces.contains(namespace) {
+            return Err(ModLoadError::UnknownEnablement(namespace.clone()));
+        }
+    }
+
+    let mut enabled = Vec::new();
+    let mut disabled = Vec::new();
+    for manifest in manifests {
+        if requested.get(&manifest.namespace).copied().unwrap_or(true) {
+            enabled.push(manifest);
+        } else {
+            disabled.push(DisabledMod {
+                manifest,
+                reason: DisabledModReason::UserDisabled,
+            });
+        }
+    }
+
+    let enabled = plan_load_order_for_engine(enabled, engine_version)?;
+    disabled.sort_by(|left, right| {
+        left.manifest
+            .namespace
+            .cmp(&right.manifest.namespace)
+            .then_with(|| left.manifest.load_order.cmp(&right.manifest.load_order))
+    });
+
+    Ok(ModEnablementPlan { enabled, disabled })
+}
+
+fn manifest_namespaces(manifests: &[ModManifest]) -> Result<BTreeSet<String>, ModLoadError> {
+    let mut namespaces = BTreeSet::new();
+    for manifest in manifests {
+        if !namespaces.insert(manifest.namespace.clone()) {
+            return Err(ModLoadError::DuplicateNamespace(manifest.namespace.clone()));
+        }
+    }
+    Ok(namespaces)
+}
+
+fn requested_enablement(
+    enablement: Vec<ModEnablement>,
+) -> Result<BTreeMap<String, bool>, ModLoadError> {
+    let mut requested = BTreeMap::new();
+    for entry in enablement {
+        if requested
+            .insert(entry.namespace.clone(), entry.enabled)
+            .is_some()
+        {
+            return Err(ModLoadError::DuplicateEnablement(entry.namespace));
+        }
+    }
+    Ok(requested)
+}
+
 fn next_ready_namespace(
     manifests: &BTreeMap<String, ModManifest>,
     indegrees: &BTreeMap<String, usize>,
@@ -664,6 +760,125 @@ mod tests {
     }
 
     #[test]
+    fn enablement_plan_keeps_disabled_mods_out_of_load_order() {
+        let base = manifest("core.base");
+        let mut addon = manifest("example.addon");
+        addon.dependencies = vec![dependency("core.base", None)];
+        let optional = manifest("example.optional");
+
+        let plan = plan_enabled_mods(
+            vec![optional, addon, base],
+            vec![enablement("example.optional", false)],
+        )
+        .unwrap();
+
+        assert_eq!(
+            namespaces(&plan.enabled),
+            vec!["core.base", "example.addon"]
+        );
+        assert_eq!(disabled_namespaces(&plan), vec!["example.optional"]);
+        assert_eq!(plan.disabled[0].reason, DisabledModReason::UserDisabled);
+    }
+
+    #[test]
+    fn enablement_plan_rejects_disabled_required_dependency() {
+        let base = manifest("core.base");
+        let mut addon = manifest("example.addon");
+        addon.dependencies = vec![dependency("core.base", None)];
+
+        let result = plan_enabled_mods(vec![base, addon], vec![enablement("core.base", false)]);
+
+        assert_eq!(
+            result,
+            Err(ModLoadError::MissingDependency {
+                manifest_namespace: "example.addon".to_string(),
+                dependency_namespace: "core.base".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn enablement_plan_allows_disabled_optional_dependency() {
+        let optional = manifest("core.optional");
+        let mut addon = manifest("example.addon");
+        let mut dependency = dependency("core.optional", None);
+        dependency.required = false;
+        addon.dependencies = vec![dependency];
+
+        let plan = plan_enabled_mods(
+            vec![optional, addon],
+            vec![enablement("core.optional", false)],
+        )
+        .unwrap();
+
+        assert_eq!(namespaces(&plan.enabled), vec!["example.addon"]);
+        assert_eq!(disabled_namespaces(&plan), vec!["core.optional"]);
+    }
+
+    #[test]
+    fn enablement_plan_rejects_duplicate_and_unknown_entries() {
+        let manifest = manifest("example.character");
+
+        let duplicate = plan_enabled_mods(
+            vec![manifest.clone()],
+            vec![
+                enablement("example.character", true),
+                enablement("example.character", false),
+            ],
+        );
+        let unknown = plan_enabled_mods(vec![manifest], vec![enablement("example.missing", false)]);
+
+        assert_eq!(
+            duplicate,
+            Err(ModLoadError::DuplicateEnablement(
+                "example.character".to_string()
+            ))
+        );
+        assert_eq!(
+            unknown,
+            Err(ModLoadError::UnknownEnablement(
+                "example.missing".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn enablement_plan_rejects_duplicate_manifest_namespaces_before_disabling() {
+        let left = manifest("example.duplicate");
+        let right = manifest("example.duplicate");
+
+        let result = plan_enabled_mods(
+            vec![left, right],
+            vec![enablement("example.duplicate", false)],
+        );
+
+        assert_eq!(
+            result,
+            Err(ModLoadError::DuplicateNamespace(
+                "example.duplicate".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn enablement_plan_validates_enabled_manifests_against_engine_version() {
+        let manifest = manifest("example.character");
+
+        let result = plan_enabled_mods_for_engine(vec![manifest], Vec::new(), Some("9.9.9"));
+
+        assert_eq!(
+            result,
+            Err(ModLoadError::Validation(
+                ModValidationError::IncompatibleEngineVersion {
+                    manifest_namespace: "example.character".to_string(),
+                    expected_engine_version: "0.1.0-m0".to_string(),
+                    actual_engine_version: "9.9.9".to_string(),
+                }
+            ))
+        );
+    }
+
+    #[test]
     fn read_manifest_file_validates_manifest_json() {
         let dir = temp_mod_dir("read_manifest");
         let path = dir.join("manifest.json");
@@ -797,10 +1012,24 @@ mod tests {
         }
     }
 
+    fn enablement(namespace: &str, enabled: bool) -> ModEnablement {
+        ModEnablement {
+            namespace: namespace.to_string(),
+            enabled,
+        }
+    }
+
     fn namespaces(plan: &ModLoadPlan) -> Vec<&str> {
         plan.manifests
             .iter()
             .map(|manifest| manifest.namespace.as_str())
+            .collect()
+    }
+
+    fn disabled_namespaces(plan: &ModEnablementPlan) -> Vec<&str> {
+        plan.disabled
+            .iter()
+            .map(|disabled| disabled.manifest.namespace.as_str())
             .collect()
     }
 

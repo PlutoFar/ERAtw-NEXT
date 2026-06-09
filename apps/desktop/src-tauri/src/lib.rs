@@ -5,10 +5,11 @@ use eratw_engine::{
     EngineCommand, WorldState,
 };
 use eratw_mod_runtime::{
-    discover_mods_for_engine, DiscoveredMod, ModDiscoveryError, ModDiscoveryIssue,
-    ModDiscoveryReport, ModManifest, ModValidationError,
+    discover_mods_for_engine, plan_enabled_mods_for_engine, DisabledMod, DiscoveredMod,
+    ModDiscoveryError, ModDiscoveryIssue, ModDiscoveryReport, ModEnablement, ModEnablementPlan,
+    ModLoadError, ModManifest, ModValidationError,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -38,6 +39,32 @@ struct ModDiscoveryReportDto {
     root_path: String,
     discovered: Vec<DiscoveredModReport>,
     errors: Vec<ModDiscoveryIssueReport>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModEnablementRequest {
+    manifests: Vec<ModManifest>,
+    enablement: Vec<ModEnablement>,
+    #[serde(alias = "engineVersion")]
+    engine_version: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct DisabledModReport {
+    manifest: ModManifest,
+    reason: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct ModEnablementPlanReport {
+    enabled: Vec<ModManifest>,
+    disabled: Vec<DisabledModReport>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct ModLoadErrorReport {
+    kind: String,
+    message: String,
 }
 
 #[tauri::command]
@@ -91,6 +118,19 @@ fn engine_inspect_resources(
 #[tauri::command]
 fn engine_discover_mods(root: String, engine_version: Option<String>) -> ModDiscoveryReportDto {
     discover_mods_for_engine(root, engine_version.as_deref()).into()
+}
+
+#[tauri::command]
+fn engine_plan_enabled_mods(
+    request: ModEnablementRequest,
+) -> Result<ModEnablementPlanReport, ModLoadErrorReport> {
+    plan_enabled_mods_for_engine(
+        request.manifests,
+        request.enablement,
+        request.engine_version.as_deref(),
+    )
+    .map(Into::into)
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -193,6 +233,46 @@ impl From<ModDiscoveryIssue> for ModDiscoveryIssueReport {
     }
 }
 
+impl From<ModEnablementPlan> for ModEnablementPlanReport {
+    fn from(plan: ModEnablementPlan) -> Self {
+        Self {
+            enabled: plan.enabled.manifests,
+            disabled: plan.disabled.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<DisabledMod> for DisabledModReport {
+    fn from(disabled: DisabledMod) -> Self {
+        Self {
+            manifest: disabled.manifest,
+            reason: "user_disabled".to_string(),
+        }
+    }
+}
+
+impl From<ModLoadError> for ModLoadErrorReport {
+    fn from(error: ModLoadError) -> Self {
+        Self {
+            kind: mod_load_error_kind(&error).to_string(),
+            message: error.to_string(),
+        }
+    }
+}
+
+fn mod_load_error_kind(error: &ModLoadError) -> &'static str {
+    match error {
+        ModLoadError::Validation(error) => mod_validation_error_kind(error),
+        ModLoadError::DuplicateEnablement(_) => "duplicate_enablement",
+        ModLoadError::UnknownEnablement(_) => "unknown_enablement",
+        ModLoadError::DuplicateNamespace(_) => "duplicate_namespace",
+        ModLoadError::MissingDependency { .. } => "missing_dependency",
+        ModLoadError::DependencyVersionMismatch { .. } => "dependency_version_mismatch",
+        ModLoadError::Conflict { .. } => "conflict",
+        ModLoadError::DependencyCycle(_) => "dependency_cycle",
+    }
+}
+
 fn mod_discovery_error_kind(error: &ModDiscoveryError) -> &'static str {
     match error {
         ModDiscoveryError::Io(_) => "io",
@@ -273,6 +353,79 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn engine_plan_enabled_mods_returns_frontend_plan() {
+        let base = manifest("core.base");
+        let mut addon = manifest("example.addon");
+        addon.dependencies = vec![dependency("core.base", None)];
+        let optional = manifest("example.optional");
+
+        let report = engine_plan_enabled_mods(ModEnablementRequest {
+            manifests: vec![optional, addon, base],
+            enablement: vec![ModEnablement {
+                namespace: "example.optional".to_string(),
+                enabled: false,
+            }],
+            engine_version: Some("0.1.0-m0".to_string()),
+        })
+        .unwrap();
+
+        assert_eq!(
+            report
+                .enabled
+                .iter()
+                .map(|manifest| manifest.namespace.as_str())
+                .collect::<Vec<_>>(),
+            vec!["core.base", "example.addon"]
+        );
+        assert_eq!(report.disabled.len(), 1);
+        assert_eq!(
+            report.disabled[0].manifest.namespace,
+            "example.optional".to_string()
+        );
+        assert_eq!(report.disabled[0].reason, "user_disabled");
+    }
+
+    #[test]
+    fn engine_plan_enabled_mods_reports_frontend_error_kind() {
+        let base = manifest("core.base");
+        let mut addon = manifest("example.addon");
+        addon.dependencies = vec![dependency("core.base", None)];
+
+        let report = engine_plan_enabled_mods(ModEnablementRequest {
+            manifests: vec![base, addon],
+            enablement: vec![ModEnablement {
+                namespace: "core.base".to_string(),
+                enabled: false,
+            }],
+            engine_version: None,
+        })
+        .unwrap_err();
+
+        assert_eq!(report.kind, "missing_dependency");
+    }
+
+    fn manifest(namespace: &str) -> ModManifest {
+        ModManifest {
+            namespace: namespace.to_string(),
+            name: namespace.to_string(),
+            version: "0.1.0".to_string(),
+            engine_version: "0.1.0-m0".to_string(),
+            load_order: 0,
+            dependencies: Vec::new(),
+            conflicts: Vec::new(),
+            capabilities: vec![eratw_mod_runtime::ModCapability::Content],
+        }
+    }
+
+    fn dependency(namespace: &str, version: Option<&str>) -> eratw_mod_runtime::ModDependency {
+        eratw_mod_runtime::ModDependency {
+            namespace: namespace.to_string(),
+            version: version.map(ToString::to_string),
+            required: true,
+        }
+    }
+
     fn temp_mod_root(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -293,6 +446,7 @@ pub fn run() {
             engine_plan_resources,
             engine_inspect_resources,
             engine_discover_mods,
+            engine_plan_enabled_mods,
             engine_save_preview,
             engine_save_slot,
             engine_load_slot

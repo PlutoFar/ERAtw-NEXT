@@ -133,6 +133,43 @@ export interface ModDiscoveryReport {
   errors: ModDiscoveryIssueReport[];
 }
 
+export interface ModEnablement {
+  namespace: string;
+  enabled: boolean;
+}
+
+export interface DisabledModReport {
+  manifest: ModManifest;
+  reason: "user_disabled";
+}
+
+export interface ModEnablementPlanReport {
+  enabled: ModManifest[];
+  disabled: DisabledModReport[];
+}
+
+export type ModLoadErrorKind =
+  | "missing_namespace"
+  | "missing_name"
+  | "missing_version"
+  | "missing_engine_version"
+  | "incompatible_engine_version"
+  | "duplicate_dependency"
+  | "duplicate_conflict"
+  | "unsafe_capability"
+  | "duplicate_enablement"
+  | "unknown_enablement"
+  | "duplicate_namespace"
+  | "missing_dependency"
+  | "dependency_version_mismatch"
+  | "conflict"
+  | "dependency_cycle";
+
+export interface ModLoadErrorReport {
+  kind: ModLoadErrorKind;
+  message: string;
+}
+
 export interface InstalledContentPackage {
   namespace: string;
   package_id: string;

@@ -4,6 +4,9 @@ import type {
   ContentPackage,
   EngineCommand,
   ModDiscoveryReport,
+  ModEnablement,
+  ModEnablementPlanReport,
+  ModLoadErrorReport,
   ModManifest,
   ResourceAsset,
   ResourceResolutionReport,
@@ -19,6 +22,11 @@ export interface EngineClient {
   planResources(root: string): Promise<ResourceResolutionReport>;
   inspectResources(root: string): Promise<ResourceResolutionReport>;
   discoverMods(root: string, engineVersion?: string | null): Promise<ModDiscoveryReport>;
+  planEnabledMods(
+    manifests: ModManifest[],
+    enablement: ModEnablement[],
+    engineVersion?: string | null,
+  ): Promise<ModEnablementPlanReport>;
   savePreview(slotId: string, savedAtUnixMs: number): Promise<SaveEnvelope>;
   saveSlot(slotId: string, savedAtUnixMs: number): Promise<SaveSlotReport>;
   loadSlot(slotId: string): Promise<WorldState>;
@@ -42,6 +50,14 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<ModDiscoveryReport>("engine_discover_mods", {
       root,
       engineVersion,
+    }),
+  planEnabledMods: (manifests, enablement, engineVersion = null) =>
+    invoke<ModEnablementPlanReport>("engine_plan_enabled_mods", {
+      request: {
+        manifests,
+        enablement,
+        engineVersion,
+      },
     }),
   savePreview: (slotId, savedAtUnixMs) =>
     invoke<SaveEnvelope>("engine_save_preview", {
@@ -214,6 +230,162 @@ const discoverBrowserMods = (
     ],
     errors: [],
   };
+};
+
+const modDependencyNamespaces = (manifest: ModManifest) =>
+  manifest.dependencies.map((dependency) => dependency.namespace);
+
+const modLoadError = (
+  kind: ModLoadErrorReport["kind"],
+  message: string,
+): ModLoadErrorReport => ({
+  kind,
+  message,
+});
+
+const planBrowserEnabledMods = (
+  manifests: ModManifest[],
+  enablement: ModEnablement[],
+  engineVersion: string | null | undefined,
+): ModEnablementPlanReport => {
+  const requested = new Map<string, boolean>();
+  for (const entry of enablement) {
+    if (requested.has(entry.namespace)) {
+      throw modLoadError(
+        "duplicate_enablement",
+        `duplicate mod enablement declaration: ${entry.namespace}`,
+      );
+    }
+    requested.set(entry.namespace, entry.enabled);
+  }
+
+  const byNamespace = new Map<string, ModManifest>();
+  for (const manifest of manifests) {
+    if (byNamespace.has(manifest.namespace)) {
+      throw modLoadError(
+        "duplicate_namespace",
+        `duplicate mod namespace: ${manifest.namespace}`,
+      );
+    }
+    byNamespace.set(manifest.namespace, manifest);
+  }
+
+  for (const namespace of requested.keys()) {
+    if (!byNamespace.has(namespace)) {
+      throw modLoadError(
+        "unknown_enablement",
+        `unknown mod enablement declaration: ${namespace}`,
+      );
+    }
+  }
+
+  const enabled = manifests.filter((manifest) => requested.get(manifest.namespace) ?? true);
+  const enabledByNamespace = new Map(
+    enabled.map((manifest) => [manifest.namespace, manifest]),
+  );
+
+  for (const manifest of enabled) {
+    if (engineVersion && manifest.engine_version !== engineVersion) {
+      throw modLoadError(
+        "incompatible_engine_version",
+        `mod engine version is incompatible: ${manifest.namespace} expected ${manifest.engine_version} found ${engineVersion}`,
+      );
+    }
+
+    for (const dependency of manifest.dependencies) {
+      const found = enabledByNamespace.get(dependency.namespace);
+      if (!found) {
+        if (dependency.required) {
+          throw modLoadError(
+            "missing_dependency",
+            `required mod dependency is missing: ${manifest.namespace} -> ${dependency.namespace}`,
+          );
+        }
+        continue;
+      }
+      if (dependency.version !== null && found.version !== dependency.version) {
+        throw modLoadError(
+          "dependency_version_mismatch",
+          `mod dependency version mismatch: ${manifest.namespace} -> ${dependency.namespace} expected ${dependency.version} found ${found.version}`,
+        );
+      }
+    }
+
+    for (const conflict of manifest.conflicts) {
+      if (enabledByNamespace.has(conflict)) {
+        throw modLoadError(
+          "conflict",
+          `mod conflict detected: ${manifest.namespace} <-> ${conflict}`,
+        );
+      }
+    }
+  }
+
+  const ordered = orderBrowserEnabledMods(enabled, enabledByNamespace);
+  return {
+    enabled: ordered,
+    disabled: manifests
+      .filter((manifest) => requested.get(manifest.namespace) === false)
+      .sort((left, right) => left.namespace.localeCompare(right.namespace))
+      .map((manifest) => ({
+        manifest,
+        reason: "user_disabled",
+      })),
+  };
+};
+
+const orderBrowserEnabledMods = (
+  enabled: ModManifest[],
+  enabledByNamespace: Map<string, ModManifest>,
+) => {
+  const indegrees = new Map(enabled.map((manifest) => [manifest.namespace, 0]));
+  const dependents = new Map<string, string[]>();
+
+  for (const manifest of enabled) {
+    for (const dependency of modDependencyNamespaces(manifest)) {
+      if (!enabledByNamespace.has(dependency)) {
+        continue;
+      }
+      indegrees.set(manifest.namespace, (indegrees.get(manifest.namespace) ?? 0) + 1);
+      dependents.set(dependency, [
+        ...(dependents.get(dependency) ?? []),
+        manifest.namespace,
+      ]);
+    }
+  }
+
+  const ordered: ModManifest[] = [];
+  while (ordered.length < enabled.length) {
+    const next = [...indegrees]
+      .filter(([, indegree]) => indegree === 0)
+      .map(([namespace]) => enabledByNamespace.get(namespace))
+      .filter((manifest): manifest is ModManifest => Boolean(manifest))
+      .sort(
+        (left, right) =>
+          left.load_order - right.load_order ||
+          left.namespace.localeCompare(right.namespace),
+      )[0];
+
+    if (!next) {
+      const cycleStart = [...indegrees].find(([, indegree]) => indegree > 0)?.[0] ?? "";
+      throw modLoadError(
+        "dependency_cycle",
+        `mod dependency cycle detected: ${cycleStart}`,
+      );
+    }
+
+    indegrees.delete(next.namespace);
+    ordered.push(next);
+
+    for (const dependent of dependents.get(next.namespace) ?? []) {
+      const current = indegrees.get(dependent);
+      if (current !== undefined) {
+        indegrees.set(dependent, Math.max(0, current - 1));
+      }
+    }
+  }
+
+  return ordered;
 };
 
 const normalizeContentPackageDependency = (
@@ -547,6 +719,9 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     },
     async discoverMods(root, engineVersion = null) {
       return structuredClone(discoverBrowserMods(root, engineVersion));
+    },
+    async planEnabledMods(manifests, enablement, engineVersion = null) {
+      return structuredClone(planBrowserEnabledMods(manifests, enablement, engineVersion));
     },
     async savePreview(slotId, savedAtUnixMs) {
       return {

@@ -561,6 +561,50 @@ describe("demo engine adapter", () => {
     });
   });
 
+  it("plans browser enabled mods from discovered manifests", async () => {
+    const client = createBrowserMockEngineClient();
+    const discovery = await client.discoverMods("examples/mods", "0.1.0-m0");
+
+    const plan = await client.planEnabledMods(
+      discovery.discovered.map((entry) => entry.manifest),
+      [],
+      "0.1.0-m0",
+    );
+
+    expect(plan.enabled.map((manifest) => manifest.namespace)).toEqual([
+      "example.minimal_character",
+    ]);
+    expect(plan.disabled).toEqual([]);
+  });
+
+  it("reports browser enabled mod dependency errors", async () => {
+    const client = createBrowserMockEngineClient();
+    const base = {
+      ...sampleBrowserMod("core.base"),
+      load_order: -10,
+    };
+    const addon = {
+      ...sampleBrowserMod("example.addon"),
+      dependencies: [
+        {
+          namespace: "core.base",
+          version: null,
+          required: true,
+        },
+      ],
+    };
+
+    await expect(
+      client.planEnabledMods(
+        [base, addon],
+        [{ namespace: "core.base", enabled: false }],
+        "0.1.0-m0",
+      ),
+    ).rejects.toMatchObject({
+      kind: "missing_dependency",
+    });
+  });
+
   it("rejects browser content packages with unsafe resource paths", async () => {
     const client = createBrowserMockEngineClient();
     const packageData = createSampleContentPackage();
@@ -571,4 +615,15 @@ describe("demo engine adapter", () => {
     expect(unchanged.resources).toHaveLength(1);
     expect(unchanged.installed_content_packages).toEqual([]);
   });
+});
+
+const sampleBrowserMod = (namespace: string) => ({
+  namespace,
+  name: namespace,
+  version: "0.1.0",
+  engine_version: "0.1.0-m0",
+  load_order: 0,
+  dependencies: [],
+  conflicts: [],
+  capabilities: ["content" as const],
 });
