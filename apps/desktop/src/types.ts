@@ -115,6 +115,8 @@ export type ModDiscoveryIssueKind =
   | "unsafe_install_namespace"
   | "unsafe_package_version"
   | "template_target_not_empty"
+  | "unsupported_package_schema"
+  | "package_manifest_mismatch"
   | "install_target_exists"
   | "install_target_missing"
   | "install_target_not_directory"

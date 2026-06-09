@@ -1,6 +1,6 @@
 use eratw_mod_runtime::{
-    package_mod_project_for_engine, scaffold_mod_template, validate_mod_project_for_engine,
-    ModDiscoveryError, ModTemplateOptions,
+    check_mod_package_for_engine, package_mod_project_for_engine, scaffold_mod_template,
+    validate_mod_project_for_engine, ModDiscoveryError, ModTemplateOptions,
 };
 use std::{env, path::PathBuf, process::ExitCode};
 
@@ -19,6 +19,10 @@ enum Command {
     Pack {
         source_root: PathBuf,
         output_root: PathBuf,
+        engine_version: Option<String>,
+    },
+    CheckPackage {
+        package_root: PathBuf,
         engine_version: Option<String>,
     },
     Help,
@@ -97,6 +101,19 @@ fn run(args: Vec<String>) -> Result<String, String> {
                 )
             })
             .map_err(format_mod_error),
+        Command::CheckPackage {
+            package_root,
+            engine_version,
+        } => check_mod_package_for_engine(&package_root, engine_version.as_deref())
+            .map(|report| {
+                format!(
+                    "checked mod package {} {} at {}",
+                    report.manifest.namespace,
+                    report.manifest.version,
+                    report.package_root.display()
+                )
+            })
+            .map_err(format_mod_error),
         Command::Help => Ok(usage()),
     }
 }
@@ -158,6 +175,22 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
             Ok(Command::Pack {
                 source_root: PathBuf::from(&positionals[0]),
                 output_root: PathBuf::from(&positionals[1]),
+                engine_version: options.engine_version,
+            })
+        }
+        "check-package" => {
+            if includes_help_option(&args[1..]) {
+                return Ok(Command::Help);
+            }
+            let (positionals, options) = parse_options(&args[1..])?;
+            if positionals.len() != 1 {
+                return Err(format!(
+                    "{}\n\ncheck-package expects exactly one package root path",
+                    usage()
+                ));
+            }
+            Ok(Command::CheckPackage {
+                package_root: PathBuf::from(&positionals[0]),
                 engine_version: options.engine_version,
             })
         }
@@ -236,6 +269,7 @@ fn usage() -> String {
         "  eratw-mod new <mod-root> --namespace <namespace> [--name <name>] [--version <version>] [--engine-version <version>]",
         "  eratw-mod validate <mod-root> [--engine-version <version>]",
         "  eratw-mod pack <mod-root> <output-root> [--engine-version <version>]",
+        "  eratw-mod check-package <package-root> [--engine-version <version>]",
     ]
     .join("\n")
 }
@@ -328,6 +362,35 @@ mod tests {
             fs::read_to_string(output_root.join("example.cli-0.1.0/content/readme.txt")).unwrap(),
             "packed"
         );
+
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn check_package_command_reports_valid_package() {
+        let source_root = temp_dir("check_package_command_source");
+        let output_root = temp_dir("check_package_command_output");
+        write_manifest(&source_root, "example.cli");
+        run(vec![
+            "pack".to_string(),
+            source_root.to_string_lossy().to_string(),
+            output_root.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+
+        let output = run(vec![
+            "check-package".to_string(),
+            output_root
+                .join("example.cli-0.1.0")
+                .to_string_lossy()
+                .to_string(),
+            "--engine-version".to_string(),
+            "0.1.0-m0".to_string(),
+        ])
+        .unwrap();
+
+        assert!(output.contains("checked mod package example.cli 0.1.0"));
 
         let _ = fs::remove_dir_all(output_root);
         let _ = fs::remove_dir_all(source_root);

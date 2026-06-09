@@ -194,6 +194,16 @@ pub struct ModPackageReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModPackageCheckReport {
+    pub package_root: PathBuf,
+    pub package_manifest_path: PathBuf,
+    pub content_root: PathBuf,
+    pub content_manifest_path: PathBuf,
+    pub package_manifest: ModPackageManifest,
+    pub manifest: ModManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModTemplateOptions {
     pub namespace: String,
     pub name: String,
@@ -255,6 +265,17 @@ pub enum ModDiscoveryError {
     UnsafePackageVersion(String),
     #[error("mod template target already exists and is not empty: {0}")]
     TemplateTargetNotEmpty(String),
+    #[error("mod package manifest schema is unsupported: {0}")]
+    UnsupportedPackageSchema(String),
+    #[error(
+        "mod package manifest does not match content manifest: expected {expected_namespace} {expected_version} found {actual_namespace} {actual_version}"
+    )]
+    PackageManifestMismatch {
+        expected_namespace: String,
+        expected_version: String,
+        actual_namespace: String,
+        actual_version: String,
+    },
     #[error("mod install target already exists: {0}")]
     InstallTargetExists(String),
     #[error("mod install target is missing: {0}")]
@@ -550,6 +571,59 @@ pub fn scaffold_mod_template(
         manifest_path,
         readme_path,
         character_path,
+        manifest,
+    })
+}
+
+pub fn check_mod_package(
+    package_root: impl AsRef<Path>,
+) -> Result<ModPackageCheckReport, ModDiscoveryError> {
+    check_mod_package_for_engine(package_root, None)
+}
+
+pub fn check_mod_package_for_engine(
+    package_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+) -> Result<ModPackageCheckReport, ModDiscoveryError> {
+    let package_root = package_root.as_ref();
+    let package_manifest_path = package_root.join("eratw-mod-package.json");
+    let encoded = fs::read_to_string(&package_manifest_path)?;
+    let package_manifest: ModPackageManifest = serde_json::from_str(&encoded)?;
+    if package_manifest.schema_version != "eratw-mod-package/v0" {
+        return Err(ModDiscoveryError::UnsupportedPackageSchema(
+            package_manifest.schema_version,
+        ));
+    }
+
+    let manifest_relative_path = safe_package_manifest_path(&package_manifest.manifest_path)?;
+    let content_manifest_path = package_root.join(manifest_relative_path);
+    let content_root = content_manifest_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| package_root.to_path_buf());
+    let manifest = read_manifest_file(&content_manifest_path)?;
+    if let Some(engine_version) = engine_version {
+        validate_manifest_for_engine(&manifest, engine_version)?;
+    }
+    safe_install_namespace(&manifest.namespace)?;
+
+    if package_manifest.namespace != manifest.namespace
+        || package_manifest.version != manifest.version
+    {
+        return Err(ModDiscoveryError::PackageManifestMismatch {
+            expected_namespace: package_manifest.namespace,
+            expected_version: package_manifest.version,
+            actual_namespace: manifest.namespace,
+            actual_version: manifest.version,
+        });
+    }
+
+    Ok(ModPackageCheckReport {
+        package_root: package_root.to_path_buf(),
+        package_manifest_path,
+        content_root,
+        content_manifest_path,
+        package_manifest,
         manifest,
     })
 }
@@ -953,6 +1027,29 @@ fn safe_package_component(component: &str) -> Result<&str, ModDiscoveryError> {
         ));
     }
     Ok(component)
+}
+
+fn safe_package_manifest_path(path: &str) -> Result<PathBuf, ModDiscoveryError> {
+    let normalized = path.replace('\\', "/");
+    let parts = normalized
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>();
+
+    if normalized.trim().is_empty()
+        || normalized.starts_with('/')
+        || normalized.contains(':')
+        || parts.is_empty()
+        || parts.iter().any(|part| *part == "..")
+    {
+        return Err(ModDiscoveryError::UnsafeInstallNamespace(path.to_string()));
+    }
+
+    let mut safe_path = PathBuf::new();
+    for part in parts {
+        safe_path.push(part);
+    }
+    Ok(safe_path)
 }
 
 fn is_mod_staging_directory(path: &Path) -> bool {
@@ -1574,6 +1671,126 @@ mod tests {
         );
         assert!(!output_root.exists());
 
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn check_mod_package_validates_package_manifest_and_content() {
+        let source_root = temp_mod_dir("package_check_source");
+        let output_root = temp_mod_dir("package_check_output");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+        let package =
+            package_mod_project_for_engine(&source_root, &output_root, Some("0.1.0-m0")).unwrap();
+
+        let report = check_mod_package_for_engine(&package.package_root, Some("0.1.0-m0")).unwrap();
+
+        assert_eq!(report.package_root, package.package_root);
+        assert_eq!(report.package_manifest.namespace, "example.package");
+        assert_eq!(report.manifest.namespace, "example.package");
+        assert_eq!(report.content_root, report.package_root.join("content"));
+        assert_eq!(
+            report.content_manifest_path,
+            report.package_root.join("content/manifest.json")
+        );
+
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn check_mod_package_rejects_bad_schema_mismatch_and_unsafe_path() {
+        let package_root = temp_mod_dir("package_check_bad");
+        fs::create_dir_all(package_root.join("content")).unwrap();
+        fs::write(
+            package_root.join("content/manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            package_root.join("eratw-mod-package.json"),
+            serde_json::to_string_pretty(&ModPackageManifest {
+                schema_version: "wrong".to_string(),
+                namespace: "example.package".to_string(),
+                version: "0.1.0".to_string(),
+                manifest_path: "content/manifest.json".to_string(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let bad_schema = check_mod_package(&package_root);
+        fs::write(
+            package_root.join("eratw-mod-package.json"),
+            serde_json::to_string_pretty(&ModPackageManifest {
+                schema_version: "eratw-mod-package/v0".to_string(),
+                namespace: "example.other".to_string(),
+                version: "0.1.0".to_string(),
+                manifest_path: "content/manifest.json".to_string(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let mismatch = check_mod_package(&package_root);
+        fs::write(
+            package_root.join("eratw-mod-package.json"),
+            serde_json::to_string_pretty(&ModPackageManifest {
+                schema_version: "eratw-mod-package/v0".to_string(),
+                namespace: "example.package".to_string(),
+                version: "0.1.0".to_string(),
+                manifest_path: "../manifest.json".to_string(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let unsafe_path = check_mod_package(&package_root);
+
+        assert_eq!(
+            bad_schema,
+            Err(ModDiscoveryError::UnsupportedPackageSchema(
+                "wrong".to_string()
+            ))
+        );
+        assert!(matches!(
+            mismatch,
+            Err(ModDiscoveryError::PackageManifestMismatch { .. })
+        ));
+        assert_eq!(
+            unsafe_path,
+            Err(ModDiscoveryError::UnsafeInstallNamespace(
+                "../manifest.json".to_string()
+            ))
+        );
+
+        let _ = fs::remove_dir_all(package_root);
+    }
+
+    #[test]
+    fn check_mod_package_rejects_incompatible_engine_version() {
+        let source_root = temp_mod_dir("package_check_engine_source");
+        let output_root = temp_mod_dir("package_check_engine_output");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+        let package = package_mod_project(&source_root, &output_root).unwrap();
+
+        let result = check_mod_package_for_engine(&package.package_root, Some("9.9.9"));
+
+        assert!(matches!(
+            result,
+            Err(ModDiscoveryError::Validation(
+                ModValidationError::IncompatibleEngineVersion { .. }
+            ))
+        ));
+
+        let _ = fs::remove_dir_all(output_root);
         let _ = fs::remove_dir_all(source_root);
     }
 
