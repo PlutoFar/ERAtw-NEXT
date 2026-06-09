@@ -41,8 +41,11 @@ const formatScheduledEventTime = (world: WorldState) => {
   ).padStart(2, "0")}`;
 };
 
+const DEFAULT_SLOT_ID = "slot_1";
+
 export const App = () => {
-  const { dispatch, error, load, loading, world } = useEngine();
+  const { dispatch, error, lastSave, load, loadSlot, loading, saveSlot, world } =
+    useEngine();
 
   useEffect(() => {
     void load();
@@ -144,9 +147,24 @@ export const App = () => {
             >
               <MessageSquareText size={17} /> 对话
             </button>
+            <button
+              type="button"
+              onClick={() => saveSlot(DEFAULT_SLOT_ID)}
+              disabled={loading}
+            >
+              保存
+            </button>
+            <button
+              type="button"
+              onClick={() => loadSlot(DEFAULT_SLOT_ID)}
+              disabled={loading}
+            >
+              读取
+            </button>
           </section>
 
           {error ? <p className="error-text">{error}</p> : null}
+          {lastSave ? <p className="save-text">已保存：{lastSave.path}</p> : null}
 
           <section className="dialogue-panel" aria-label="dialogue">
             {world.active_dialogue.length === 0 ? (

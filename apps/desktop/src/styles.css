@@ -258,7 +258,8 @@ button {
 
 .dialogue-panel p,
 .empty-text,
-.error-text {
+.error-text,
+.save-text {
   margin: 0;
 }
 
@@ -295,6 +296,12 @@ button {
 
 .error-text {
   color: #ffb0a8;
+}
+
+.save-text {
+  color: #a8d8b9;
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .boot-panel {

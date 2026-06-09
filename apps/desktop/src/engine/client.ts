@@ -1,11 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 import { applyDemoCommand, createDemoWorld } from "./demoWorld";
-import type { EngineCommand, SaveEnvelope, WorldState } from "../types";
+import type {
+  EngineCommand,
+  SaveEnvelope,
+  SaveSlotReport,
+  WorldState,
+} from "../types";
 
 export interface EngineClient {
   snapshot(): Promise<WorldState>;
   dispatch(command: EngineCommand): Promise<WorldState>;
   savePreview(slotId: string, savedAtUnixMs: number): Promise<SaveEnvelope>;
+  saveSlot(slotId: string, savedAtUnixMs: number): Promise<SaveSlotReport>;
+  loadSlot(slotId: string): Promise<WorldState>;
 }
 
 const isTauriRuntime = () =>
@@ -19,10 +26,20 @@ export const createTauriEngineClient = (): EngineClient => ({
       slotId,
       savedAtUnixMs,
     }),
+  saveSlot: (slotId, savedAtUnixMs) =>
+    invoke<SaveSlotReport>("engine_save_slot", {
+      slotId,
+      savedAtUnixMs,
+    }),
+  loadSlot: (slotId) =>
+    invoke<WorldState>("engine_load_slot", {
+      slotId,
+    }),
 });
 
 export const createBrowserMockEngineClient = (): EngineClient => {
   let world = createDemoWorld();
+  const saves = new Map<string, SaveEnvelope>();
 
   return {
     async snapshot() {
@@ -41,6 +58,29 @@ export const createBrowserMockEngineClient = (): EngineClient => {
         mod_dependencies: [],
         world: structuredClone(world),
       };
+    },
+    async saveSlot(slotId, savedAtUnixMs) {
+      saves.set(slotId, {
+        schema_version: 1,
+        engine_version: world.engine_version,
+        saved_at_unix_ms: savedAtUnixMs,
+        slot_id: slotId,
+        mod_dependencies: [],
+        world: structuredClone(world),
+      });
+
+      return {
+        path: `browser-memory://${slotId}.json`,
+        backup_path: null,
+      };
+    },
+    async loadSlot(slotId) {
+      const save = saves.get(slotId);
+      if (save) {
+        world = structuredClone(save.world);
+      }
+
+      return structuredClone(world);
     },
   };
 };

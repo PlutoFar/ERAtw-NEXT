@@ -107,6 +107,11 @@ export interface SaveEnvelope {
   world: WorldState;
 }
 
+export interface SaveSlotReport {
+  path: string;
+  backup_path: string | null;
+}
+
 export type EngineCommand =
   | { type: "advance_time"; minutes: number }
   | { type: "move_character"; character_id: string; location_id: string }

@@ -1,5 +1,9 @@
 use crate::{WorldState, ENGINE_VERSION};
 use serde::{Deserialize, Serialize};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 
 pub const SAVE_SCHEMA_VERSION: u32 = 1;
@@ -36,6 +40,12 @@ pub struct SaveBackupPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveWriteReport {
+    pub path: PathBuf,
+    pub backup_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveBackupReason {
     BeforeOverwrite,
     BeforeMigration,
@@ -52,6 +62,24 @@ pub enum SaveError {
     EmptyLocations,
     #[error("save world has no characters")]
     EmptyCharacters,
+    #[error("save path has no parent directory")]
+    MissingParentDirectory,
+    #[error("save io error: {0}")]
+    Io(String),
+    #[error("save json error: {0}")]
+    Json(String),
+}
+
+impl From<io::Error> for SaveError {
+    fn from(error: io::Error) -> Self {
+        SaveError::Io(error.to_string())
+    }
+}
+
+impl From<serde_json::Error> for SaveError {
+    fn from(error: serde_json::Error) -> Self {
+        SaveError::Json(error.to_string())
+    }
 }
 
 impl SaveEnvelope {
@@ -115,6 +143,55 @@ impl SaveEnvelope {
     }
 }
 
+pub fn write_save_atomic(
+    path: impl AsRef<Path>,
+    save: &SaveEnvelope,
+    timestamp_unix_ms: u64,
+) -> Result<SaveWriteReport, SaveError> {
+    save.validate(&[])?;
+
+    let path = path.as_ref();
+    let parent = path.parent().ok_or(SaveError::MissingParentDirectory)?;
+    fs::create_dir_all(parent)?;
+
+    let backup_path = if path.exists() {
+        let backup_path = backup_path_for(path, timestamp_unix_ms);
+        fs::copy(path, &backup_path)?;
+        Some(backup_path)
+    } else {
+        None
+    };
+
+    let temp_path = temp_path_for(path, timestamp_unix_ms);
+    let encoded = serde_json::to_vec_pretty(save)?;
+    fs::write(&temp_path, encoded)?;
+    fs::rename(&temp_path, path).or_else(|error| {
+        if path.exists() {
+            fs::remove_file(path)?;
+            fs::rename(&temp_path, path)?;
+            Ok(())
+        } else {
+            Err(error)
+        }
+    })?;
+
+    Ok(SaveWriteReport {
+        path: path.to_path_buf(),
+        backup_path,
+    })
+}
+
+pub fn read_save(
+    path: impl AsRef<Path>,
+    enabled_mods: &[SaveModDependency],
+) -> Result<SaveEnvelope, SaveError> {
+    let encoded = fs::read(path)?;
+    let save: SaveEnvelope = serde_json::from_slice(&encoded)?;
+    let save = save.migrate_to_current()?;
+    save.validate(enabled_mods)?;
+    Ok(save)
+}
+
 pub fn backup_plan(
     primary_path: impl Into<String>,
     timestamp_unix_ms: u64,
@@ -128,10 +205,35 @@ pub fn backup_plan(
     }
 }
 
+fn backup_path_for(path: &Path, timestamp_unix_ms: u64) -> PathBuf {
+    let mut backup = PathBuf::from(path);
+    let extension = path
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_string());
+    backup.set_extension(match extension {
+        Some(extension) if !extension.is_empty() => format!("{extension}.{timestamp_unix_ms}.bak"),
+        _ => format!("{timestamp_unix_ms}.bak"),
+    });
+    backup
+}
+
+fn temp_path_for(path: &Path, timestamp_unix_ms: u64) -> PathBuf {
+    let mut temp = PathBuf::from(path);
+    let extension = path
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_string());
+    temp.set_extension(match extension {
+        Some(extension) if !extension.is_empty() => format!("{extension}.{timestamp_unix_ms}.tmp"),
+        _ => format!("{timestamp_unix_ms}.tmp"),
+    });
+    temp
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::WorldState;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn save_envelope_round_trips_as_json() {
@@ -180,5 +282,63 @@ mod tests {
 
         assert_eq!(plan.backup_path, "saves/slot-1.json.42.bak");
         assert_eq!(plan.reason, SaveBackupReason::BeforeOverwrite);
+    }
+
+    #[test]
+    fn save_file_round_trips_through_atomic_writer() {
+        let dir = temp_save_dir("round_trip");
+        let path = dir.join("slot-1.json");
+        let save = SaveEnvelope::new("slot-1", WorldState::bootstrap_demo(), 123);
+
+        let report = write_save_atomic(&path, &save, 123).unwrap();
+        let decoded = read_save(&path, &[]).unwrap();
+
+        assert_eq!(report.path, path);
+        assert_eq!(report.backup_path, None);
+        assert_eq!(decoded, save);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn save_file_creates_backup_before_overwrite() {
+        let dir = temp_save_dir("backup");
+        let path = dir.join("slot-1.json");
+        let first = SaveEnvelope::new("slot-1", WorldState::bootstrap_demo(), 100);
+        let second = SaveEnvelope::new("slot-1", WorldState::bootstrap_demo(), 200);
+
+        write_save_atomic(&path, &first, 100).unwrap();
+        let report = write_save_atomic(&path, &second, 200).unwrap();
+
+        let backup_path = report.backup_path.unwrap();
+        let backup = read_save(&backup_path, &[]).unwrap();
+        let current = read_save(&path, &[]).unwrap();
+
+        assert_eq!(backup.saved_at_unix_ms, 100);
+        assert_eq!(current.saved_at_unix_ms, 200);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn read_save_rejects_invalid_json() {
+        let dir = temp_save_dir("invalid_json");
+        let path = dir.join("slot-1.json");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&path, b"{broken").unwrap();
+
+        let result = read_save(&path, &[]);
+
+        assert!(matches!(result, Err(SaveError::Json(_))));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    fn temp_save_dir(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("eratw_next_save_{label}_{nonce}"))
     }
 }

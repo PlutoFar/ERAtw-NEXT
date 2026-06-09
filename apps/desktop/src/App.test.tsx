@@ -9,6 +9,7 @@ describe("App", () => {
       world: null,
       loading: false,
       error: null,
+      lastSave: null,
     });
   });
 
@@ -34,6 +35,17 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/不执行旧 ERB/)).toBeInTheDocument();
+    });
+  });
+
+  it("saves through the engine store", async () => {
+    render(<App />);
+
+    const saveButton = await screen.findByRole("button", { name: "保存" });
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/browser-memory:\/\/slot_1.json/)).toBeInTheDocument();
     });
   });
 });

@@ -71,4 +71,21 @@ describe("demo engine adapter", () => {
     expect(save.slot_id).toBe("slot-1");
     expect(save.world.engine_version).toBe("0.1.0-m0");
   });
+
+  it("exposes browser save and load slot operations", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.saveSlot("slot_1", 1000);
+    await client.dispatch({
+      type: "move_character",
+      character_id: "demo_heroine",
+      location_id: "garden",
+    });
+    const world = await client.loadSlot("slot_1");
+
+    expect(report.path).toBe("browser-memory://slot_1.json");
+    expect(report.backup_path).toBeNull();
+    expect(world.engine_version).toBe("0.1.0-m0");
+    expect(world.characters[0].location_id).toBe("school_gate");
+  });
 });
