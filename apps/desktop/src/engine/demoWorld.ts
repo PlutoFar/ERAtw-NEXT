@@ -188,6 +188,7 @@ const createDemoDialogueScenes = (): DialogueScene[] => [
 
 export const createDemoWorld = (): WorldState => ({
   engine_version: "0.1.0-m0",
+  installed_content_packages: [],
   clock: {
     day: 1,
     hour: 8,

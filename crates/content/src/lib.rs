@@ -1,6 +1,6 @@
 use eratw_engine::{
-    Character, DialogueCondition, DialogueEffect, DialogueScene, Location, Relationship,
-    ResourceAsset, ScheduledEvent, ScheduledEventKind, WorldState,
+    Character, DialogueCondition, DialogueEffect, DialogueScene, InstalledContentPackage, Location,
+    Relationship, ResourceAsset, ScheduledEvent, ScheduledEventKind, WorldState,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
@@ -70,6 +70,7 @@ impl ContentPackage {
             return Err(ContentInstallError::ValidationFailed(report));
         }
 
+        ensure_content_package_not_installed(&world, &self.manifest)?;
         merge_locations(&mut world, self.locations.clone())?;
         merge_characters(&mut world, self.characters.clone())?;
         merge_relationships(&mut world, self.relationships.clone())?;
@@ -78,6 +79,7 @@ impl ContentPackage {
         ensure_dialogue_references_exist(&world, &self.dialogue_scenes)?;
         merge_dialogue_scenes(&mut world, self.dialogue_scenes.clone())?;
         merge_scheduled_events(&mut world, self.scheduled_events.clone())?;
+        record_installed_content_package(&mut world, &self.manifest);
         world.event_log.push(format!(
             "内容包 {}:{} 已加载。",
             self.manifest.namespace, self.manifest.package_id
@@ -115,6 +117,7 @@ pub struct ContentIssue {
 pub enum ContentIssueCode {
     EmptyPackageId,
     EmptyNamespace,
+    EmptyVersion,
     EmptyLocationId,
     DuplicateLocationId,
     EmptyLocationName,
@@ -175,6 +178,11 @@ pub enum ContentInstallError {
     },
     #[error("resource already exists: {0}")]
     DuplicateResource(String),
+    #[error("content package already installed: {namespace}:{package_id}")]
+    DuplicateContentPackage {
+        namespace: String,
+        package_id: String,
+    },
     #[error("location reference is missing: {target} -> {location_id}")]
     MissingLocationReference { target: String, location_id: String },
     #[error("character reference is missing: {target} -> {character_id}")]
@@ -219,6 +227,10 @@ fn validate_manifest(
 
     if manifest.package_id.trim().is_empty() {
         report.push(ContentIssueCode::EmptyPackageId, "manifest.package_id");
+    }
+
+    if manifest.version.trim().is_empty() {
+        report.push(ContentIssueCode::EmptyVersion, "manifest.version");
     }
 
     Ok(())
@@ -717,6 +729,37 @@ fn location_exists(world: &WorldState, location_id: &str) -> bool {
         .any(|location| location.id == location_id)
 }
 
+fn ensure_content_package_not_installed(
+    world: &WorldState,
+    manifest: &ContentPackageManifest,
+) -> Result<(), ContentInstallError> {
+    if world.installed_content_packages.iter().any(|package| {
+        package.namespace == manifest.namespace && package.package_id == manifest.package_id
+    }) {
+        return Err(ContentInstallError::DuplicateContentPackage {
+            namespace: manifest.namespace.clone(),
+            package_id: manifest.package_id.clone(),
+        });
+    }
+
+    Ok(())
+}
+
+fn record_installed_content_package(world: &mut WorldState, manifest: &ContentPackageManifest) {
+    world
+        .installed_content_packages
+        .push(InstalledContentPackage {
+            namespace: manifest.namespace.clone(),
+            package_id: manifest.package_id.clone(),
+            version: manifest.version.clone(),
+        });
+    world.installed_content_packages.sort_by(|left, right| {
+        left.namespace
+            .cmp(&right.namespace)
+            .then_with(|| left.package_id.cmp(&right.package_id))
+    });
+}
+
 fn merge_locations(
     world: &mut WorldState,
     locations: Vec<Location>,
@@ -1013,8 +1056,10 @@ mod tests {
 
     #[test]
     fn manifest_validation_reports_empty_ids() {
+        let mut manifest = ContentPackageManifest::new("", "");
+        manifest.version = String::new();
         let package = ContentPackage {
-            manifest: ContentPackageManifest::new("", ""),
+            manifest,
             locations: Vec::new(),
             characters: Vec::new(),
             relationships: Vec::new(),
@@ -1030,6 +1075,7 @@ mod tests {
             vec![
                 ContentIssueCode::EmptyNamespace,
                 ContentIssueCode::EmptyPackageId,
+                ContentIssueCode::EmptyVersion,
             ]
         );
     }
@@ -1085,6 +1131,14 @@ mod tests {
             .dialogue_scenes
             .iter()
             .any(|scene| scene.id == "scene.extra"));
+        assert_eq!(
+            installed.installed_content_packages,
+            vec![InstalledContentPackage {
+                namespace: "core".to_string(),
+                package_id: "core.extra".to_string(),
+                version: "0.1.0".to_string(),
+            }]
+        );
         assert!(installed
             .event_log
             .iter()
@@ -1132,6 +1186,25 @@ mod tests {
             Err(ContentInstallError::DuplicateDialogueScene(
                 "demo_morning".to_string()
             ))
+        );
+    }
+
+    #[test]
+    fn install_rejects_duplicate_content_package_identity() {
+        let first = package_with("core.extra", Vec::new(), Vec::new());
+        let second = package_with("core.extra", Vec::new(), Vec::new());
+        let world = first
+            .install_into_world(WorldState::bootstrap_demo())
+            .unwrap();
+
+        let result = second.install_into_world(world);
+
+        assert_eq!(
+            result,
+            Err(ContentInstallError::DuplicateContentPackage {
+                namespace: "core".to_string(),
+                package_id: "core.extra".to_string(),
+            })
         );
     }
 

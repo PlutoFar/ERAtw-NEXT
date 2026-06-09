@@ -418,9 +418,31 @@ describe("demo engine adapter", () => {
         (resource) => resource.resource_id === "sample.event_pack.guest.smile",
       ),
     ).toBe(true);
+    expect(installed.installed_content_packages).toEqual([
+      {
+        namespace: "sample",
+        package_id: "sample.event_pack",
+        version: "0.1.0",
+      },
+    ]);
     expect(installed.scheduled_events[0].id).toBe("sample_content_dialogue_at_0820");
     expect(advanced.active_dialogue_scene_id).toBe("sample_event_dialogue");
     expect(advanced.active_dialogue[0].speaker_id).toBe("sample_guest");
     expect(advanced.active_dialogue[0].text).toContain("随内容包新增的角色");
+  });
+
+  it("records installed browser content packages in save dependencies", async () => {
+    const client = createBrowserMockEngineClient();
+
+    await client.installContentPackage(createSampleContentPackage());
+    const save = await client.savePreview("slot-1", 1000);
+
+    expect(save.mod_dependencies).toEqual([
+      {
+        namespace: "sample.event_pack",
+        version: "0.1.0",
+        required: true,
+      },
+    ]);
   });
 });

@@ -48,6 +48,12 @@ export interface ResourceAsset {
   sha256: string | null;
 }
 
+export interface InstalledContentPackage {
+  namespace: string;
+  package_id: string;
+  version: string;
+}
+
 export interface Relationship {
   source_character_id: string;
   target_character_id: string;
@@ -152,6 +158,7 @@ export interface ScheduledRepeat {
 
 export interface WorldState {
   engine_version: string;
+  installed_content_packages: InstalledContentPackage[];
   clock: WorldClock;
   locations: Location[];
   characters: Character[];

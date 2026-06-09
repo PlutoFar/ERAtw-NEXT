@@ -7,6 +7,7 @@
 - `ModCapability`：当前支持 `content`、`theme`、`rules_extension`，以及默认拒绝的高危能力。
 - `validate_manifest`：拒绝空 namespace/name/version/engine_version、重复依赖、重复冲突和默认高危能力。
 - `plan_load_order`：在启用 Mod 集合上执行依赖检查、版本检查、冲突检查、循环依赖检查，并输出稳定加载顺序。
+- 运行时内容包安装成功后会写入 `WorldState.installed_content_packages`；存档外壳据此生成 `mod_dependencies`，为后续 Mod registry 接管启停检查预留稳定入口。
 
 ## 安全默认值
 
@@ -39,5 +40,6 @@
 ## 后续
 
 - 将 `eratw_mod_runtime` 接入内容包安装和存档依赖检查。
+- 将存档依赖从当前内容包记录升级为完整 Mod manifest registry。
 - 增加 Mod 包目录扫描、manifest 读取、禁用/启用状态和错误恢复。
 - 为高危能力加入显式授权模型，而不是在默认校验中直接放行。

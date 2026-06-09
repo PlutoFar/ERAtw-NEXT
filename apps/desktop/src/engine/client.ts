@@ -86,6 +86,18 @@ const hasCharacter = (characterIds: Set<string>, characterId: string) =>
 const relationshipKey = (sourceCharacterId: string, targetCharacterId: string) =>
   `${sourceCharacterId}\u0000${targetCharacterId}`;
 
+const installedPackageKey = (namespace: string, packageId: string) =>
+  `${namespace}\u0000${packageId}`;
+
+const modDependenciesForWorld = (world: WorldState) =>
+  [...world.installed_content_packages]
+    .sort((left, right) => left.package_id.localeCompare(right.package_id))
+    .map((packageInfo) => ({
+      namespace: packageInfo.package_id,
+      version: packageInfo.version,
+      required: true,
+    }));
+
 const conditionRefsExist = (
   condition: ContentPackage["dialogue_scenes"][number]["nodes"][number]["choices"][number]["conditions"][number],
   characterIds: Set<string>,
@@ -167,7 +179,24 @@ const installPackageIntoBrowserWorld = (
   if (
     packageData.manifest.schema_version !== "content-package/v0" ||
     !packageData.manifest.namespace.trim() ||
-    !packageData.manifest.package_id.trim()
+    !packageData.manifest.package_id.trim() ||
+    !packageData.manifest.version.trim()
+  ) {
+    return world;
+  }
+
+  const installedPackageIds = new Set(
+    world.installed_content_packages.map((packageInfo) =>
+      installedPackageKey(packageInfo.namespace, packageInfo.package_id),
+    ),
+  );
+  if (
+    installedPackageIds.has(
+      installedPackageKey(
+        packageData.manifest.namespace,
+        packageData.manifest.package_id,
+      ),
+    )
   ) {
     return world;
   }
@@ -282,6 +311,17 @@ const installPackageIntoBrowserWorld = (
 
   return {
     ...world,
+    installed_content_packages: [
+      ...world.installed_content_packages,
+      {
+        namespace: packageData.manifest.namespace,
+        package_id: packageData.manifest.package_id,
+        version: packageData.manifest.version,
+      },
+    ].sort((left, right) =>
+      left.namespace.localeCompare(right.namespace) ||
+      left.package_id.localeCompare(right.package_id),
+    ),
     locations: [...world.locations, ...structuredClone(packageData.locations)],
     characters: [...world.characters, ...structuredClone(packageData.characters)],
     relationships: [
@@ -328,7 +368,7 @@ export const createBrowserMockEngineClient = (): EngineClient => {
         engine_version: world.engine_version,
         saved_at_unix_ms: savedAtUnixMs,
         slot_id: slotId,
-        mod_dependencies: [],
+        mod_dependencies: modDependenciesForWorld(world),
         world: structuredClone(world),
       };
     },
@@ -338,7 +378,7 @@ export const createBrowserMockEngineClient = (): EngineClient => {
         engine_version: world.engine_version,
         saved_at_unix_ms: savedAtUnixMs,
         slot_id: slotId,
-        mod_dependencies: [],
+        mod_dependencies: modDependenciesForWorld(world),
         world: structuredClone(world),
       });
 

@@ -187,6 +187,13 @@ pub struct ResourceAsset {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstalledContentPackage {
+    pub namespace: String,
+    pub package_id: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DialogueChoice {
     pub id: String,
     pub label: String,
@@ -294,6 +301,8 @@ pub enum ScheduledEventKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorldState {
     pub engine_version: String,
+    #[serde(default)]
+    pub installed_content_packages: Vec<InstalledContentPackage>,
     pub clock: WorldClock,
     pub locations: Vec<Location>,
     pub characters: Vec<Character>,
@@ -388,6 +397,7 @@ impl WorldState {
     pub fn bootstrap_demo() -> Self {
         Self {
             engine_version: ENGINE_VERSION.to_string(),
+            installed_content_packages: Vec::new(),
             clock: WorldClock {
                 day: 1,
                 hour: 8,
@@ -1460,6 +1470,19 @@ mod tests {
         let decoded: WorldState = serde_json::from_value(value).unwrap();
 
         assert!(decoded.resources.is_empty());
+    }
+
+    #[test]
+    fn missing_installed_content_packages_deserializes_as_empty_list() {
+        let mut value = serde_json::to_value(WorldState::bootstrap_demo()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("installed_content_packages");
+
+        let decoded: WorldState = serde_json::from_value(value).unwrap();
+
+        assert!(decoded.installed_content_packages.is_empty());
     }
 
     #[test]

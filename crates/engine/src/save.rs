@@ -1,4 +1,4 @@
-use crate::{WorldState, ENGINE_VERSION};
+use crate::{InstalledContentPackage, WorldState, ENGINE_VERSION};
 use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
@@ -84,12 +84,14 @@ impl From<serde_json::Error> for SaveError {
 
 impl SaveEnvelope {
     pub fn new(slot_id: impl Into<String>, world: WorldState, saved_at_unix_ms: u64) -> Self {
+        let mod_dependencies = mod_dependencies_for_world(&world);
+
         Self {
             schema_version: SAVE_SCHEMA_VERSION,
             engine_version: ENGINE_VERSION.to_string(),
             saved_at_unix_ms,
             slot_id: slot_id.into(),
-            mod_dependencies: Vec::new(),
+            mod_dependencies,
             world,
         }
     }
@@ -111,15 +113,14 @@ impl SaveEnvelope {
             return Err(SaveError::EmptyCharacters);
         }
 
+        let world_mod_dependencies = mod_dependencies_for_world(&self.world);
         let missing_required_mods = self
             .mod_dependencies
             .iter()
             .filter(|dependency| {
                 dependency.required
-                    && !enabled_mods.iter().any(|enabled| {
-                        enabled.namespace == dependency.namespace
-                            && enabled.version == dependency.version
-                    })
+                    && !mod_dependency_is_available(dependency, enabled_mods)
+                    && !mod_dependency_is_available(dependency, &world_mod_dependencies)
             })
             .cloned()
             .collect();
@@ -140,6 +141,39 @@ impl SaveEnvelope {
         self.schema_version = SAVE_SCHEMA_VERSION;
         self.engine_version = ENGINE_VERSION.to_string();
         Ok(self)
+    }
+}
+
+pub fn mod_dependencies_for_world(world: &WorldState) -> Vec<SaveModDependency> {
+    let mut dependencies = world
+        .installed_content_packages
+        .iter()
+        .map(SaveModDependency::from)
+        .collect::<Vec<_>>();
+    dependencies.sort_by(|left, right| {
+        left.namespace
+            .cmp(&right.namespace)
+            .then_with(|| left.version.cmp(&right.version))
+    });
+    dependencies
+}
+
+fn mod_dependency_is_available(
+    dependency: &SaveModDependency,
+    enabled_mods: &[SaveModDependency],
+) -> bool {
+    enabled_mods.iter().any(|enabled| {
+        enabled.namespace == dependency.namespace && enabled.version == dependency.version
+    })
+}
+
+impl From<&InstalledContentPackage> for SaveModDependency {
+    fn from(package: &InstalledContentPackage) -> Self {
+        Self {
+            namespace: package.package_id.clone(),
+            version: package.version.clone(),
+            required: true,
+        }
     }
 }
 
@@ -261,6 +295,31 @@ mod tests {
             report.missing_required_mods[0].namespace,
             "example.required"
         );
+    }
+
+    #[test]
+    fn save_envelope_derives_installed_content_package_dependencies() {
+        let mut world = WorldState::bootstrap_demo();
+        world
+            .installed_content_packages
+            .push(InstalledContentPackage {
+                namespace: "sample".to_string(),
+                package_id: "sample.event_pack".to_string(),
+                version: "0.1.0".to_string(),
+            });
+
+        let save = SaveEnvelope::new("slot-1", world, 123);
+        let report = save.validate(&[]).unwrap();
+
+        assert_eq!(
+            save.mod_dependencies,
+            vec![SaveModDependency {
+                namespace: "sample.event_pack".to_string(),
+                version: "0.1.0".to_string(),
+                required: true,
+            }]
+        );
+        assert!(report.missing_required_mods.is_empty());
     }
 
     #[test]

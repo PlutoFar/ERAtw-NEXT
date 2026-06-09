@@ -193,6 +193,9 @@ ScheduledEvent。
 和 `resource_refs`、Choice 条件/效果引用、ScheduledEvent 条件/动作引用，都必须能在
 安装后的世界中找到；
 事件若启动对话，其 `scene_id` 必须能在安装后的世界中找到；失败时不修改输入世界。
+安装成功后，`WorldState.installed_content_packages` 会记录 manifest 的 namespace、
+package_id 和 version；`SaveEnvelope` 会据此生成存档 `mod_dependencies`，当前以
+`package_id` 作为依赖 namespace。
 
 ## 规则
 
