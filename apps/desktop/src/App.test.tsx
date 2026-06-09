@@ -63,4 +63,23 @@ describe("App", () => {
       expect(screen.getByText("1")).toBeInTheDocument();
     });
   });
+
+  it("shows dialogue choices only when conditions pass", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /对话/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText("询问新引擎")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("谈谈信任")).not.toBeInTheDocument();
+
+    const communicateButton = screen.getByRole("button", { name: /交流/ });
+    fireEvent.click(communicateButton);
+    fireEvent.click(communicateButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("谈谈信任")).toBeInTheDocument();
+    });
+  });
 });

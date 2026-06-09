@@ -154,7 +154,34 @@ pub struct DialogueChoice {
     pub id: String,
     pub label: String,
     pub next_node_id: Option<String>,
+    #[serde(default)]
+    pub conditions: Vec<DialogueCondition>,
     pub effects: Vec<DialogueEffect>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DialogueCondition {
+    CharacterAtLocation {
+        character_id: String,
+        location_id: String,
+    },
+    CharacterMoodAtLeast {
+        character_id: String,
+        value: i16,
+    },
+    RelationshipAffinityAtLeast {
+        source_character_id: String,
+        target_character_id: String,
+        value: i16,
+    },
+    WeatherIs {
+        weather: Weather,
+    },
+    TimeAtLeast {
+        hour: u8,
+        minute: u8,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -287,6 +314,8 @@ pub enum EngineError {
     DialogueNodeNotFound(String),
     #[error("dialogue choice not found: {0}")]
     DialogueChoiceNotFound(String),
+    #[error("dialogue choice condition not met: {0}")]
+    DialogueChoiceConditionNotMet(String),
     #[error("scheduled event id is required")]
     ScheduledEventIdRequired,
     #[error("duplicate scheduled event: {0}")]
@@ -477,6 +506,12 @@ impl WorldState {
             .cloned()
             .ok_or_else(|| EngineError::DialogueChoiceNotFound(choice_id.to_string()))?;
 
+        if !self.dialogue_choice_conditions_met(&choice)? {
+            return Err(EngineError::DialogueChoiceConditionNotMet(
+                choice_id.to_string(),
+            ));
+        }
+
         for effect in &choice.effects {
             self.apply_dialogue_effect(effect)?;
         }
@@ -524,6 +559,57 @@ impl WorldState {
             DialogueEffect::AddLog { message } => {
                 self.event_log.push(message.clone());
                 Ok(())
+            }
+        }
+    }
+
+    pub fn visible_choices(&self, node: &DialogueNode) -> Result<Vec<DialogueChoice>, EngineError> {
+        let mut choices = Vec::new();
+        for choice in &node.choices {
+            if self.dialogue_choice_conditions_met(choice)? {
+                choices.push(choice.clone());
+            }
+        }
+        Ok(choices)
+    }
+
+    fn dialogue_choice_conditions_met(&self, choice: &DialogueChoice) -> Result<bool, EngineError> {
+        for condition in &choice.conditions {
+            if !self.dialogue_condition_met(condition)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn dialogue_condition_met(&self, condition: &DialogueCondition) -> Result<bool, EngineError> {
+        match condition {
+            DialogueCondition::CharacterAtLocation {
+                character_id,
+                location_id,
+            } => {
+                let character = self.character(character_id)?;
+                Ok(character.location_id == *location_id)
+            }
+            DialogueCondition::CharacterMoodAtLeast {
+                character_id,
+                value,
+            } => {
+                let character = self.character(character_id)?;
+                Ok(character.state.mood >= *value)
+            }
+            DialogueCondition::RelationshipAffinityAtLeast {
+                source_character_id,
+                target_character_id,
+                value,
+            } => {
+                self.ensure_character_exists(target_character_id)?;
+                let relationship = self.relationship(source_character_id, target_character_id)?;
+                Ok(relationship.affinity >= *value)
+            }
+            DialogueCondition::WeatherIs { weather } => Ok(self.clock.weather == *weather),
+            DialogueCondition::TimeAtLeast { hour, minute } => {
+                Ok((self.clock.hour, self.clock.minute) >= (*hour, *minute))
             }
         }
     }
@@ -707,8 +793,43 @@ impl WorldState {
     ) -> Result<(), EngineError> {
         self.ensure_character_exists(target_character_id)?;
 
-        let relationship = self
-            .relationships
+        let relationship = self.relationship_mut(source_character_id, target_character_id)?;
+
+        relationship.affinity = bounded_delta(relationship.affinity, affinity_delta, -100, 100);
+        relationship.trust = bounded_delta(relationship.trust, trust_delta, -100, 100);
+        Ok(())
+    }
+
+    fn character(&self, character_id: &str) -> Result<&Character, EngineError> {
+        self.characters
+            .iter()
+            .find(|character| character.id == character_id)
+            .ok_or_else(|| EngineError::CharacterNotFound(character_id.to_string()))
+    }
+
+    fn relationship(
+        &self,
+        source_character_id: &str,
+        target_character_id: &str,
+    ) -> Result<&Relationship, EngineError> {
+        self.relationships
+            .iter()
+            .find(|relationship| {
+                relationship.source_character_id == source_character_id
+                    && relationship.target_character_id == target_character_id
+            })
+            .ok_or_else(|| EngineError::RelationshipNotFound {
+                source_character_id: source_character_id.to_string(),
+                target_character_id: target_character_id.to_string(),
+            })
+    }
+
+    fn relationship_mut(
+        &mut self,
+        source_character_id: &str,
+        target_character_id: &str,
+    ) -> Result<&mut Relationship, EngineError> {
+        self.relationships
             .iter_mut()
             .find(|relationship| {
                 relationship.source_character_id == source_character_id
@@ -717,11 +838,7 @@ impl WorldState {
             .ok_or_else(|| EngineError::RelationshipNotFound {
                 source_character_id: source_character_id.to_string(),
                 target_character_id: target_character_id.to_string(),
-            })?;
-
-        relationship.affinity = bounded_delta(relationship.affinity, affinity_delta, -100, 100);
-        relationship.trust = bounded_delta(relationship.trust, trust_delta, -100, 100);
-        Ok(())
+            })
     }
 
     fn ensure_character_exists(&self, character_id: &str) -> Result<(), EngineError> {
@@ -810,6 +927,7 @@ fn demo_dialogue_scenes() -> Vec<DialogueScene> {
                         id: "ask_about_engine".to_string(),
                         label: "询问新引擎".to_string(),
                         next_node_id: Some("demo_morning_002".to_string()),
+                        conditions: Vec::new(),
                         effects: vec![DialogueEffect::AddLog {
                             message: "对话选择：询问新引擎。".to_string(),
                         }],
@@ -818,6 +936,7 @@ fn demo_dialogue_scenes() -> Vec<DialogueScene> {
                         id: "encourage".to_string(),
                         label: "鼓励她".to_string(),
                         next_node_id: Some("demo_morning_003".to_string()),
+                        conditions: Vec::new(),
                         effects: vec![
                             DialogueEffect::AdjustCharacterState {
                                 character_id: "demo_heroine".to_string(),
@@ -832,6 +951,22 @@ fn demo_dialogue_scenes() -> Vec<DialogueScene> {
                             },
                         ],
                     },
+                    DialogueChoice {
+                        id: "talk_about_trust".to_string(),
+                        label: "谈谈信任".to_string(),
+                        next_node_id: Some("demo_morning_004".to_string()),
+                        conditions: vec![DialogueCondition::RelationshipAffinityAtLeast {
+                            source_character_id: "player".to_string(),
+                            target_character_id: "demo_heroine".to_string(),
+                            value: 7,
+                        }],
+                        effects: vec![DialogueEffect::AdjustRelationship {
+                            source_character_id: "player".to_string(),
+                            target_character_id: "demo_heroine".to_string(),
+                            affinity_delta: 0,
+                            trust_delta: 2,
+                        }],
+                    },
                 ],
             },
             DialogueNode {
@@ -844,6 +979,12 @@ fn demo_dialogue_scenes() -> Vec<DialogueScene> {
                 id: "demo_morning_003".to_string(),
                 speaker_id: "demo_heroine".to_string(),
                 text: "嗯。先把能稳定重放的小循环做好。".to_string(),
+                choices: Vec::new(),
+            },
+            DialogueNode {
+                id: "demo_morning_004".to_string(),
+                speaker_id: "demo_heroine".to_string(),
+                text: "信任会一点点积累。先从可验证的承诺开始。".to_string(),
                 choices: Vec::new(),
             },
         ],
@@ -930,7 +1071,9 @@ mod tests {
             Some("demo_morning".to_string())
         );
         assert_eq!(world.active_dialogue.len(), 1);
-        assert_eq!(world.active_dialogue[0].choices.len(), 2);
+        assert_eq!(world.active_dialogue[0].choices.len(), 3);
+        let visible = world.visible_choices(&world.active_dialogue[0]).unwrap();
+        assert_eq!(visible.len(), 2);
     }
 
     #[test]
@@ -954,6 +1097,61 @@ mod tests {
         assert_eq!(world.characters[0].state.mood, 13);
         assert_eq!(world.relationships[0].affinity, 7);
         assert_eq!(world.relationships[0].trust, 1);
+    }
+
+    #[test]
+    fn dialogue_choice_conditions_gate_selection_transactionally() {
+        let mut world = WorldState::bootstrap_demo();
+        world
+            .apply_command(EngineCommand::StartDialogue {
+                scene_id: "demo_morning".to_string(),
+            })
+            .unwrap();
+        let original = world.clone();
+
+        let result = world.apply_command(EngineCommand::ChooseDialogue {
+            node_id: "demo_morning_001".to_string(),
+            choice_id: "talk_about_trust".to_string(),
+        });
+
+        assert_eq!(
+            result,
+            Err(EngineError::DialogueChoiceConditionNotMet(
+                "talk_about_trust".to_string()
+            ))
+        );
+        assert_eq!(world, original);
+    }
+
+    #[test]
+    fn dialogue_choice_condition_allows_unlocked_selection() {
+        let mut world = WorldState::bootstrap_demo();
+        world
+            .apply_command(EngineCommand::AdjustRelationship {
+                source_character_id: "player".to_string(),
+                target_character_id: "demo_heroine".to_string(),
+                affinity_delta: 2,
+                trust_delta: 0,
+            })
+            .unwrap();
+        world
+            .apply_command(EngineCommand::StartDialogue {
+                scene_id: "demo_morning".to_string(),
+            })
+            .unwrap();
+
+        let visible = world.visible_choices(&world.active_dialogue[0]).unwrap();
+        assert!(visible.iter().any(|choice| choice.id == "talk_about_trust"));
+
+        world
+            .apply_command(EngineCommand::ChooseDialogue {
+                node_id: "demo_morning_001".to_string(),
+                choice_id: "talk_about_trust".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(world.active_dialogue[1].id, "demo_morning_004");
+        assert_eq!(world.relationships[0].trust, 2);
     }
 
     #[test]

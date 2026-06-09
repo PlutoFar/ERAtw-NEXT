@@ -1,4 +1,4 @@
-use eratw_engine::{DialogueScene, WorldState};
+use eratw_engine::{DialogueCondition, DialogueScene, WorldState};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 use thiserror::Error;
@@ -96,6 +96,8 @@ pub enum ContentIssueCode {
     EmptyDialogueText,
     MissingEntryNode,
     MissingChoiceNextNode,
+    EmptyConditionReference,
+    InvalidConditionTime,
     UnreachableDialogueNode,
 }
 
@@ -179,6 +181,14 @@ fn validate_dialogue_scene(scene: &DialogueScene, report: &mut ContentValidation
         }
 
         for choice in &node.choices {
+            for condition in &choice.conditions {
+                validate_dialogue_condition(
+                    condition,
+                    &format!("{}:{}:{}", scene.id, node.id, choice.id),
+                    report,
+                );
+            }
+
             if let Some(next_node_id) = &choice.next_node_id {
                 if !node_ids.contains(next_node_id.as_str())
                     && !scene.nodes.iter().any(|node| node.id == *next_node_id)
@@ -209,6 +219,43 @@ fn validate_dialogue_scene(scene: &DialogueScene, report: &mut ContentValidation
             ContentIssueCode::UnreachableDialogueNode,
             format!("{}:{}", scene.id, unreachable),
         );
+    }
+}
+
+fn validate_dialogue_condition(
+    condition: &DialogueCondition,
+    target_prefix: &str,
+    report: &mut ContentValidationReport,
+) {
+    match condition {
+        DialogueCondition::CharacterAtLocation {
+            character_id,
+            location_id,
+        } => {
+            if character_id.trim().is_empty() || location_id.trim().is_empty() {
+                report.push(ContentIssueCode::EmptyConditionReference, target_prefix);
+            }
+        }
+        DialogueCondition::CharacterMoodAtLeast { character_id, .. } => {
+            if character_id.trim().is_empty() {
+                report.push(ContentIssueCode::EmptyConditionReference, target_prefix);
+            }
+        }
+        DialogueCondition::RelationshipAffinityAtLeast {
+            source_character_id,
+            target_character_id,
+            ..
+        } => {
+            if source_character_id.trim().is_empty() || target_character_id.trim().is_empty() {
+                report.push(ContentIssueCode::EmptyConditionReference, target_prefix);
+            }
+        }
+        DialogueCondition::WeatherIs { .. } => {}
+        DialogueCondition::TimeAtLeast { hour, minute } => {
+            if *hour >= 24 || *minute >= 60 {
+                report.push(ContentIssueCode::InvalidConditionTime, target_prefix);
+            }
+        }
     }
 }
 
@@ -263,7 +310,7 @@ fn merge_dialogue_scenes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eratw_engine::{DialogueChoice, DialogueEffect, DialogueNode};
+    use eratw_engine::{DialogueChoice, DialogueCondition, DialogueEffect, DialogueNode};
 
     #[test]
     fn clean_package_validates() {
@@ -357,6 +404,41 @@ mod tests {
     }
 
     #[test]
+    fn dialogue_validation_reports_invalid_choice_conditions() {
+        let mut node = node_with_choice("entry", None);
+        node.choices = vec![DialogueChoice {
+            id: "blocked".to_string(),
+            label: "异常条件".to_string(),
+            next_node_id: None,
+            conditions: vec![
+                DialogueCondition::CharacterAtLocation {
+                    character_id: "".to_string(),
+                    location_id: "school_gate".to_string(),
+                },
+                DialogueCondition::TimeAtLeast {
+                    hour: 25,
+                    minute: 0,
+                },
+            ],
+            effects: Vec::new(),
+        }];
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.demo"),
+            dialogue_scenes: vec![scene_with_nodes(vec![node])],
+        };
+
+        let report = package.validate().unwrap();
+
+        assert_eq!(
+            issue_codes(&report),
+            vec![
+                ContentIssueCode::EmptyConditionReference,
+                ContentIssueCode::InvalidConditionTime,
+            ]
+        );
+    }
+
+    #[test]
     fn clean_package_installs_dialogue_scenes_into_world() {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.extra"),
@@ -441,6 +523,7 @@ mod tests {
                         id: "next".to_string(),
                         label: "继续".to_string(),
                         next_node_id: Some(next_node_id.to_string()),
+                        conditions: Vec::new(),
                         effects: vec![DialogueEffect::AddLog {
                             message: "继续。".to_string(),
                         }],

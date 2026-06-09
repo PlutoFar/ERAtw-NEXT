@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createBrowserMockEngineClient } from "./client";
-import { applyDemoCommand, createDemoWorld } from "./demoWorld";
+import { applyDemoCommand, createDemoWorld, visibleChoices } from "./demoWorld";
 
 describe("demo engine adapter", () => {
   it("creates deterministic demo state", () => {
@@ -43,7 +43,8 @@ describe("demo engine adapter", () => {
 
     expect(world.active_dialogue_scene_id).toBe("demo_morning");
     expect(world.active_dialogue).toHaveLength(1);
-    expect(world.active_dialogue[0].choices).toHaveLength(2);
+    expect(world.active_dialogue[0].choices).toHaveLength(3);
+    expect(visibleChoices(world, world.active_dialogue[0])).toHaveLength(2);
   });
 
   it("applies dialogue choice effects", () => {
@@ -62,6 +63,48 @@ describe("demo engine adapter", () => {
     expect(world.characters[0].state.mood).toBe(13);
     expect(world.relationships[0].affinity).toBe(7);
     expect(world.relationships[0].trust).toBe(1);
+  });
+
+  it("gates dialogue choices by conditions", () => {
+    const started = applyDemoCommand(createDemoWorld(), {
+      type: "start_dialogue",
+      scene_id: "demo_morning",
+    });
+    const rejected = applyDemoCommand(started, {
+      type: "choose_dialogue",
+      node_id: "demo_morning_001",
+      choice_id: "talk_about_trust",
+    });
+
+    expect(rejected).toEqual(started);
+    expect(rejected.command_log).toHaveLength(1);
+
+    const unlocked = applyDemoCommand(createDemoWorld(), {
+      type: "adjust_relationship",
+      source_character_id: "player",
+      target_character_id: "demo_heroine",
+      affinity_delta: 2,
+      trust_delta: 0,
+    });
+    const unlockedStarted = applyDemoCommand(unlocked, {
+      type: "start_dialogue",
+      scene_id: "demo_morning",
+    });
+
+    expect(
+      visibleChoices(unlockedStarted, unlockedStarted.active_dialogue[0]).some(
+        (choice) => choice.id === "talk_about_trust",
+      ),
+    ).toBe(true);
+
+    const chosen = applyDemoCommand(unlockedStarted, {
+      type: "choose_dialogue",
+      node_id: "demo_morning_001",
+      choice_id: "talk_about_trust",
+    });
+
+    expect(chosen.active_dialogue[1].text).toContain("信任会一点点积累");
+    expect(chosen.relationships[0].trust).toBe(2);
   });
 
   it("records successful commands only", () => {

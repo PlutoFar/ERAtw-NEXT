@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Clock3, CloudSun, Dices, MessageSquareText, MoveRight } from "lucide-react";
 import { useEngine } from "./engine/useEngine";
+import { visibleChoices } from "./engine/demoWorld";
 import { ModernMap } from "./components/ModernMap";
 import { TraditionalView } from "./components/TraditionalView";
 import type { Location, WorldState } from "./types";
@@ -222,9 +223,9 @@ export const App = () => {
                 <article key={node.id}>
                   <strong>{node.speaker_id}</strong>
                   <p>{node.text}</p>
-                  {node.choices.length > 0 ? (
+                  {visibleChoices(world, node).length > 0 ? (
                     <div className="choice-list">
-                      {node.choices.map((choice) => (
+                      {visibleChoices(world, node).map((choice) => (
                         <button
                           key={choice.id}
                           type="button"

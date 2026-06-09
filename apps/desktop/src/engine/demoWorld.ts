@@ -1,5 +1,6 @@
 import type {
   DialogueChoice,
+  DialogueCondition,
   DialogueEffect,
   DialogueNode,
   DialogueScene,
@@ -88,6 +89,7 @@ const createDemoDialogueScenes = (): DialogueScene[] => [
             id: "ask_about_engine",
             label: "询问新引擎",
             next_node_id: "demo_morning_002",
+            conditions: [],
             effects: [
               {
                 type: "add_log",
@@ -99,6 +101,7 @@ const createDemoDialogueScenes = (): DialogueScene[] => [
             id: "encourage",
             label: "鼓励她",
             next_node_id: "demo_morning_003",
+            conditions: [],
             effects: [
               {
                 type: "adjust_character_state",
@@ -115,6 +118,28 @@ const createDemoDialogueScenes = (): DialogueScene[] => [
               },
             ],
           },
+          {
+            id: "talk_about_trust",
+            label: "谈谈信任",
+            next_node_id: "demo_morning_004",
+            conditions: [
+              {
+                type: "relationship_affinity_at_least",
+                source_character_id: "player",
+                target_character_id: "demo_heroine",
+                value: 7,
+              },
+            ],
+            effects: [
+              {
+                type: "adjust_relationship",
+                source_character_id: "player",
+                target_character_id: "demo_heroine",
+                affinity_delta: 0,
+                trust_delta: 2,
+              },
+            ],
+          },
         ],
       },
       {
@@ -127,6 +152,12 @@ const createDemoDialogueScenes = (): DialogueScene[] => [
         id: "demo_morning_003",
         speaker_id: "demo_heroine",
         text: "嗯。先把能稳定重放的小循环做好。",
+        choices: [],
+      },
+      {
+        id: "demo_morning_004",
+        speaker_id: "demo_heroine",
+        text: "信任会一点点积累。先从可验证的承诺开始。",
         choices: [],
       },
     ],
@@ -303,6 +334,50 @@ const applyDialogueEffect = (world: WorldState, effect: DialogueEffect) => {
   world.event_log = [effect.message, ...world.event_log];
 };
 
+const dialogueConditionMet = (
+  world: WorldState,
+  condition: DialogueCondition,
+) => {
+  if (condition.type === "character_at_location") {
+    return world.characters.some(
+      (character) =>
+        character.id === condition.character_id &&
+        character.location_id === condition.location_id,
+    );
+  }
+
+  if (condition.type === "character_mood_at_least") {
+    return world.characters.some(
+      (character) =>
+        character.id === condition.character_id &&
+        character.state.mood >= condition.value,
+    );
+  }
+
+  if (condition.type === "relationship_affinity_at_least") {
+    return world.relationships.some(
+      (relationship) =>
+        relationship.source_character_id === condition.source_character_id &&
+        relationship.target_character_id === condition.target_character_id &&
+        relationship.affinity >= condition.value,
+    );
+  }
+
+  if (condition.type === "weather_is") {
+    return world.clock.weather === condition.weather;
+  }
+
+  return (
+    world.clock.hour > condition.hour ||
+    (world.clock.hour === condition.hour && world.clock.minute >= condition.minute)
+  );
+};
+
+export const visibleChoices = (world: WorldState, node: DialogueNode) =>
+  node.choices.filter((choice) =>
+    choice.conditions.every((condition) => dialogueConditionMet(world, condition)),
+  );
+
 const chooseDialogue = (
   world: WorldState,
   nodeId: string,
@@ -314,9 +389,9 @@ const chooseDialogue = (
   }
 
   const activeNode = world.active_dialogue.find((node) => node.id === nodeId);
-  const choice: DialogueChoice | undefined = activeNode?.choices.find(
-    (item) => item.id === choiceId,
-  );
+  const choice: DialogueChoice | undefined = activeNode
+    ? visibleChoices(world, activeNode).find((item) => item.id === choiceId)
+    : undefined;
   if (!choice) {
     return false;
   }

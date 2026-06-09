@@ -57,8 +57,29 @@ export interface DialogueChoice {
   id: string;
   label: string;
   next_node_id: string | null;
+  conditions: DialogueCondition[];
   effects: DialogueEffect[];
 }
+
+export type DialogueCondition =
+  | {
+      type: "character_at_location";
+      character_id: string;
+      location_id: string;
+    }
+  | {
+      type: "character_mood_at_least";
+      character_id: string;
+      value: number;
+    }
+  | {
+      type: "relationship_affinity_at_least";
+      source_character_id: string;
+      target_character_id: string;
+      value: number;
+    }
+  | { type: "weather_is"; weather: Weather }
+  | { type: "time_at_least"; hour: number; minute: number };
 
 export type DialogueEffect =
   | {

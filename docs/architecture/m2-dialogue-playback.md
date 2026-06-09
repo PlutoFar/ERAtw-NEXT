@@ -9,6 +9,7 @@
 - `DialogueScene`：场景 ID、入口节点和节点列表。
 - `DialogueNode`：说话人、文本和可选选择。
 - `DialogueChoice`：选择 ID、显示文本、下一节点和效果列表。
+- `DialogueCondition`：当前支持地点、角色心情、关系好感、天气和时间判断。
 - `DialogueEffect`：当前支持角色状态调整、关系调整、天气切换和日志写入。
 - `EngineCommand::ChooseDialogue`：前端只提交选择命令，状态由 engine 结算。
 - `eratw_content::ContentPackage`：封装 manifest 与 DialogueScene 列表。
@@ -20,6 +21,7 @@
 - `StartDialogue` 只激活场景入口节点。
 - 选择不存在、节点不活跃、未开始对话时命令失败且世界状态回滚。
 - 有 `next_node_id` 的选择会追加下一节点；无下一节点的选择结束当前对话。
+- 选择条件不满足时不会在 UI 展示；强行提交该选择会被 engine 拒绝并回滚。
 - 选择效果可更新角色状态和关系，但所有效果失败时整条选择命令回滚。
 - Dialogue 数据不执行旧 ERB，不直接引用文件路径。
 - 内容包校验返回结构化 issue code 和 target，供 CLI、编辑器和运行前检查复用。
@@ -27,6 +29,6 @@
 
 ## 后续
 
-- 增加条件判断、资源引用、占位符和变量类型校验。
+- 增加资源引用、占位符和变量类型校验。
 - 将内容包安装入口暴露给桌面端开发工具和预览器。
 - 为条件、资源引用和占位符增加内容测试。
