@@ -114,6 +114,8 @@ export type ModDiscoveryIssueKind =
   | "json"
   | "unsafe_install_namespace"
   | "install_target_exists"
+  | "install_target_missing"
+  | "install_target_not_directory"
   | "missing_namespace"
   | "missing_name"
   | "missing_version"
@@ -151,6 +153,20 @@ export interface ModInstallReport {
   actions: ModInstallActionReport[];
 }
 
+export interface ModUninstallPlanReport {
+  install_root: string;
+  target_root: string;
+  staging_root: string;
+  namespace: string;
+  actions: ModInstallActionReport[];
+}
+
+export interface ModUninstallReport {
+  namespace: string;
+  target_root: string;
+  actions: ModInstallActionReport[];
+}
+
 export type ModInstallActionReport =
   | {
       kind: "create_directory";
@@ -169,6 +185,12 @@ export type ModInstallActionReport =
       path: null;
       from: string;
       to: string;
+    }
+  | {
+      kind: "delete_directory";
+      path: string;
+      from: null;
+      to: null;
     };
 
 export interface ModEnablement {

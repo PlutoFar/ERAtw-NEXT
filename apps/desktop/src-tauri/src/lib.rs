@@ -6,9 +6,10 @@ use eratw_engine::{
 };
 use eratw_mod_runtime::{
     discover_mods_for_engine, install_mod_for_engine, plan_enabled_mods_for_engine,
-    plan_mod_install_for_engine, DisabledMod, DiscoveredMod, ModDiscoveryError, ModDiscoveryIssue,
-    ModDiscoveryReport, ModEnablement, ModEnablementPlan, ModInstallAction, ModInstallPlan,
-    ModInstallReport, ModLoadError, ModManifest, ModValidationError,
+    plan_mod_install_for_engine, plan_mod_uninstall, uninstall_mod, DisabledMod, DiscoveredMod,
+    ModDiscoveryError, ModDiscoveryIssue, ModDiscoveryReport, ModEnablement, ModEnablementPlan,
+    ModInstallAction, ModInstallPlan, ModInstallReport, ModLoadError, ModManifest,
+    ModUninstallPlan, ModUninstallReport, ModValidationError,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -67,6 +68,29 @@ struct ModInstallPlanReport {
 struct ModInstallReportDto {
     target_root: String,
     manifest: ModManifest,
+    actions: Vec<ModInstallActionReport>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModUninstallRequest {
+    #[serde(alias = "installRoot")]
+    install_root: String,
+    namespace: String,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct ModUninstallPlanReport {
+    install_root: String,
+    target_root: String,
+    staging_root: String,
+    namespace: String,
+    actions: Vec<ModInstallActionReport>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct ModUninstallReportDto {
+    namespace: String,
+    target_root: String,
     actions: Vec<ModInstallActionReport>,
 }
 
@@ -189,6 +213,32 @@ fn engine_install_mod(
         kind: mod_discovery_error_kind(&error).to_string(),
         message: error.to_string(),
     })
+}
+
+#[tauri::command]
+fn engine_plan_mod_uninstall(
+    request: ModUninstallRequest,
+) -> Result<ModUninstallPlanReport, ModDiscoveryIssueReport> {
+    plan_mod_uninstall(request.install_root, request.namespace)
+        .map(Into::into)
+        .map_err(|error| ModDiscoveryIssueReport {
+            path: String::new(),
+            kind: mod_discovery_error_kind(&error).to_string(),
+            message: error.to_string(),
+        })
+}
+
+#[tauri::command]
+fn engine_uninstall_mod(
+    request: ModUninstallRequest,
+) -> Result<ModUninstallReportDto, ModDiscoveryIssueReport> {
+    uninstall_mod(request.install_root, request.namespace)
+        .map(Into::into)
+        .map_err(|error| ModDiscoveryIssueReport {
+            path: String::new(),
+            kind: mod_discovery_error_kind(&error).to_string(),
+            message: error.to_string(),
+        })
 }
 
 #[tauri::command]
@@ -328,6 +378,28 @@ impl From<ModInstallReport> for ModInstallReportDto {
     }
 }
 
+impl From<ModUninstallPlan> for ModUninstallPlanReport {
+    fn from(plan: ModUninstallPlan) -> Self {
+        Self {
+            install_root: plan.install_root.to_string_lossy().to_string(),
+            target_root: plan.target_root.to_string_lossy().to_string(),
+            staging_root: plan.staging_root.to_string_lossy().to_string(),
+            namespace: plan.namespace,
+            actions: plan.actions.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<ModUninstallReport> for ModUninstallReportDto {
+    fn from(report: ModUninstallReport) -> Self {
+        Self {
+            namespace: report.namespace,
+            target_root: report.target_root.to_string_lossy().to_string(),
+            actions: report.actions.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 impl From<ModInstallAction> for ModInstallActionReport {
     fn from(action: ModInstallAction) -> Self {
         match action {
@@ -348,6 +420,12 @@ impl From<ModInstallAction> for ModInstallActionReport {
                 from: Some(from.to_string_lossy().to_string()),
                 path: None,
                 to: Some(to.to_string_lossy().to_string()),
+            },
+            ModInstallAction::DeleteDirectory { path } => Self {
+                kind: "delete_directory".to_string(),
+                from: None,
+                path: Some(path.to_string_lossy().to_string()),
+                to: None,
             },
         }
     }
@@ -399,6 +477,8 @@ fn mod_discovery_error_kind(error: &ModDiscoveryError) -> &'static str {
         ModDiscoveryError::Json(_) => "json",
         ModDiscoveryError::UnsafeInstallNamespace(_) => "unsafe_install_namespace",
         ModDiscoveryError::InstallTargetExists(_) => "install_target_exists",
+        ModDiscoveryError::InstallTargetMissing(_) => "install_target_missing",
+        ModDiscoveryError::InstallTargetNotDirectory(_) => "install_target_not_directory",
         ModDiscoveryError::Validation(error) => mod_validation_error_kind(error),
     }
 }
@@ -561,6 +641,50 @@ mod tests {
     }
 
     #[test]
+    fn engine_plan_mod_uninstall_returns_frontend_plan() {
+        let install_root = temp_mod_root("uninstall_plan_command");
+
+        let report = engine_plan_mod_uninstall(ModUninstallRequest {
+            install_root: install_root.to_string_lossy().to_string(),
+            namespace: "example.installable".to_string(),
+        })
+        .unwrap();
+
+        assert_eq!(report.namespace, "example.installable");
+        assert!(report.target_root.ends_with("example.installable"));
+        assert!(report
+            .staging_root
+            .ends_with(".uninstalling-example.installable"));
+        assert_eq!(report.actions[0].kind, "move_directory");
+        assert_eq!(report.actions[1].kind, "delete_directory");
+    }
+
+    #[test]
+    fn engine_uninstall_mod_executes_and_returns_frontend_report() {
+        let install_root = temp_mod_root("uninstall_execute_command");
+        let target_root = install_root.join("example.installable");
+        fs::create_dir_all(target_root.join("assets")).unwrap();
+        fs::write(target_root.join("assets/readme.txt"), "remove").unwrap();
+
+        let report = engine_uninstall_mod(ModUninstallRequest {
+            install_root: install_root.to_string_lossy().to_string(),
+            namespace: "example.installable".to_string(),
+        })
+        .unwrap();
+
+        assert_eq!(report.namespace, "example.installable");
+        assert!(report.target_root.ends_with("example.installable"));
+        assert_eq!(report.actions[0].kind, "move_directory");
+        assert_eq!(report.actions[1].kind, "delete_directory");
+        assert!(!install_root.join("example.installable").exists());
+        assert!(!install_root
+            .join(".uninstalling-example.installable")
+            .exists());
+
+        let _ = fs::remove_dir_all(install_root);
+    }
+
+    #[test]
     fn engine_plan_enabled_mods_returns_frontend_plan() {
         let base = manifest("core.base");
         let mut addon = manifest("example.addon");
@@ -655,6 +779,8 @@ pub fn run() {
             engine_discover_mods,
             engine_plan_mod_install,
             engine_install_mod,
+            engine_plan_mod_uninstall,
+            engine_uninstall_mod,
             engine_plan_enabled_mods,
             engine_save_preview,
             engine_save_slot,

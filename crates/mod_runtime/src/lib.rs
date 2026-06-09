@@ -142,12 +142,29 @@ pub enum ModInstallAction {
     CreateDirectory { path: PathBuf },
     CopyDirectory { from: PathBuf, to: PathBuf },
     MoveDirectory { from: PathBuf, to: PathBuf },
+    DeleteDirectory { path: PathBuf },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModInstallReport {
     pub target_root: PathBuf,
     pub manifest: ModManifest,
+    pub actions: Vec<ModInstallAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModUninstallPlan {
+    pub install_root: PathBuf,
+    pub target_root: PathBuf,
+    pub staging_root: PathBuf,
+    pub namespace: String,
+    pub actions: Vec<ModInstallAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModUninstallReport {
+    pub namespace: String,
+    pub target_root: PathBuf,
     pub actions: Vec<ModInstallAction>,
 }
 
@@ -194,6 +211,10 @@ pub enum ModDiscoveryError {
     UnsafeInstallNamespace(String),
     #[error("mod install target already exists: {0}")]
     InstallTargetExists(String),
+    #[error("mod install target is missing: {0}")]
+    InstallTargetMissing(String),
+    #[error("mod install target is not a directory: {0}")]
+    InstallTargetNotDirectory(String),
     #[error(transparent)]
     Validation(#[from] ModValidationError),
 }
@@ -423,6 +444,66 @@ pub fn execute_mod_install_plan(
     })
 }
 
+pub fn plan_mod_uninstall(
+    install_root: impl AsRef<Path>,
+    namespace: impl AsRef<str>,
+) -> Result<ModUninstallPlan, ModDiscoveryError> {
+    let install_root = install_root.as_ref();
+    let namespace = safe_install_namespace(namespace.as_ref())?;
+    let target_root = install_root.join(namespace);
+    let staging_root = install_root.join(format!(".uninstalling-{namespace}"));
+
+    Ok(ModUninstallPlan {
+        install_root: install_root.to_path_buf(),
+        target_root: target_root.clone(),
+        staging_root: staging_root.clone(),
+        namespace: namespace.to_string(),
+        actions: vec![
+            ModInstallAction::MoveDirectory {
+                from: target_root,
+                to: staging_root.clone(),
+            },
+            ModInstallAction::DeleteDirectory { path: staging_root },
+        ],
+    })
+}
+
+pub fn uninstall_mod(
+    install_root: impl AsRef<Path>,
+    namespace: impl AsRef<str>,
+) -> Result<ModUninstallReport, ModDiscoveryError> {
+    let plan = plan_mod_uninstall(install_root, namespace)?;
+    execute_mod_uninstall_plan(plan)
+}
+
+pub fn execute_mod_uninstall_plan(
+    plan: ModUninstallPlan,
+) -> Result<ModUninstallReport, ModDiscoveryError> {
+    if !plan.target_root.exists() {
+        return Err(ModDiscoveryError::InstallTargetMissing(
+            plan.target_root.to_string_lossy().to_string(),
+        ));
+    }
+    if !plan.target_root.is_dir() {
+        return Err(ModDiscoveryError::InstallTargetNotDirectory(
+            plan.target_root.to_string_lossy().to_string(),
+        ));
+    }
+
+    if plan.staging_root.exists() {
+        fs::remove_dir_all(&plan.staging_root)?;
+    }
+
+    fs::rename(&plan.target_root, &plan.staging_root)?;
+    fs::remove_dir_all(&plan.staging_root)?;
+
+    Ok(ModUninstallReport {
+        namespace: plan.namespace,
+        target_root: plan.target_root,
+        actions: plan.actions,
+    })
+}
+
 pub fn discover_mods(root: impl AsRef<Path>) -> ModDiscoveryReport {
     discover_mods_for_engine(root, None)
 }
@@ -459,6 +540,9 @@ pub fn discover_mods_for_engine(
         };
         let mod_root = entry.path();
         if !mod_root.is_dir() {
+            continue;
+        }
+        if is_mod_staging_directory(&mod_root) {
             continue;
         }
 
@@ -647,6 +731,12 @@ fn safe_install_namespace(namespace: &str) -> Result<&str, ModDiscoveryError> {
         ));
     }
     Ok(namespace)
+}
+
+fn is_mod_staging_directory(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with(".installing-") || name.starts_with(".uninstalling-"))
 }
 
 fn copy_directory_recursively(from: &Path, to: &Path) -> io::Result<()> {
@@ -1223,6 +1313,105 @@ mod tests {
     }
 
     #[test]
+    fn mod_uninstall_plan_targets_namespace_directory() {
+        let install_root = temp_mod_dir("uninstall_plan");
+
+        let plan = plan_mod_uninstall(&install_root, "example.installable").unwrap();
+
+        assert_eq!(plan.install_root, install_root);
+        assert_eq!(
+            plan.target_root,
+            plan.install_root.join("example.installable")
+        );
+        assert_eq!(
+            plan.staging_root,
+            plan.install_root.join(".uninstalling-example.installable")
+        );
+        assert_eq!(
+            plan.actions,
+            vec![
+                ModInstallAction::MoveDirectory {
+                    from: plan.target_root.clone(),
+                    to: plan.staging_root.clone(),
+                },
+                ModInstallAction::DeleteDirectory {
+                    path: plan.staging_root.clone(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn uninstall_mod_moves_to_staging_then_deletes() {
+        let install_root = temp_mod_dir("uninstall_execute");
+        let target_root = install_root.join("example.installable");
+        fs::create_dir_all(target_root.join("assets")).unwrap();
+        fs::write(target_root.join("assets/readme.txt"), "remove").unwrap();
+
+        let report = uninstall_mod(&install_root, "example.installable").unwrap();
+
+        assert_eq!(report.namespace, "example.installable");
+        assert_eq!(report.target_root, target_root);
+        assert!(!report.target_root.exists());
+        assert!(!install_root
+            .join(".uninstalling-example.installable")
+            .exists());
+        assert!(matches!(
+            report.actions[0],
+            ModInstallAction::MoveDirectory { .. }
+        ));
+        assert!(matches!(
+            report.actions[1],
+            ModInstallAction::DeleteDirectory { .. }
+        ));
+
+        let _ = fs::remove_dir_all(install_root);
+    }
+
+    #[test]
+    fn uninstall_mod_rejects_missing_target() {
+        let install_root = temp_mod_dir("uninstall_missing");
+
+        let result = uninstall_mod(&install_root, "example.missing");
+
+        assert!(matches!(
+            result,
+            Err(ModDiscoveryError::InstallTargetMissing(_))
+        ));
+    }
+
+    #[test]
+    fn uninstall_mod_rejects_non_directory_target() {
+        let install_root = temp_mod_dir("uninstall_file");
+        fs::create_dir_all(&install_root).unwrap();
+        fs::write(install_root.join("example.file"), b"not a directory").unwrap();
+
+        let result = uninstall_mod(&install_root, "example.file");
+
+        assert!(matches!(
+            result,
+            Err(ModDiscoveryError::InstallTargetNotDirectory(_))
+        ));
+        assert!(install_root.join("example.file").is_file());
+
+        let _ = fs::remove_dir_all(install_root);
+    }
+
+    #[test]
+    fn uninstall_mod_rejects_unsafe_namespace() {
+        let install_root = temp_mod_dir("uninstall_unsafe");
+
+        let result = uninstall_mod(&install_root, "../outside");
+
+        assert_eq!(
+            result,
+            Err(ModDiscoveryError::UnsafeInstallNamespace(
+                "../outside".to_string()
+            ))
+        );
+    }
+
+    #[test]
     fn read_manifest_file_validates_manifest_json() {
         let dir = temp_mod_dir("read_manifest");
         let path = dir.join("manifest.json");
@@ -1245,9 +1434,13 @@ mod tests {
         let good_dir = root.join("good");
         let bad_json_dir = root.join("bad-json");
         let unsafe_dir = root.join("unsafe");
+        let installing_dir = root.join(".installing-example.pending");
+        let uninstalling_dir = root.join(".uninstalling-example.removing");
         fs::create_dir_all(&good_dir).unwrap();
         fs::create_dir_all(&bad_json_dir).unwrap();
         fs::create_dir_all(&unsafe_dir).unwrap();
+        fs::create_dir_all(&installing_dir).unwrap();
+        fs::create_dir_all(&uninstalling_dir).unwrap();
         fs::write(
             good_dir.join("manifest.json"),
             serde_json::to_string_pretty(&manifest("example.good")).unwrap(),
@@ -1259,6 +1452,16 @@ mod tests {
         fs::write(
             unsafe_dir.join("manifest.json"),
             serde_json::to_string_pretty(&unsafe_manifest).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            installing_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.pending")).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            uninstalling_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.removing")).unwrap(),
         )
         .unwrap();
         fs::write(root.join("loose-file.txt"), b"ignored").unwrap();

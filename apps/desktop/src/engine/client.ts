@@ -10,6 +10,8 @@ import type {
   ModInstallPlanReport,
   ModLoadErrorReport,
   ModManifest,
+  ModUninstallPlanReport,
+  ModUninstallReport,
   ResourceAsset,
   ResourceResolutionReport,
   SaveEnvelope,
@@ -34,6 +36,11 @@ export interface EngineClient {
     installRoot: string,
     engineVersion?: string | null,
   ): Promise<ModInstallReport>;
+  planModUninstall(
+    installRoot: string,
+    namespace: string,
+  ): Promise<ModUninstallPlanReport>;
+  uninstallMod(installRoot: string, namespace: string): Promise<ModUninstallReport>;
   planEnabledMods(
     manifests: ModManifest[],
     enablement: ModEnablement[],
@@ -77,6 +84,20 @@ export const createTauriEngineClient = (): EngineClient => ({
         sourceRoot,
         installRoot,
         engineVersion,
+      },
+    }),
+  planModUninstall: (installRoot, namespace) =>
+    invoke<ModUninstallPlanReport>("engine_plan_mod_uninstall", {
+      request: {
+        installRoot,
+        namespace,
+      },
+    }),
+  uninstallMod: (installRoot, namespace) =>
+    invoke<ModUninstallReport>("engine_uninstall_mod", {
+      request: {
+        installRoot,
+        namespace,
       },
     }),
   planEnabledMods: (manifests, enablement, engineVersion = null) =>
@@ -330,6 +351,54 @@ const installBrowserMod = (
   return {
     target_root: plan.target_root,
     manifest: plan.manifest,
+    actions: plan.actions,
+  };
+};
+
+const planBrowserModUninstall = (
+  installRoot: string,
+  namespace: string,
+): ModUninstallPlanReport => {
+  if (!isSafeInstallNamespace(namespace)) {
+    throw {
+      path: "",
+      kind: "unsafe_install_namespace",
+      message: `unsafe mod install namespace: ${namespace}`,
+    };
+  }
+
+  const targetRoot = joinModPath(installRoot, namespace);
+  const stagingRoot = joinModPath(installRoot, `.uninstalling-${namespace}`);
+  return {
+    install_root: installRoot,
+    target_root: targetRoot,
+    staging_root: stagingRoot,
+    namespace,
+    actions: [
+      {
+        kind: "move_directory",
+        path: null,
+        from: targetRoot,
+        to: stagingRoot,
+      },
+      {
+        kind: "delete_directory",
+        path: stagingRoot,
+        from: null,
+        to: null,
+      },
+    ],
+  };
+};
+
+const uninstallBrowserMod = (
+  installRoot: string,
+  namespace: string,
+): ModUninstallReport => {
+  const plan = planBrowserModUninstall(installRoot, namespace);
+  return {
+    namespace: plan.namespace,
+    target_root: plan.target_root,
     actions: plan.actions,
   };
 };
@@ -829,6 +898,12 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     },
     async installMod(sourceRoot, installRoot, engineVersion = null) {
       return structuredClone(installBrowserMod(sourceRoot, installRoot, engineVersion));
+    },
+    async planModUninstall(installRoot, namespace) {
+      return structuredClone(planBrowserModUninstall(installRoot, namespace));
+    },
+    async uninstallMod(installRoot, namespace) {
+      return structuredClone(uninstallBrowserMod(installRoot, namespace));
     },
     async planEnabledMods(manifests, enablement, engineVersion = null) {
       return structuredClone(planBrowserEnabledMods(manifests, enablement, engineVersion));

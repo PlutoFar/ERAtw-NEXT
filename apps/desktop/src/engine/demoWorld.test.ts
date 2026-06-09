@@ -634,6 +634,64 @@ describe("demo engine adapter", () => {
     });
   });
 
+  it("plans browser mod uninstall operations", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const plan = await client.planModUninstall(
+      "mods/installed",
+      "example.minimal_character",
+    );
+
+    expect(plan).toMatchObject({
+      install_root: "mods/installed",
+      target_root: "mods/installed/example.minimal_character",
+      staging_root: "mods/installed/.uninstalling-example.minimal_character",
+      namespace: "example.minimal_character",
+      actions: [
+        {
+          kind: "move_directory",
+          path: null,
+          from: "mods/installed/example.minimal_character",
+          to: "mods/installed/.uninstalling-example.minimal_character",
+        },
+        {
+          kind: "delete_directory",
+          path: "mods/installed/.uninstalling-example.minimal_character",
+          from: null,
+          to: null,
+        },
+      ],
+    });
+  });
+
+  it("simulates browser mod uninstall execution report", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.uninstallMod(
+      "mods/installed",
+      "example.minimal_character",
+    );
+
+    expect(report).toMatchObject({
+      namespace: "example.minimal_character",
+      target_root: "mods/installed/example.minimal_character",
+    });
+    expect(report.actions.map((action) => action.kind)).toEqual([
+      "move_directory",
+      "delete_directory",
+    ]);
+  });
+
+  it("reports browser mod uninstall unsafe namespace errors", async () => {
+    const client = createBrowserMockEngineClient();
+
+    await expect(
+      client.planModUninstall("mods/installed", "../outside"),
+    ).rejects.toMatchObject({
+      kind: "unsafe_install_namespace",
+    });
+  });
+
   it("plans browser enabled mods from discovered manifests", async () => {
     const client = createBrowserMockEngineClient();
     const discovery = await client.discoverMods("examples/mods", "0.1.0-m0");

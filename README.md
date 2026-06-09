@@ -23,6 +23,7 @@ M0 proves the new project can stand alone:
 - Mod enablement planning keeps disabled Mods out of load order and reports dependency failures
 - Mod install planning validates target namespace and emits planned filesystem actions
 - Mod install execution stages copies before moving into the final namespace directory
+- Mod uninstall planning and execution move installs through uninstall staging before deletion
 
 ## Development
 
