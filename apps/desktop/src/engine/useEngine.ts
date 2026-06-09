@@ -1,6 +1,12 @@
 import { create } from "zustand";
 import { createEngineClient, type EngineClient } from "./client";
-import type { ContentPackage, EngineCommand, SaveSlotReport, WorldState } from "../types";
+import type {
+  ContentPackage,
+  EngineCommand,
+  ModRegistry,
+  SaveSlotReport,
+  WorldState,
+} from "../types";
 
 interface EngineStore {
   client: EngineClient;
@@ -14,6 +20,21 @@ interface EngineStore {
   saveSlot: (slotId: string) => Promise<void>;
   loadSlot: (slotId: string) => Promise<void>;
 }
+
+const contentRegistryForWorld = (world: WorldState | null): ModRegistry => ({
+  enabled:
+    world?.installed_content_packages.map((packageInfo) => ({
+      namespace: packageInfo.package_id,
+      version: packageInfo.version,
+      conflicts: [...packageInfo.conflicts],
+    })) ?? [],
+});
+
+const formatContentPreflightIssues = (
+  issues: Awaited<
+    ReturnType<EngineClient["preflightContentPackageInstall"]>
+  >["issues"],
+) => issues.map((issue) => issue.message).join("; ");
 
 export const useEngine = create<EngineStore>((set, get) => ({
   client: createEngineClient(),
@@ -42,7 +63,16 @@ export const useEngine = create<EngineStore>((set, get) => ({
   async installContentPackage(packageData) {
     set({ loading: true, error: null });
     try {
-      const world = await get().client.installContentPackage(packageData);
+      const registry = contentRegistryForWorld(get().world);
+      const preflight = await get().client.preflightContentPackageInstall(
+        packageData,
+        registry,
+      );
+      if (!preflight.ready) {
+        throw new Error(formatContentPreflightIssues(preflight.issues));
+      }
+
+      const world = await get().client.installContentPackage(packageData, registry);
       set({ world, loading: false });
     } catch (error) {
       set({ error: String(error), loading: false });
