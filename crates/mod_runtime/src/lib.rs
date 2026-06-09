@@ -154,6 +154,38 @@ pub struct ModInstallReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModInstallPreflightReport {
+    pub source_root: PathBuf,
+    pub content_root: Option<PathBuf>,
+    pub install_root: PathBuf,
+    pub target_root: Option<PathBuf>,
+    pub staging_root: Option<PathBuf>,
+    pub manifest: Option<ModManifest>,
+    pub issues: Vec<ModInstallPreflightIssue>,
+}
+
+impl ModInstallPreflightReport {
+    pub fn is_ready(&self) -> bool {
+        self.issues
+            .iter()
+            .all(|issue| issue.severity != ModInstallPreflightIssueSeverity::Error)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModInstallPreflightIssue {
+    pub severity: ModInstallPreflightIssueSeverity,
+    pub path: PathBuf,
+    pub error: ModDiscoveryError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModInstallPreflightIssueSeverity {
+    Error,
+    Warning,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModUninstallPlan {
     pub install_root: PathBuf,
     pub target_root: PathBuf,
@@ -303,6 +335,10 @@ pub enum ModDiscoveryError {
     },
     #[error("mod install target already exists: {0}")]
     InstallTargetExists(String),
+    #[error("mod install root is not a directory: {0}")]
+    InstallRootNotDirectory(String),
+    #[error("mod install staging directory already exists: {0}")]
+    InstallStagingExists(String),
     #[error("mod install target is missing: {0}")]
     InstallTargetMissing(String),
     #[error("mod install target is not a directory: {0}")]
@@ -901,9 +937,114 @@ pub fn install_mod_package_for_engine_with_policy(
     execute_mod_install_plan(plan)
 }
 
+pub fn preflight_mod_install(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+) -> ModInstallPreflightReport {
+    preflight_mod_install_for_engine(source_root, install_root, None)
+}
+
+pub fn preflight_mod_install_for_engine(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+) -> ModInstallPreflightReport {
+    preflight_mod_install_for_engine_with_policy(
+        source_root,
+        install_root,
+        engine_version,
+        &ModSecurityPolicy::default(),
+    )
+}
+
+pub fn preflight_mod_install_with_policy(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    policy: &ModSecurityPolicy,
+) -> ModInstallPreflightReport {
+    preflight_mod_install_for_engine_with_policy(source_root, install_root, None, policy)
+}
+
+pub fn preflight_mod_install_for_engine_with_policy(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> ModInstallPreflightReport {
+    let source_root = source_root.as_ref().to_path_buf();
+    let install_root = install_root.as_ref().to_path_buf();
+    let plan = plan_mod_install_for_engine_with_policy(
+        &source_root,
+        &install_root,
+        engine_version,
+        policy,
+    );
+    preflight_install_plan_result(source_root, install_root, None, plan)
+}
+
+pub fn preflight_mod_package_install(
+    package_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+) -> ModInstallPreflightReport {
+    preflight_mod_package_install_for_engine(package_root, install_root, None)
+}
+
+pub fn preflight_mod_package_install_for_engine(
+    package_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+) -> ModInstallPreflightReport {
+    preflight_mod_package_install_for_engine_with_policy(
+        package_root,
+        install_root,
+        engine_version,
+        &ModSecurityPolicy::default(),
+    )
+}
+
+pub fn preflight_mod_package_install_with_policy(
+    package_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    policy: &ModSecurityPolicy,
+) -> ModInstallPreflightReport {
+    preflight_mod_package_install_for_engine_with_policy(package_root, install_root, None, policy)
+}
+
+pub fn preflight_mod_package_install_for_engine_with_policy(
+    package_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+    policy: &ModSecurityPolicy,
+) -> ModInstallPreflightReport {
+    let package_root = package_root.as_ref().to_path_buf();
+    let install_root = install_root.as_ref().to_path_buf();
+    let package =
+        match check_mod_package_for_engine_with_policy(&package_root, engine_version, policy) {
+            Ok(package) => package,
+            Err(error) => {
+                return preflight_install_plan_result(package_root, install_root, None, Err(error));
+            }
+        };
+
+    let content_root = package.content_root.clone();
+    let plan = plan_mod_install_for_engine_with_policy(
+        &package.content_root,
+        &install_root,
+        engine_version,
+        policy,
+    );
+    preflight_install_plan_result(package_root, install_root, Some(content_root), plan)
+}
+
 pub fn execute_mod_install_plan(
     plan: ModInstallPlan,
 ) -> Result<ModInstallReport, ModDiscoveryError> {
+    if plan.install_root.exists() && !plan.install_root.is_dir() {
+        return Err(ModDiscoveryError::InstallRootNotDirectory(
+            plan.install_root.to_string_lossy().to_string(),
+        ));
+    }
+
     if plan.target_root.exists() {
         return Err(ModDiscoveryError::InstallTargetExists(
             plan.target_root.to_string_lossy().to_string(),
@@ -1317,6 +1458,72 @@ fn is_mod_staging_directory(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.starts_with(".installing-") || name.starts_with(".uninstalling-"))
+}
+
+fn preflight_install_plan_result(
+    source_root: PathBuf,
+    install_root: PathBuf,
+    content_root: Option<PathBuf>,
+    plan: Result<ModInstallPlan, ModDiscoveryError>,
+) -> ModInstallPreflightReport {
+    let mut report = ModInstallPreflightReport {
+        source_root,
+        content_root,
+        install_root,
+        target_root: None,
+        staging_root: None,
+        manifest: None,
+        issues: Vec::new(),
+    };
+
+    let plan = match plan {
+        Ok(plan) => plan,
+        Err(error) => {
+            report.issues.push(ModInstallPreflightIssue {
+                severity: ModInstallPreflightIssueSeverity::Error,
+                path: report.source_root.clone(),
+                error,
+            });
+            return report;
+        }
+    };
+
+    report.target_root = Some(plan.target_root.clone());
+    report.staging_root = Some(plan.staging_root.clone());
+    report.manifest = Some(plan.manifest.clone());
+    if report.content_root.is_none() {
+        report.content_root = Some(plan.source_root.clone());
+    }
+
+    if plan.install_root.exists() && !plan.install_root.is_dir() {
+        report.issues.push(ModInstallPreflightIssue {
+            severity: ModInstallPreflightIssueSeverity::Error,
+            path: plan.install_root.clone(),
+            error: ModDiscoveryError::InstallRootNotDirectory(
+                plan.install_root.to_string_lossy().to_string(),
+            ),
+        });
+    }
+    if plan.target_root.exists() {
+        report.issues.push(ModInstallPreflightIssue {
+            severity: ModInstallPreflightIssueSeverity::Error,
+            path: plan.target_root.clone(),
+            error: ModDiscoveryError::InstallTargetExists(
+                plan.target_root.to_string_lossy().to_string(),
+            ),
+        });
+    }
+    if plan.staging_root.exists() {
+        report.issues.push(ModInstallPreflightIssue {
+            severity: ModInstallPreflightIssueSeverity::Warning,
+            path: plan.staging_root.clone(),
+            error: ModDiscoveryError::InstallStagingExists(
+                plan.staging_root.to_string_lossy().to_string(),
+            ),
+        });
+    }
+
+    report
 }
 
 fn absolute_existing_path(path: &Path) -> io::Result<PathBuf> {
@@ -2352,6 +2559,90 @@ mod tests {
     }
 
     #[test]
+    fn preflight_mod_install_reports_ready_plan_without_writing() {
+        let source_root = temp_mod_dir("preflight_install_source");
+        let install_root = temp_mod_dir("preflight_install_root");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.preflight")).unwrap(),
+        )
+        .unwrap();
+
+        let report =
+            preflight_mod_install_for_engine(&source_root, &install_root, Some("0.1.0-m0"));
+
+        assert!(report.is_ready());
+        assert_eq!(report.manifest.unwrap().namespace, "example.preflight");
+        assert_eq!(
+            report.target_root,
+            Some(install_root.join("example.preflight"))
+        );
+        assert_eq!(report.issues, Vec::new());
+        assert!(!install_root.exists());
+
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn preflight_mod_install_reports_target_and_staging_state() {
+        let source_root = temp_mod_dir("preflight_install_state_source");
+        let install_root = temp_mod_dir("preflight_install_state_root");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::create_dir_all(install_root.join("example.preflight")).unwrap();
+        fs::create_dir_all(install_root.join(".installing-example.preflight")).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.preflight")).unwrap(),
+        )
+        .unwrap();
+
+        let report = preflight_mod_install(&source_root, &install_root);
+
+        assert!(!report.is_ready());
+        assert!(report.issues.iter().any(|issue| {
+            issue.severity == ModInstallPreflightIssueSeverity::Error
+                && matches!(issue.error, ModDiscoveryError::InstallTargetExists(_))
+        }));
+        assert!(report.issues.iter().any(|issue| {
+            issue.severity == ModInstallPreflightIssueSeverity::Warning
+                && matches!(issue.error, ModDiscoveryError::InstallStagingExists(_))
+        }));
+
+        let _ = fs::remove_dir_all(install_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn preflight_mod_install_reports_install_root_file() {
+        let source_root = temp_mod_dir("preflight_install_root_file_source");
+        let install_root = temp_mod_dir("preflight_install_root_file");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(&install_root, "not a directory").unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.preflight")).unwrap(),
+        )
+        .unwrap();
+
+        let report = preflight_mod_install(&source_root, &install_root);
+        let install = install_mod(&source_root, &install_root);
+
+        assert!(!report.is_ready());
+        assert!(report
+            .issues
+            .iter()
+            .any(|issue| { matches!(issue.error, ModDiscoveryError::InstallRootNotDirectory(_)) }));
+        assert!(matches!(
+            install,
+            Err(ModDiscoveryError::InstallRootNotDirectory(_))
+        ));
+
+        let _ = fs::remove_file(install_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
     fn install_mod_copies_directory_through_staging() {
         let source_root = temp_mod_dir("install_execute_source");
         let install_root = temp_mod_dir("install_execute_root");
@@ -2481,6 +2772,53 @@ mod tests {
         assert!(!install_root.exists());
 
         let _ = fs::remove_dir_all(package_root);
+    }
+
+    #[test]
+    fn preflight_mod_package_install_checks_package_and_authorization() {
+        let source_root = temp_mod_dir("preflight_package_policy_source");
+        let package_output_root = temp_mod_dir("preflight_package_policy_output");
+        let install_root = temp_mod_dir("preflight_package_policy_root");
+        fs::create_dir_all(&source_root).unwrap();
+        let mut manifest = manifest("example.preflight");
+        manifest.capabilities = vec![ModCapability::NetworkAccess];
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let policy = ModSecurityPolicy::with_authorized_unsafe_capabilities(vec![
+            ModCapability::NetworkAccess,
+        ]);
+        let package = package_mod_project_for_engine_with_policy(
+            &source_root,
+            &package_output_root,
+            Some("0.1.0-m0"),
+            &policy,
+        )
+        .unwrap();
+
+        let denied = preflight_mod_package_install(&package.package_root, &install_root);
+        let allowed = preflight_mod_package_install_for_engine_with_policy(
+            &package.package_root,
+            &install_root,
+            Some("0.1.0-m0"),
+            &policy,
+        );
+
+        assert!(!denied.is_ready());
+        assert!(denied.issues.iter().any(|issue| {
+            matches!(
+                issue.error,
+                ModDiscoveryError::Validation(ModValidationError::UnsafeCapability { .. })
+            )
+        }));
+        assert!(allowed.is_ready());
+        assert_eq!(allowed.content_root, Some(package.content_root));
+        assert_eq!(allowed.manifest.unwrap().namespace, "example.preflight");
+
+        let _ = fs::remove_dir_all(package_output_root);
+        let _ = fs::remove_dir_all(source_root);
     }
 
     #[test]

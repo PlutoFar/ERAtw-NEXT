@@ -119,6 +119,8 @@ export type ModDiscoveryIssueKind =
   | "unsupported_package_schema"
   | "package_manifest_mismatch"
   | "install_target_exists"
+  | "install_root_not_directory"
+  | "install_staging_exists"
   | "install_target_missing"
   | "install_target_not_directory"
   | "missing_namespace"
@@ -156,6 +158,24 @@ export interface ModInstallReport {
   target_root: string;
   manifest: ModManifest;
   actions: ModInstallActionReport[];
+}
+
+export interface ModInstallPreflightReport {
+  source_root: string;
+  content_root: string | null;
+  install_root: string;
+  target_root: string | null;
+  staging_root: string | null;
+  manifest: ModManifest | null;
+  ready: boolean;
+  issues: ModInstallPreflightIssueReport[];
+}
+
+export interface ModInstallPreflightIssueReport {
+  severity: "error" | "warning";
+  path: string;
+  kind: ModDiscoveryIssueKind;
+  message: string;
 }
 
 export interface ModUninstallPlanReport {

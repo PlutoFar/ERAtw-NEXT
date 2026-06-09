@@ -7,10 +7,12 @@ use eratw_engine::{
 use eratw_mod_runtime::{
     discover_mods_for_engine_with_policy, install_mod_for_engine_with_policy, parse_mod_capability,
     plan_enabled_mods_for_engine_with_policy, plan_mod_install_for_engine_with_policy,
-    plan_mod_uninstall, uninstall_mod, DisabledMod, DiscoveredMod, ModCapability,
-    ModDiscoveryError, ModDiscoveryIssue, ModDiscoveryReport, ModEnablement, ModEnablementPlan,
-    ModInstallAction, ModInstallPlan, ModInstallReport, ModLoadError, ModManifest,
-    ModSecurityPolicy, ModUninstallPlan, ModUninstallReport, ModValidationError,
+    plan_mod_uninstall, preflight_mod_package_install_for_engine_with_policy, uninstall_mod,
+    DisabledMod, DiscoveredMod, ModCapability, ModDiscoveryError, ModDiscoveryIssue,
+    ModDiscoveryReport, ModEnablement, ModEnablementPlan, ModInstallAction, ModInstallPlan,
+    ModInstallPreflightIssue, ModInstallPreflightIssueSeverity, ModInstallPreflightReport,
+    ModInstallReport, ModLoadError, ModManifest, ModSecurityPolicy, ModUninstallPlan,
+    ModUninstallReport, ModValidationError,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -72,6 +74,26 @@ struct ModInstallReportDto {
     target_root: String,
     manifest: ModManifest,
     actions: Vec<ModInstallActionReport>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct ModInstallPreflightReportDto {
+    source_root: String,
+    content_root: Option<String>,
+    install_root: String,
+    target_root: Option<String>,
+    staging_root: Option<String>,
+    manifest: Option<ModManifest>,
+    ready: bool,
+    issues: Vec<ModInstallPreflightIssueReport>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct ModInstallPreflightIssueReport {
+    severity: String,
+    path: String,
+    kind: String,
+    message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -228,6 +250,20 @@ fn engine_install_mod(
         kind: mod_discovery_error_kind(&error).to_string(),
         message: error.to_string(),
     })
+}
+
+#[tauri::command]
+fn engine_preflight_mod_package_install(
+    request: ModInstallRequest,
+) -> Result<ModInstallPreflightReportDto, ModDiscoveryIssueReport> {
+    let policy = security_policy(&request.authorized_unsafe_capabilities)?;
+    Ok(preflight_mod_package_install_for_engine_with_policy(
+        request.source_root,
+        request.install_root,
+        request.engine_version.as_deref(),
+        &policy,
+    )
+    .into())
 }
 
 #[tauri::command]
@@ -441,6 +477,42 @@ impl From<ModInstallReport> for ModInstallReportDto {
     }
 }
 
+impl From<ModInstallPreflightReport> for ModInstallPreflightReportDto {
+    fn from(report: ModInstallPreflightReport) -> Self {
+        let ready = report.is_ready();
+        Self {
+            source_root: report.source_root.to_string_lossy().to_string(),
+            content_root: report
+                .content_root
+                .map(|path| path.to_string_lossy().to_string()),
+            install_root: report.install_root.to_string_lossy().to_string(),
+            target_root: report
+                .target_root
+                .map(|path| path.to_string_lossy().to_string()),
+            staging_root: report
+                .staging_root
+                .map(|path| path.to_string_lossy().to_string()),
+            manifest: report.manifest,
+            ready,
+            issues: report.issues.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<ModInstallPreflightIssue> for ModInstallPreflightIssueReport {
+    fn from(issue: ModInstallPreflightIssue) -> Self {
+        Self {
+            severity: match issue.severity {
+                ModInstallPreflightIssueSeverity::Error => "error".to_string(),
+                ModInstallPreflightIssueSeverity::Warning => "warning".to_string(),
+            },
+            path: issue.path.to_string_lossy().to_string(),
+            kind: mod_discovery_error_kind(&issue.error).to_string(),
+            message: issue.error.to_string(),
+        }
+    }
+}
+
 impl From<ModUninstallPlan> for ModUninstallPlanReport {
     fn from(plan: ModUninstallPlan) -> Self {
         Self {
@@ -544,6 +616,8 @@ fn mod_discovery_error_kind(error: &ModDiscoveryError) -> &'static str {
         ModDiscoveryError::UnsupportedPackageSchema(_) => "unsupported_package_schema",
         ModDiscoveryError::PackageManifestMismatch { .. } => "package_manifest_mismatch",
         ModDiscoveryError::InstallTargetExists(_) => "install_target_exists",
+        ModDiscoveryError::InstallRootNotDirectory(_) => "install_root_not_directory",
+        ModDiscoveryError::InstallStagingExists(_) => "install_staging_exists",
         ModDiscoveryError::InstallTargetMissing(_) => "install_target_missing",
         ModDiscoveryError::InstallTargetNotDirectory(_) => "install_target_not_directory",
         ModDiscoveryError::Validation(error) => mod_validation_error_kind(error),
@@ -755,6 +829,86 @@ mod tests {
     }
 
     #[test]
+    fn engine_preflight_mod_package_install_returns_frontend_report() {
+        let package_root = temp_mod_root("preflight_package_command_source");
+        let content_root = package_root.join("content");
+        let install_root = temp_mod_root("preflight_package_command_target");
+        fs::create_dir_all(&content_root).unwrap();
+        fs::write(
+            content_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            package_root.join("eratw-mod-package.json"),
+            serde_json::to_string_pretty(&eratw_mod_runtime::ModPackageManifest {
+                schema_version: "eratw-mod-package/v0".to_string(),
+                namespace: "example.package".to_string(),
+                version: "0.1.0".to_string(),
+                manifest_path: "content/manifest.json".to_string(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let report = engine_preflight_mod_package_install(ModInstallRequest {
+            source_root: package_root.to_string_lossy().to_string(),
+            install_root: install_root.to_string_lossy().to_string(),
+            engine_version: Some("0.1.0-m0".to_string()),
+            authorized_unsafe_capabilities: Vec::new(),
+        })
+        .unwrap();
+
+        assert!(report.ready);
+        assert_eq!(report.manifest.unwrap().namespace, "example.package");
+        assert!(report.target_root.unwrap().ends_with("example.package"));
+        assert_eq!(report.issues, Vec::<ModInstallPreflightIssueReport>::new());
+        assert!(!install_root.exists());
+
+        let _ = fs::remove_dir_all(package_root);
+    }
+
+    #[test]
+    fn engine_preflight_mod_package_install_reports_existing_target() {
+        let package_root = temp_mod_root("preflight_package_existing_source");
+        let content_root = package_root.join("content");
+        let install_root = temp_mod_root("preflight_package_existing_target");
+        fs::create_dir_all(&content_root).unwrap();
+        fs::create_dir_all(install_root.join("example.package")).unwrap();
+        fs::write(
+            content_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            package_root.join("eratw-mod-package.json"),
+            serde_json::to_string_pretty(&eratw_mod_runtime::ModPackageManifest {
+                schema_version: "eratw-mod-package/v0".to_string(),
+                namespace: "example.package".to_string(),
+                version: "0.1.0".to_string(),
+                manifest_path: "content/manifest.json".to_string(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let report = engine_preflight_mod_package_install(ModInstallRequest {
+            source_root: package_root.to_string_lossy().to_string(),
+            install_root: install_root.to_string_lossy().to_string(),
+            engine_version: None,
+            authorized_unsafe_capabilities: Vec::new(),
+        })
+        .unwrap();
+
+        assert!(!report.ready);
+        assert_eq!(report.issues[0].severity, "error");
+        assert_eq!(report.issues[0].kind, "install_target_exists");
+
+        let _ = fs::remove_dir_all(install_root);
+        let _ = fs::remove_dir_all(package_root);
+    }
+
+    #[test]
     fn engine_plan_mod_uninstall_returns_frontend_plan() {
         let install_root = temp_mod_root("uninstall_plan_command");
 
@@ -919,6 +1073,7 @@ pub fn run() {
             engine_discover_mods,
             engine_plan_mod_install,
             engine_install_mod,
+            engine_preflight_mod_package_install,
             engine_plan_mod_uninstall,
             engine_uninstall_mod,
             engine_plan_enabled_mods,

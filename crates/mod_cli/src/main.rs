@@ -1,8 +1,10 @@
 use eratw_mod_runtime::{
     check_mod_package_for_engine_with_policy, install_mod_package_for_engine_with_policy,
-    package_mod_project_for_engine_with_policy, parse_mod_capability, scaffold_mod_template,
+    package_mod_project_for_engine_with_policy, parse_mod_capability,
+    preflight_mod_package_install_for_engine_with_policy, scaffold_mod_template,
     validate_mod_project_for_engine_with_policy, ModCapability, ModDiscoveryError,
-    ModSecurityPolicy, ModTemplateOptions,
+    ModInstallPreflightIssueSeverity, ModInstallPreflightReport, ModSecurityPolicy,
+    ModTemplateOptions,
 };
 use std::{env, path::PathBuf, process::ExitCode};
 
@@ -31,6 +33,12 @@ enum Command {
         allowed_capabilities: Vec<ModCapability>,
     },
     InstallPackage {
+        package_root: PathBuf,
+        install_root: PathBuf,
+        engine_version: Option<String>,
+        allowed_capabilities: Vec<ModCapability>,
+    },
+    PreflightInstallPackage {
         package_root: PathBuf,
         install_root: PathBuf,
         engine_version: Option<String>,
@@ -161,6 +169,19 @@ fn run(args: Vec<String>) -> Result<String, String> {
             )
         })
         .map_err(format_mod_error),
+        Command::PreflightInstallPackage {
+            package_root,
+            install_root,
+            engine_version,
+            allowed_capabilities,
+        } => Ok(format_preflight_report(
+            preflight_mod_package_install_for_engine_with_policy(
+                &package_root,
+                &install_root,
+                engine_version.as_deref(),
+                &security_policy(allowed_capabilities),
+            ),
+        )),
         Command::Help => Ok(usage()),
     }
 }
@@ -262,6 +283,24 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
                 allowed_capabilities: options.allowed_capabilities,
             })
         }
+        "preflight-install-package" => {
+            if includes_help_option(&args[1..]) {
+                return Ok(Command::Help);
+            }
+            let (positionals, options) = parse_options(&args[1..])?;
+            if positionals.len() != 2 {
+                return Err(format!(
+                    "{}\n\npreflight-install-package expects package root and install root paths",
+                    usage()
+                ));
+            }
+            Ok(Command::PreflightInstallPackage {
+                package_root: PathBuf::from(&positionals[0]),
+                install_root: PathBuf::from(&positionals[1]),
+                engine_version: options.engine_version,
+                allowed_capabilities: options.allowed_capabilities,
+            })
+        }
         "-h" | "--help" | "help" => Ok(Command::Help),
         unknown => Err(format!("{}\n\nunknown command: {unknown}", usage())),
     }
@@ -344,6 +383,45 @@ fn security_policy(allowed_capabilities: Vec<ModCapability>) -> ModSecurityPolic
     ModSecurityPolicy::with_authorized_unsafe_capabilities(allowed_capabilities)
 }
 
+fn format_preflight_report(report: ModInstallPreflightReport) -> String {
+    let namespace = report
+        .manifest
+        .as_ref()
+        .map(|manifest| manifest.namespace.as_str())
+        .unwrap_or("unknown");
+    let target = report
+        .target_root
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| report.install_root.display().to_string());
+    let errors = report
+        .issues
+        .iter()
+        .filter(|issue| issue.severity == ModInstallPreflightIssueSeverity::Error)
+        .count();
+    let warnings = report
+        .issues
+        .iter()
+        .filter(|issue| issue.severity == ModInstallPreflightIssueSeverity::Warning)
+        .count();
+    let status = if errors == 0 { "ready" } else { "blocked" };
+    let mut lines = vec![format!(
+        "preflight {status}: {namespace} to {target} ({errors} errors, {warnings} warnings)"
+    )];
+    for issue in report.issues {
+        let severity = match issue.severity {
+            ModInstallPreflightIssueSeverity::Error => "error",
+            ModInstallPreflightIssueSeverity::Warning => "warning",
+        };
+        lines.push(format!(
+            "{severity}: {}: {}",
+            issue.path.display(),
+            issue.error
+        ));
+    }
+    lines.join("\n")
+}
+
 fn usage() -> String {
     [
         "ERAtw-NEXT Mod CLI",
@@ -353,6 +431,7 @@ fn usage() -> String {
         "  eratw-mod validate <mod-root> [--engine-version <version>] [--allow-capability <capability>]",
         "  eratw-mod pack <mod-root> <output-root> [--engine-version <version>] [--allow-capability <capability>]",
         "  eratw-mod check-package <package-root> [--engine-version <version>] [--allow-capability <capability>]",
+        "  eratw-mod preflight-install-package <package-root> <install-root> [--engine-version <version>] [--allow-capability <capability>]",
         "  eratw-mod install-package <package-root> <install-root> [--engine-version <version>] [--allow-capability <capability>]",
     ]
     .join("\n")
@@ -500,6 +579,71 @@ mod tests {
 
         assert!(output.contains("checked mod package example.cli 0.1.0"));
 
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn preflight_install_package_command_reports_ready_package() {
+        let source_root = temp_dir("preflight_package_command_source");
+        let output_root = temp_dir("preflight_package_command_output");
+        let install_root = temp_dir("preflight_package_command_root");
+        write_manifest(&source_root, "example.cli");
+        run(vec![
+            "pack".to_string(),
+            source_root.to_string_lossy().to_string(),
+            output_root.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+
+        let output = run(vec![
+            "preflight-install-package".to_string(),
+            output_root
+                .join("example.cli-0.1.0")
+                .to_string_lossy()
+                .to_string(),
+            install_root.to_string_lossy().to_string(),
+            "--engine-version".to_string(),
+            "0.1.0-m0".to_string(),
+        ])
+        .unwrap();
+
+        assert!(output.contains("preflight ready: example.cli"));
+        assert!(output.contains("0 errors, 0 warnings"));
+        assert!(!install_root.exists());
+
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn preflight_install_package_command_reports_existing_target() {
+        let source_root = temp_dir("preflight_package_command_existing_source");
+        let output_root = temp_dir("preflight_package_command_existing_output");
+        let install_root = temp_dir("preflight_package_command_existing_root");
+        fs::create_dir_all(install_root.join("example.cli")).unwrap();
+        write_manifest(&source_root, "example.cli");
+        run(vec![
+            "pack".to_string(),
+            source_root.to_string_lossy().to_string(),
+            output_root.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+
+        let output = run(vec![
+            "preflight-install-package".to_string(),
+            output_root
+                .join("example.cli-0.1.0")
+                .to_string_lossy()
+                .to_string(),
+            install_root.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+
+        assert!(output.contains("preflight blocked: example.cli"));
+        assert!(output.contains("install target already exists"));
+
+        let _ = fs::remove_dir_all(install_root);
         let _ = fs::remove_dir_all(output_root);
         let _ = fs::remove_dir_all(source_root);
     }
