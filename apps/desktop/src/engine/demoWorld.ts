@@ -317,11 +317,12 @@ const applyCharacterStateDelta = (
 ) => {
   const character = world.characters.find((item) => item.id === characterId);
   if (!character) {
-    return;
+    return false;
   }
 
   character.state.energy = clamp(character.state.energy + energyDelta, 0, 100);
   character.state.mood = clamp(character.state.mood + moodDelta, -100, 100);
+  return true;
 };
 
 const applyRelationshipDelta = (
@@ -348,32 +349,79 @@ const applyRelationshipDelta = (
 
 const applyDialogueEffect = (world: WorldState, effect: DialogueEffect) => {
   if (effect.type === "adjust_character_state") {
-    applyCharacterStateDelta(
+    return applyCharacterStateDelta(
       world,
       effect.character_id,
       effect.energy_delta,
       effect.mood_delta,
     );
-    return;
   }
 
   if (effect.type === "adjust_relationship") {
-    applyRelationshipDelta(
+    return applyRelationshipDelta(
       world,
       effect.source_character_id,
       effect.target_character_id,
       effect.affinity_delta,
       effect.trust_delta,
     );
-    return;
+  }
+
+  if (effect.type === "roll_character_state") {
+    if (
+      effect.energy_min_delta > effect.energy_max_delta ||
+      effect.mood_min_delta > effect.mood_max_delta
+    ) {
+      return false;
+    }
+
+    const energyDelta = rollInclusive(
+      world,
+      effect.energy_min_delta,
+      effect.energy_max_delta,
+    );
+    const moodDelta = rollInclusive(
+      world,
+      effect.mood_min_delta,
+      effect.mood_max_delta,
+    );
+    const updated = applyCharacterStateDelta(
+      world,
+      effect.character_id,
+      energyDelta,
+      moodDelta,
+    );
+    if (!updated) {
+      return false;
+    }
+
+    const character = world.characters.find(
+      (item) => item.id === effect.character_id,
+    );
+    world.event_log = [
+      `${character?.display_name ?? effect.character_id} 状态随机变化：体力 ${
+        energyDelta >= 0 ? "+" : ""
+      }${energyDelta}（范围 ${
+        effect.energy_min_delta >= 0 ? "+" : ""
+      }${effect.energy_min_delta}..=${
+        effect.energy_max_delta >= 0 ? "+" : ""
+      }${effect.energy_max_delta}），心情 ${moodDelta >= 0 ? "+" : ""}${moodDelta}（范围 ${
+        effect.mood_min_delta >= 0 ? "+" : ""
+      }${effect.mood_min_delta}..=${
+        effect.mood_max_delta >= 0 ? "+" : ""
+      }${effect.mood_max_delta}）。`,
+      ...world.event_log,
+    ];
+    return true;
   }
 
   if (effect.type === "change_weather") {
     world.clock.weather = effect.weather;
-    return;
+    return true;
   }
 
   world.event_log = [effect.message, ...world.event_log];
+  return true;
 };
 
 const dialogueConditionMet = (
@@ -438,20 +486,27 @@ const chooseDialogue = (
     return false;
   }
 
+  const staged = structuredClone(world);
   for (const effect of choice.effects) {
-    applyDialogueEffect(world, effect);
+    if (!applyDialogueEffect(staged, effect)) {
+      return false;
+    }
   }
 
   if (choice.next_node_id) {
-    const nextNode = findDialogueNode(world, sceneId, choice.next_node_id);
+    const nextNode = findDialogueNode(staged, sceneId, choice.next_node_id);
     if (nextNode) {
-      world.active_dialogue = [...world.active_dialogue, structuredClone(nextNode)];
+      staged.active_dialogue = [
+        ...staged.active_dialogue,
+        structuredClone(nextNode),
+      ];
     }
   } else {
-    world.active_dialogue_scene_id = null;
+    staged.active_dialogue_scene_id = null;
   }
 
-  world.event_log = [`选择对话 ${nodeId} / ${choiceId}。`, ...world.event_log];
+  staged.event_log = [`选择对话 ${nodeId} / ${choiceId}。`, ...staged.event_log];
+  Object.assign(world, staged);
   return true;
 };
 

@@ -17,6 +17,7 @@
 - `WorldState.command_log`：记录成功结算的命令，随存档序列化保存。
 - `WorldState.random`：显式保存随机种子和游标，用于可重放的随机结算。
 - `EngineCommand::RollCharacterMood`：当前用于验证随机命令、状态结算和回放一致性。
+- `DialogueEffect::RollCharacterState`：内容效果可用同一 RNG 对角色体力和心情做有界随机结算。
 - `replay_commands`：从初始世界和命令列表重放出确定结果。
 
 ## 规则
@@ -41,10 +42,11 @@
 - `seed` 和 `cursor` 在 JSON 中以字符串保存，避免前端 64 位整数精度损失。
 - 随机命令失败时不推进 `cursor`，成功后才进入 `command_log`。
 - 随机范围必须满足 `min_delta <= max_delta`，否则命令整体回滚。
+- Dialogue 随机效果使用 `WorldState.random`，非法范围或缺失角色会让整条选择回滚且不消费 RNG。
 - 旧存档缺少 `random` 字段时使用默认 demo seed 迁移读取。
 
 ## 后续
 
-- 将随机结算接入事件条件、互动命令和内容效果。
+- 将随机结算接入事件条件和更多互动命令。
 - 将 Dialogue/Scene 内容包接入 `StartDialogue`。
 - 补内容包加载后的跨模块调度测试。

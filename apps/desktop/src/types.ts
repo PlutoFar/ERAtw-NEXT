@@ -358,6 +358,14 @@ export type DialogueEffect =
       affinity_delta: number;
       trust_delta: number;
     }
+  | {
+      type: "roll_character_state";
+      character_id: string;
+      energy_min_delta: number;
+      energy_max_delta: number;
+      mood_min_delta: number;
+      mood_max_delta: number;
+    }
   | { type: "change_weather"; weather: Weather }
   | { type: "add_log"; message: string };
 
@@ -525,6 +533,7 @@ export type ContentIssueCode =
   | "missing_choice_next_node"
   | "empty_condition_reference"
   | "invalid_condition_time"
+  | "invalid_effect_random_range"
   | "unreachable_dialogue_node"
   | "empty_scheduled_event_id"
   | "duplicate_scheduled_event_id"

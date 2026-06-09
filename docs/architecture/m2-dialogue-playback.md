@@ -10,7 +10,7 @@
 - `DialogueNode`：说话人、文本、资源引用和可选选择。
 - `DialogueChoice`：选择 ID、显示文本、下一节点和效果列表。
 - `DialogueCondition`：当前支持地点、角色心情、关系好感、天气和时间判断。
-- `DialogueEffect`：当前支持角色状态调整、关系调整、天气切换和日志写入。
+- `DialogueEffect`：当前支持角色状态调整、角色状态随机调整、关系调整、天气切换和日志写入。
 - Dialogue 占位符：`{{variable}}` 或 `{{variable:type}}`，当前在节点文本、选择标签和 `AddLog` 文本中做语法、白名单和类型校验。
 - `EngineCommand::ChooseDialogue`：前端只提交选择命令，状态由 engine 结算。
 - `eratw_content::ContentPackage`：封装 manifest、Location、Character、Relationship、ResourceAsset、DialogueScene 与 ScheduledEvent 列表。
@@ -25,6 +25,7 @@
 - 有 `next_node_id` 的选择会追加下一节点；无下一节点的选择结束当前对话。
 - 选择条件不满足时不会在 UI 展示；强行提交该选择会被 engine 拒绝并回滚。
 - 选择效果可更新角色状态和关系，但所有效果失败时整条选择命令回滚。
+- 角色状态随机效果使用 engine RNG；范围非法、角色缺失或结算失败时整条选择回滚。
 - Dialogue 数据不执行旧 ERB，只引用 `resourceId`，不直接引用文件路径。
 - ResourceAsset 的 `source_path` 只能是相对安全路径；运行时通过资源解析报告提供 planned/missing/hash_mismatch 等状态和降级 fallback。
 - 内容包新增角色必须引用已存在或同包新增的地点；关系、条件、效果和事件动作必须引用已存在或同包新增的角色/关系。

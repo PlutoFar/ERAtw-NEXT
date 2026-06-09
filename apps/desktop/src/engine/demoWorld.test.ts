@@ -351,6 +351,81 @@ describe("demo engine adapter", () => {
     });
   });
 
+  it("rolls dialogue character state effects deterministically", () => {
+    const base = createDemoWorld();
+    base.dialogue_scenes[0].nodes[0].choices.push({
+      id: "random_state",
+      label: "随机状态",
+      next_node_id: null,
+      conditions: [],
+      effects: [
+        {
+          type: "roll_character_state",
+          character_id: "demo_heroine",
+          energy_min_delta: -3,
+          energy_max_delta: 0,
+          mood_min_delta: -2,
+          mood_max_delta: 4,
+        },
+      ],
+    });
+    const started = applyDemoCommand(base, {
+      type: "start_dialogue",
+      scene_id: "demo_morning",
+    });
+
+    const first = applyDemoCommand(started, {
+      type: "choose_dialogue",
+      node_id: "demo_morning_001",
+      choice_id: "random_state",
+    });
+    const second = applyDemoCommand(started, {
+      type: "choose_dialogue",
+      node_id: "demo_morning_001",
+      choice_id: "random_state",
+    });
+
+    expect(first).toEqual(second);
+    expect(first.random.cursor).toBe("2");
+    expect(first.characters[0].state.energy).toBeGreaterThanOrEqual(77);
+    expect(first.characters[0].state.energy).toBeLessThanOrEqual(80);
+    expect(first.characters[0].state.mood).toBeGreaterThanOrEqual(8);
+    expect(first.characters[0].state.mood).toBeLessThanOrEqual(14);
+  });
+
+  it("rejects invalid dialogue random effects without consuming rng state", () => {
+    const base = createDemoWorld();
+    base.dialogue_scenes[0].nodes[0].choices.push({
+      id: "invalid_random_state",
+      label: "非法随机状态",
+      next_node_id: null,
+      conditions: [],
+      effects: [
+        {
+          type: "roll_character_state",
+          character_id: "demo_heroine",
+          energy_min_delta: 1,
+          energy_max_delta: -1,
+          mood_min_delta: 0,
+          mood_max_delta: 1,
+        },
+      ],
+    });
+    const started = applyDemoCommand(base, {
+      type: "start_dialogue",
+      scene_id: "demo_morning",
+    });
+    const rejected = applyDemoCommand(started, {
+      type: "choose_dialogue",
+      node_id: "demo_morning_001",
+      choice_id: "invalid_random_state",
+    });
+
+    expect(rejected).toEqual(started);
+    expect(rejected.random.cursor).toBe("0");
+    expect(rejected.command_log).toHaveLength(1);
+  });
+
   it("rejects invalid random commands without consuming rng state", () => {
     const world = applyDemoCommand(createDemoWorld(), {
       type: "roll_character_mood",
@@ -991,6 +1066,33 @@ describe("demo engine adapter", () => {
     expect(preflight.validation?.issues.map((issue) => issue.code)).toEqual([
       "unknown_dialogue_placeholder",
       "dialogue_placeholder_type_mismatch",
+    ]);
+    expect(unchanged.installed_content_packages).toEqual([]);
+  });
+
+  it("preflights browser content package random effect ranges", async () => {
+    const client = createBrowserMockEngineClient();
+    const packageData = createSampleContentPackage();
+    packageData.dialogue_scenes[0].nodes[0].choices[0].effects = [
+      {
+        type: "roll_character_state",
+        character_id: "sample_guest",
+        energy_min_delta: 2,
+        energy_max_delta: -1,
+        mood_min_delta: -1,
+        mood_max_delta: 1,
+      },
+    ];
+
+    const preflight = await client.preflightContentPackageInstall(packageData);
+    const unchanged = await client.installContentPackage(packageData);
+
+    expect(preflight.ready).toBe(false);
+    expect(preflight.validation?.issues).toEqual([
+      {
+        code: "invalid_effect_random_range",
+        target: "sample_event_dialogue:sample_event_entry:acknowledge",
+      },
     ]);
     expect(unchanged.installed_content_packages).toEqual([]);
   });

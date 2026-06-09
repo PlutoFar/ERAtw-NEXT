@@ -213,6 +213,7 @@ pub enum ContentIssueCode {
     MissingChoiceNextNode,
     EmptyConditionReference,
     InvalidConditionTime,
+    InvalidEffectRandomRange,
     UnreachableDialogueNode,
     EmptyScheduledEventId,
     DuplicateScheduledEventId,
@@ -682,6 +683,11 @@ fn validate_dialogue_scene(scene: &DialogueScene, report: &mut ContentValidation
                     &format!("{}:{}:{}", scene.id, node.id, choice.id),
                     report,
                 );
+                validate_dialogue_effect(
+                    effect,
+                    &format!("{}:{}:{}", scene.id, node.id, choice.id),
+                    report,
+                );
             }
 
             if let Some(next_node_id) = &choice.next_node_id {
@@ -837,6 +843,25 @@ fn is_valid_placeholder_variable_name(variable_name: &str) -> bool {
                 && chars
                     .all(|char| char.is_ascii_lowercase() || char.is_ascii_digit() || char == '_')
         })
+}
+
+fn validate_dialogue_effect(
+    effect: &DialogueEffect,
+    target_prefix: &str,
+    report: &mut ContentValidationReport,
+) {
+    if let DialogueEffect::RollCharacterState {
+        energy_min_delta,
+        energy_max_delta,
+        mood_min_delta,
+        mood_max_delta,
+        ..
+    } = effect
+    {
+        if energy_min_delta > energy_max_delta || mood_min_delta > mood_max_delta {
+            report.push(ContentIssueCode::InvalidEffectRandomRange, target_prefix);
+        }
+    }
 }
 
 fn validate_dialogue_condition(
@@ -1020,6 +1045,9 @@ fn ensure_dialogue_effect_refs_exist(
 ) -> Result<(), ContentInstallError> {
     match effect {
         DialogueEffect::AdjustCharacterState { character_id, .. } => {
+            ensure_character_ref_exists(world, target, character_id)?;
+        }
+        DialogueEffect::RollCharacterState { character_id, .. } => {
             ensure_character_ref_exists(world, target, character_id)?;
         }
         DialogueEffect::AdjustRelationship {
@@ -1768,6 +1796,32 @@ mod tests {
                 ContentIssueCode::DialoguePlaceholderTypeMismatch,
                 ContentIssueCode::UnknownDialoguePlaceholder,
             ]
+        );
+    }
+
+    #[test]
+    fn dialogue_validation_reports_invalid_random_effect_ranges() {
+        let mut node = node_with_choice("entry", None);
+        node.choices = vec![DialogueChoice {
+            id: "bad_random".to_string(),
+            label: "随机".to_string(),
+            next_node_id: None,
+            conditions: Vec::new(),
+            effects: vec![DialogueEffect::RollCharacterState {
+                character_id: "demo_heroine".to_string(),
+                energy_min_delta: 2,
+                energy_max_delta: -1,
+                mood_min_delta: -1,
+                mood_max_delta: 1,
+            }],
+        }];
+        let package = package_with("core.demo", vec![scene_with_nodes(vec![node])], Vec::new());
+
+        let report = package.validate().unwrap();
+
+        assert_eq!(
+            issue_codes(&report),
+            vec![ContentIssueCode::InvalidEffectRandomRange]
         );
     }
 
@@ -2546,6 +2600,35 @@ mod tests {
                 target: "dialogue:sample_relationship_scene:entry:missing_relationship".to_string(),
                 source_character_id: "player".to_string(),
                 target_character_id: "sample_character".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn install_rejects_dialogue_random_effect_missing_character() {
+        let mut node = node_with_choice("entry", None);
+        node.choices = vec![DialogueChoice {
+            id: "missing_random_character".to_string(),
+            label: "缺少角色".to_string(),
+            next_node_id: None,
+            conditions: Vec::new(),
+            effects: vec![DialogueEffect::RollCharacterState {
+                character_id: "missing_character".to_string(),
+                energy_min_delta: -1,
+                energy_max_delta: 1,
+                mood_min_delta: -1,
+                mood_max_delta: 1,
+            }],
+        }];
+        let package = package_with("core.extra", vec![scene_with_nodes(vec![node])], Vec::new());
+
+        let result = package.install_into_world(WorldState::bootstrap_demo());
+
+        assert_eq!(
+            result,
+            Err(ContentInstallError::MissingCharacterReference {
+                target: "dialogue:scene.demo:entry:missing_random_character".to_string(),
+                character_id: "missing_character".to_string(),
             })
         );
     }

@@ -296,6 +296,13 @@ pub enum DialogueEffect {
         affinity_delta: i16,
         trust_delta: i16,
     },
+    RollCharacterState {
+        character_id: String,
+        energy_min_delta: i16,
+        energy_max_delta: i16,
+        mood_min_delta: i16,
+        mood_max_delta: i16,
+    },
     ChangeWeather {
         weather: Weather,
     },
@@ -692,6 +699,22 @@ impl WorldState {
                 )?;
                 Ok(())
             }
+            DialogueEffect::RollCharacterState {
+                character_id,
+                energy_min_delta,
+                energy_max_delta,
+                mood_min_delta,
+                mood_max_delta,
+            } => {
+                self.roll_character_state(
+                    character_id,
+                    *energy_min_delta,
+                    *energy_max_delta,
+                    *mood_min_delta,
+                    *mood_max_delta,
+                )?;
+                Ok(())
+            }
             DialogueEffect::ChangeWeather { weather } => {
                 self.clock.weather = weather.clone();
                 Ok(())
@@ -818,18 +841,55 @@ impl WorldState {
         Ok(())
     }
 
-    fn roll_character_mood(
+    fn roll_character_state(
         &mut self,
         character_id: &str,
-        min_delta: i16,
-        max_delta: i16,
+        energy_min_delta: i16,
+        energy_max_delta: i16,
+        mood_min_delta: i16,
+        mood_max_delta: i16,
     ) -> Result<(), EngineError> {
+        Self::validate_random_range(energy_min_delta, energy_max_delta)?;
+        Self::validate_random_range(mood_min_delta, mood_max_delta)?;
+
+        let energy_delta = self
+            .random
+            .roll_i16_inclusive(energy_min_delta, energy_max_delta);
+        let mood_delta = self
+            .random
+            .roll_i16_inclusive(mood_min_delta, mood_max_delta);
+        let display_name = self.adjust_character_state(character_id, energy_delta, mood_delta)?;
+        self.event_log.push(format!(
+            "{} 状态随机变化：体力 {:+}（范围 {:+}..={:+}），心情 {:+}（范围 {:+}..={:+}）。",
+            display_name,
+            energy_delta,
+            energy_min_delta,
+            energy_max_delta,
+            mood_delta,
+            mood_min_delta,
+            mood_max_delta
+        ));
+        Ok(())
+    }
+
+    fn validate_random_range(min_delta: i16, max_delta: i16) -> Result<(), EngineError> {
         if min_delta > max_delta {
             return Err(EngineError::InvalidRandomRange {
                 min_delta,
                 max_delta,
             });
         }
+
+        Ok(())
+    }
+
+    fn roll_character_mood(
+        &mut self,
+        character_id: &str,
+        min_delta: i16,
+        max_delta: i16,
+    ) -> Result<(), EngineError> {
+        Self::validate_random_range(min_delta, max_delta)?;
 
         let delta = self.random.roll_i16_inclusive(min_delta, max_delta);
         let display_name = self.adjust_character_state(character_id, 0, delta)?;
@@ -1308,6 +1368,87 @@ mod tests {
         assert_eq!(world.characters[0].state.mood, 13);
         assert_eq!(world.relationships[0].affinity, 7);
         assert_eq!(world.relationships[0].trust, 1);
+    }
+
+    #[test]
+    fn dialogue_effect_rolls_character_state_deterministically() {
+        let mut left = WorldState::bootstrap_demo();
+        let mut right = WorldState::bootstrap_demo();
+        left.dialogue_scenes[0].nodes[0]
+            .choices
+            .push(DialogueChoice {
+                id: "random_state".to_string(),
+                label: "随机状态".to_string(),
+                next_node_id: None,
+                conditions: Vec::new(),
+                effects: vec![DialogueEffect::RollCharacterState {
+                    character_id: "demo_heroine".to_string(),
+                    energy_min_delta: -3,
+                    energy_max_delta: 0,
+                    mood_min_delta: -2,
+                    mood_max_delta: 4,
+                }],
+            });
+        right.dialogue_scenes = left.dialogue_scenes.clone();
+
+        for world in [&mut left, &mut right] {
+            world
+                .apply_command(EngineCommand::StartDialogue {
+                    scene_id: "demo_morning".to_string(),
+                })
+                .unwrap();
+            world
+                .apply_command(EngineCommand::ChooseDialogue {
+                    node_id: "demo_morning_001".to_string(),
+                    choice_id: "random_state".to_string(),
+                })
+                .unwrap();
+        }
+
+        assert_eq!(left, right);
+        assert_eq!(left.random.cursor, 2);
+        assert!((77..=80).contains(&left.characters[0].state.energy));
+        assert!((8..=14).contains(&left.characters[0].state.mood));
+    }
+
+    #[test]
+    fn invalid_dialogue_random_effect_is_transactional() {
+        let mut world = WorldState::bootstrap_demo();
+        world.dialogue_scenes[0].nodes[0]
+            .choices
+            .push(DialogueChoice {
+                id: "invalid_random_state".to_string(),
+                label: "非法随机状态".to_string(),
+                next_node_id: None,
+                conditions: Vec::new(),
+                effects: vec![DialogueEffect::RollCharacterState {
+                    character_id: "demo_heroine".to_string(),
+                    energy_min_delta: 1,
+                    energy_max_delta: -1,
+                    mood_min_delta: 0,
+                    mood_max_delta: 1,
+                }],
+            });
+        world
+            .apply_command(EngineCommand::StartDialogue {
+                scene_id: "demo_morning".to_string(),
+            })
+            .unwrap();
+        let original = world.clone();
+
+        let result = world.apply_command(EngineCommand::ChooseDialogue {
+            node_id: "demo_morning_001".to_string(),
+            choice_id: "invalid_random_state".to_string(),
+        });
+
+        assert_eq!(
+            result,
+            Err(EngineError::InvalidRandomRange {
+                min_delta: 1,
+                max_delta: -1,
+            })
+        );
+        assert_eq!(world, original);
     }
 
     #[test]

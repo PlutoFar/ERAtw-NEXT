@@ -982,6 +982,10 @@ const effectRefsExist = (
     return hasCharacter(characterIds, effect.character_id);
   }
 
+  if (effect.type === "roll_character_state") {
+    return hasCharacter(characterIds, effect.character_id);
+  }
+
   if (effect.type === "adjust_relationship") {
     return (
       hasCharacter(characterIds, effect.source_character_id) &&
@@ -1040,6 +1044,17 @@ const validateBrowserContentPackage = (
         );
 
         for (const effect of choice.effects) {
+          if (
+            effect.type === "roll_character_state" &&
+            (effect.energy_min_delta > effect.energy_max_delta ||
+              effect.mood_min_delta > effect.mood_max_delta)
+          ) {
+            issues.push({
+              code: "invalid_effect_random_range",
+              target: `${scene.id}:${node.id}:${choice.id}`,
+            });
+          }
+
           if (effect.type === "add_log") {
             validateDialoguePlaceholders(
               effect.message,
