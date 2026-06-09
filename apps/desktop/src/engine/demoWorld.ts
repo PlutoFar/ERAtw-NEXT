@@ -151,19 +151,26 @@ export const createDemoWorld = (): WorldState => ({
       },
     },
   ],
+  command_log: [],
   event_log: ["ERAtw-NEXT M0 engine ready."],
 });
 
-const startDialogue = (world: WorldState, sceneId: string) => {
+const recordCommand = (world: WorldState, command: EngineCommand): WorldState => ({
+  ...world,
+  command_log: [...world.command_log, structuredClone(command)],
+});
+
+const startDialogue = (world: WorldState, sceneId: string): boolean => {
   const scene = world.dialogue_scenes.find((item) => item.id === sceneId);
   const entry = scene?.nodes.find((node) => node.id === scene.entry_node_id);
   if (!scene || !entry) {
-    return;
+    return false;
   }
 
   world.active_dialogue_scene_id = scene.id;
   world.active_dialogue = [structuredClone(entry)];
   world.event_log = [`播放场景 ${sceneId}。`, ...world.event_log];
+  return true;
 };
 
 const findDialogueNode = (
@@ -213,10 +220,10 @@ const chooseDialogue = (
   world: WorldState,
   nodeId: string,
   choiceId: string,
-) => {
+): boolean => {
   const sceneId = world.active_dialogue_scene_id;
   if (!sceneId) {
-    return;
+    return false;
   }
 
   const activeNode = world.active_dialogue.find((node) => node.id === nodeId);
@@ -224,7 +231,7 @@ const chooseDialogue = (
     (item) => item.id === choiceId,
   );
   if (!choice) {
-    return;
+    return false;
   }
 
   for (const effect of choice.effects) {
@@ -241,6 +248,7 @@ const chooseDialogue = (
   }
 
   world.event_log = [`选择对话 ${nodeId} / ${choiceId}。`, ...world.event_log];
+  return true;
 };
 
 const applyScheduledEventKind = (
@@ -302,7 +310,7 @@ export const applyDemoCommand = (
     next.clock.minute = minuteOfDay % 60;
     next.event_log = [`时间推进 ${command.minutes} 分钟。`, ...next.event_log];
     triggerDueEvents(next, total);
-    return next;
+    return recordCommand(next, command);
   }
 
   if (command.type === "move_character") {
@@ -319,15 +327,19 @@ export const applyDemoCommand = (
       `${character.display_name} 移动到 ${location.name}。`,
       ...next.event_log,
     ];
-    return next;
+    return recordCommand(next, command);
   }
 
   if (command.type === "start_dialogue") {
-    startDialogue(next, command.scene_id);
+    return startDialogue(next, command.scene_id)
+      ? recordCommand(next, command)
+      : next;
   }
 
   if (command.type === "choose_dialogue") {
-    chooseDialogue(next, command.node_id, command.choice_id);
+    return chooseDialogue(next, command.node_id, command.choice_id)
+      ? recordCommand(next, command)
+      : next;
   }
 
   if (command.type === "schedule_event") {
@@ -339,6 +351,7 @@ export const applyDemoCommand = (
     }
 
     next.scheduled_events = [...next.scheduled_events, command.event].sort(byDueTime);
+    return recordCommand(next, command);
   }
 
   return next;

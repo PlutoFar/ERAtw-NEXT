@@ -13,6 +13,7 @@
 - `write_save_atomic`：写入同目录临时文件，覆盖前复制备份，再替换主存档。
 - `read_save`：读取 JSON 存档，执行 schema migration，再做基础校验。
 - Tauri `engine_save_slot` / `engine_load_slot`：按 slot id 写入应用数据目录下的 `saves/{slot}.json`。
+- `WorldState.command_log` 随 `SaveEnvelope` 序列化，用于后续确定性回放和故障复现。
 
 ## 规则
 
@@ -27,4 +28,4 @@
 
 - 增加备份轮转、损坏存档恢复 UI 和恢复入口。
 - 将 Mod runtime 的 manifest 校验接入存档依赖检查。
-- 将 deterministic replay seed 和 command log 接入当前事件调度器。
+- 将 deterministic replay seed 接入当前事件调度器和 command log。

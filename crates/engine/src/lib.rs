@@ -160,6 +160,7 @@ pub struct WorldState {
     pub active_dialogue_scene_id: Option<String>,
     pub active_dialogue: Vec<DialogueNode>,
     pub scheduled_events: Vec<ScheduledEvent>,
+    pub command_log: Vec<EngineCommand>,
     pub event_log: Vec<String>,
 }
 
@@ -270,13 +271,15 @@ impl WorldState {
                     },
                 },
             ],
+            command_log: Vec::new(),
             event_log: vec!["ERAtw-NEXT M0 engine ready.".to_string()],
         }
     }
 
     pub fn apply_command(&mut self, command: EngineCommand) -> Result<(), EngineError> {
         let mut next = self.clone();
-        next.apply_command_inner(command)?;
+        next.apply_command_inner(command.clone())?;
+        next.command_log.push(command);
         *self = next;
         Ok(())
     }
@@ -709,6 +712,29 @@ mod tests {
             Err(EngineError::DialogueChoiceNotFound("missing".to_string()))
         );
         assert_eq!(world, original);
+    }
+
+    #[test]
+    fn command_log_records_successful_commands_only() {
+        let mut world = WorldState::bootstrap_demo();
+
+        world
+            .apply_command(EngineCommand::AdvanceTime { minutes: 30 })
+            .unwrap();
+        let result = world.apply_command(EngineCommand::MoveCharacter {
+            character_id: "demo_heroine".to_string(),
+            location_id: "missing".to_string(),
+        });
+
+        assert_eq!(
+            result,
+            Err(EngineError::LocationNotFound("missing".to_string()))
+        );
+        assert_eq!(world.command_log.len(), 1);
+        assert_eq!(
+            world.command_log[0],
+            EngineCommand::AdvanceTime { minutes: 30 }
+        );
     }
 
     #[test]

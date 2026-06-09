@@ -89,6 +89,7 @@ export interface WorldState {
   active_dialogue_scene_id: string | null;
   active_dialogue: DialogueNode[];
   scheduled_events: ScheduledEvent[];
+  command_log: EngineCommand[];
   event_log: string[];
 }
 

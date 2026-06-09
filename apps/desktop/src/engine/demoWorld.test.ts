@@ -62,6 +62,24 @@ describe("demo engine adapter", () => {
     expect(world.characters[0].state.mood).toBe(13);
   });
 
+  it("records successful commands only", () => {
+    const advanced = applyDemoCommand(createDemoWorld(), {
+      type: "advance_time",
+      minutes: 30,
+    });
+    const rejected = applyDemoCommand(advanced, {
+      type: "move_character",
+      character_id: "demo_heroine",
+      location_id: "missing",
+    });
+
+    expect(rejected.command_log).toHaveLength(1);
+    expect(rejected.command_log[0]).toEqual({
+      type: "advance_time",
+      minutes: 30,
+    });
+  });
+
   it("creates a browser save preview envelope", async () => {
     const client = createBrowserMockEngineClient();
 
