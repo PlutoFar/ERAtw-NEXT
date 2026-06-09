@@ -11,6 +11,8 @@
 - `DialogueChoice`：选择 ID、显示文本、下一节点和效果列表。
 - `DialogueEffect`：当前支持角色状态调整、关系调整、天气切换和日志写入。
 - `EngineCommand::ChooseDialogue`：前端只提交选择命令，状态由 engine 结算。
+- `eratw_content::ContentPackage`：封装 manifest 与 DialogueScene 列表。
+- `ContentPackage::validate`：在运行前报告入口缺失、死链、重复 ID、不可达节点等问题。
 
 ## 规则
 
@@ -19,9 +21,10 @@
 - 有 `next_node_id` 的选择会追加下一节点；无下一节点的选择结束当前对话。
 - 选择效果可更新角色状态和关系，但所有效果失败时整条选择命令回滚。
 - Dialogue 数据不执行旧 ERB，不直接引用文件路径。
+- 内容包校验返回结构化 issue code 和 target，供 CLI、编辑器和运行前检查复用。
 
 ## 后续
 
 - 增加条件判断、资源引用、占位符和变量类型校验。
-- 将内容包加载器接入 `dialogue_scenes`。
+- 将已校验内容包加载进 `WorldState.dialogue_scenes`。
 - 为节点可达性和死链增加内容测试。

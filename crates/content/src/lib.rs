@@ -1,4 +1,9 @@
+use eratw_engine::DialogueScene;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeSet, VecDeque};
+use thiserror::Error;
+
+pub const CONTENT_SCHEMA_VERSION: &str = "content-package/v0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContentPackageManifest {
@@ -12,11 +17,325 @@ pub struct ContentPackageManifest {
 impl ContentPackageManifest {
     pub fn new(namespace: impl Into<String>, package_id: impl Into<String>) -> Self {
         Self {
-            schema_version: "content-package/v0".to_string(),
+            schema_version: CONTENT_SCHEMA_VERSION.to_string(),
             namespace: namespace.into(),
             package_id: package_id.into(),
             version: "0.1.0".to_string(),
             dependencies: Vec::new(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentPackage {
+    pub manifest: ContentPackageManifest,
+    pub dialogue_scenes: Vec<DialogueScene>,
+}
+
+impl ContentPackage {
+    pub fn validate(&self) -> Result<ContentValidationReport, ContentValidationError> {
+        let mut report = ContentValidationReport::default();
+
+        validate_manifest(&self.manifest, &mut report)?;
+        validate_dialogue_scenes(&self.dialogue_scenes, &mut report);
+
+        Ok(report)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentValidationReport {
+    pub issues: Vec<ContentIssue>,
+}
+
+impl ContentValidationReport {
+    pub fn is_clean(&self) -> bool {
+        self.issues.is_empty()
+    }
+
+    fn push(&mut self, code: ContentIssueCode, target: impl Into<String>) {
+        self.issues.push(ContentIssue {
+            code,
+            target: target.into(),
+        });
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentIssue {
+    pub code: ContentIssueCode,
+    pub target: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentIssueCode {
+    EmptyPackageId,
+    EmptyNamespace,
+    DuplicateDialogueSceneId,
+    DuplicateDialogueNodeId,
+    EmptyDialogueSceneId,
+    EmptyDialogueNodeId,
+    EmptyDialogueText,
+    MissingEntryNode,
+    MissingChoiceNextNode,
+    UnreachableDialogueNode,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ContentValidationError {
+    #[error("unsupported content schema: {0}")]
+    UnsupportedSchema(String),
+}
+
+fn validate_manifest(
+    manifest: &ContentPackageManifest,
+    report: &mut ContentValidationReport,
+) -> Result<(), ContentValidationError> {
+    if manifest.schema_version != CONTENT_SCHEMA_VERSION {
+        return Err(ContentValidationError::UnsupportedSchema(
+            manifest.schema_version.clone(),
+        ));
+    }
+
+    if manifest.namespace.trim().is_empty() {
+        report.push(ContentIssueCode::EmptyNamespace, "manifest.namespace");
+    }
+
+    if manifest.package_id.trim().is_empty() {
+        report.push(ContentIssueCode::EmptyPackageId, "manifest.package_id");
+    }
+
+    Ok(())
+}
+
+fn validate_dialogue_scenes(scenes: &[DialogueScene], report: &mut ContentValidationReport) {
+    let mut scene_ids = BTreeSet::new();
+
+    for scene in scenes {
+        if scene.id.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyDialogueSceneId, "dialogue_scene");
+        } else if !scene_ids.insert(scene.id.as_str()) {
+            report.push(ContentIssueCode::DuplicateDialogueSceneId, &scene.id);
+        }
+
+        validate_dialogue_scene(scene, report);
+    }
+}
+
+fn validate_dialogue_scene(scene: &DialogueScene, report: &mut ContentValidationReport) {
+    let mut node_ids = BTreeSet::new();
+    let mut duplicate_node_ids = BTreeSet::new();
+
+    for node in &scene.nodes {
+        if node.id.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyDialogueNodeId, &scene.id);
+        } else if !node_ids.insert(node.id.as_str()) {
+            duplicate_node_ids.insert(node.id.as_str());
+            report.push(
+                ContentIssueCode::DuplicateDialogueNodeId,
+                format!("{}:{}", scene.id, node.id),
+            );
+        }
+
+        if node.text.trim().is_empty() {
+            report.push(
+                ContentIssueCode::EmptyDialogueText,
+                format!("{}:{}", scene.id, node.id),
+            );
+        }
+
+        for choice in &node.choices {
+            if let Some(next_node_id) = &choice.next_node_id {
+                if !node_ids.contains(next_node_id.as_str())
+                    && !scene.nodes.iter().any(|node| node.id == *next_node_id)
+                {
+                    report.push(
+                        ContentIssueCode::MissingChoiceNextNode,
+                        format!("{}:{}:{}", scene.id, node.id, next_node_id),
+                    );
+                }
+            }
+        }
+    }
+
+    if !node_ids.contains(scene.entry_node_id.as_str()) {
+        report.push(
+            ContentIssueCode::MissingEntryNode,
+            format!("{}:{}", scene.id, scene.entry_node_id),
+        );
+        return;
+    }
+
+    if !duplicate_node_ids.is_empty() {
+        return;
+    }
+
+    for unreachable in unreachable_dialogue_nodes(scene) {
+        report.push(
+            ContentIssueCode::UnreachableDialogueNode,
+            format!("{}:{}", scene.id, unreachable),
+        );
+    }
+}
+
+fn unreachable_dialogue_nodes(scene: &DialogueScene) -> Vec<String> {
+    let mut reachable = BTreeSet::new();
+    let mut pending = VecDeque::from([scene.entry_node_id.as_str()]);
+
+    while let Some(node_id) = pending.pop_front() {
+        if !reachable.insert(node_id) {
+            continue;
+        }
+
+        let Some(node) = scene.nodes.iter().find(|node| node.id == node_id) else {
+            continue;
+        };
+
+        for choice in &node.choices {
+            if let Some(next_node_id) = &choice.next_node_id {
+                pending.push_back(next_node_id);
+            }
+        }
+    }
+
+    scene
+        .nodes
+        .iter()
+        .filter(|node| !reachable.contains(node.id.as_str()))
+        .map(|node| node.id.clone())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eratw_engine::{DialogueChoice, DialogueEffect, DialogueNode};
+
+    #[test]
+    fn clean_package_validates() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.demo"),
+            dialogue_scenes: vec![scene_with_nodes(vec![
+                node_with_choice("entry", Some("next")),
+                node_with_choice("next", None),
+            ])],
+        };
+
+        let report = package.validate().unwrap();
+
+        assert!(report.is_clean());
+    }
+
+    #[test]
+    fn unsupported_schema_is_error() {
+        let mut package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.demo"),
+            dialogue_scenes: Vec::new(),
+        };
+        package.manifest.schema_version = "content-package/v999".to_string();
+
+        let result = package.validate();
+
+        assert_eq!(
+            result,
+            Err(ContentValidationError::UnsupportedSchema(
+                "content-package/v999".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn dialogue_validation_reports_duplicate_missing_and_unreachable_nodes() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.demo"),
+            dialogue_scenes: vec![scene_with_nodes(vec![
+                node_with_choice("entry", Some("missing")),
+                node_with_choice("entry", None),
+                node_with_choice("orphan", None),
+            ])],
+        };
+
+        let report = package.validate().unwrap();
+
+        assert_eq!(
+            issue_codes(&report),
+            vec![
+                ContentIssueCode::MissingChoiceNextNode,
+                ContentIssueCode::DuplicateDialogueNodeId,
+            ]
+        );
+    }
+
+    #[test]
+    fn dialogue_validation_reports_unreachable_nodes_when_ids_are_unique() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.demo"),
+            dialogue_scenes: vec![scene_with_nodes(vec![
+                node_with_choice("entry", None),
+                node_with_choice("orphan", None),
+            ])],
+        };
+
+        let report = package.validate().unwrap();
+
+        assert_eq!(
+            issue_codes(&report),
+            vec![ContentIssueCode::UnreachableDialogueNode]
+        );
+    }
+
+    #[test]
+    fn manifest_validation_reports_empty_ids() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("", ""),
+            dialogue_scenes: Vec::new(),
+        };
+
+        let report = package.validate().unwrap();
+
+        assert_eq!(
+            issue_codes(&report),
+            vec![
+                ContentIssueCode::EmptyNamespace,
+                ContentIssueCode::EmptyPackageId,
+            ]
+        );
+    }
+
+    fn scene_with_nodes(nodes: Vec<DialogueNode>) -> DialogueScene {
+        DialogueScene {
+            id: "scene.demo".to_string(),
+            entry_node_id: "entry".to_string(),
+            nodes,
+        }
+    }
+
+    fn node_with_choice(id: &str, next_node_id: Option<&str>) -> DialogueNode {
+        DialogueNode {
+            id: id.to_string(),
+            speaker_id: "demo_heroine".to_string(),
+            text: "测试文本。".to_string(),
+            choices: next_node_id
+                .map(|next_node_id| {
+                    vec![DialogueChoice {
+                        id: "next".to_string(),
+                        label: "继续".to_string(),
+                        next_node_id: Some(next_node_id.to_string()),
+                        effects: vec![DialogueEffect::AddLog {
+                            message: "继续。".to_string(),
+                        }],
+                    }]
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    fn issue_codes(report: &ContentValidationReport) -> Vec<ContentIssueCode> {
+        report
+            .issues
+            .iter()
+            .map(|issue| issue.code.clone())
+            .collect()
     }
 }

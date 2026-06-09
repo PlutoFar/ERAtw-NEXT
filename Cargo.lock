@@ -734,7 +734,9 @@ dependencies = [
 name = "eratw_content"
 version = "0.1.0"
 dependencies = [
+ "eratw_engine",
  "serde",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

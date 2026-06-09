@@ -7,4 +7,6 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+eratw_engine = { path = "../engine" }
 serde.workspace = true
+thiserror.workspace = true
