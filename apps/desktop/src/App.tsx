@@ -1,6 +1,13 @@
 import { lazy, Suspense, useEffect } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
-import { Clock3, CloudSun, Dices, MessageSquareText, MoveRight } from "lucide-react";
+import {
+  Clock3,
+  CloudSun,
+  Dices,
+  MessageSquareText,
+  MoveRight,
+  RotateCcw,
+} from "lucide-react";
 import { useEngine } from "./engine/useEngine";
 import { visibleChoices } from "./engine/demoWorld";
 import { createSampleContentPackage } from "./engine/sampleContentPackage";
@@ -64,10 +71,12 @@ export const App = () => {
     dispatch,
     error,
     installContentPackage,
+    lastRecovery,
     lastSave,
     load,
     loadSlot,
     loading,
+    recoverSlot,
     saveSlot,
     world,
   } =
@@ -241,10 +250,40 @@ export const App = () => {
             >
               读取
             </button>
+            <button
+              type="button"
+              onClick={() => recoverSlot(DEFAULT_SLOT_ID)}
+              disabled={loading}
+            >
+              <RotateCcw size={17} /> 恢复
+            </button>
           </section>
 
           {error ? <p className="error-text">{error}</p> : null}
-          {lastSave ? <p className="save-text">已保存：{lastSave.path}</p> : null}
+          {lastSave ? (
+            <p className="save-text">
+              已保存：{lastSave.path}
+              {lastSave.backup_path ? (
+                <>
+                  <br />
+                  上次存档已备份：{lastSave.backup_path}
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          {lastRecovery ? (
+            <p className="recovery-text">
+              已恢复：{lastRecovery.path}
+              <br />
+              来源：{lastRecovery.recovered_from}
+              {lastRecovery.failed_primary_backup_path ? (
+                <>
+                  <br />
+                  失败主档已备份：{lastRecovery.failed_primary_backup_path}
+                </>
+              ) : null}
+            </p>
+          ) : null}
 
           <section className="dialogue-panel" aria-label="dialogue">
             {world.active_dialogue.length === 0 ? (

@@ -2,7 +2,7 @@
 
 ## 范围
 
-本阶段先建立存档领域边界，不承诺完整 UI 存取档体验。
+本阶段建立存档领域边界和基础 UI 存取档体验。
 
 ## 当前结构
 
@@ -16,6 +16,7 @@
 - `recover_save_from_latest_backup`：当主存档损坏时，选择同目录最新 `.bak` 恢复主存档，并先备份损坏的主存档。
 - `read_save`：读取 JSON 存档，执行 schema migration，再做基础校验。
 - Tauri `engine_save_slot` / `engine_recover_slot` / `engine_load_slot`：按 slot id 写入、从最新备份恢复、读取应用数据目录下的 `saves/{slot}.json`。
+- 桌面 UI：当前默认槽位支持保存、读取和从最新备份恢复，并展示主存档、覆盖备份、恢复来源和失败主档备份路径。
 - `WorldState.command_log` 随 `SaveEnvelope` 序列化，用于后续确定性回放和故障复现。
 - `SaveEnvelope::new` 会从 `WorldState.installed_content_packages` 派生 `mod_dependencies`；当前使用 `package_id` 作为存档依赖 namespace。
 
@@ -32,6 +33,6 @@
 
 ## 后续
 
-- 增加备份轮转和损坏存档恢复 UI。
+- 增加备份轮转和多槽位存档管理 UI。
 - 将桌面读档 UI 切到预检优先的确认流程。
 - 将 deterministic replay seed 接入当前事件调度器和 command log。

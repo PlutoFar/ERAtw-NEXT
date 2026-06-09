@@ -272,7 +272,8 @@ button {
 .dialogue-panel p,
 .empty-text,
 .error-text,
-.save-text {
+.save-text,
+.recovery-text {
   margin: 0;
 }
 
@@ -314,6 +315,13 @@ button {
 .save-text {
   color: #a8d8b9;
   font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.recovery-text {
+  color: #f5c87a;
+  font-size: 13px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 

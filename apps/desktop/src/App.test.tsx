@@ -1,15 +1,18 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
+import { createBrowserMockEngineClient } from "./engine/client";
 import { useEngine } from "./engine/useEngine";
 
 describe("App", () => {
   beforeEach(() => {
     useEngine.setState({
+      client: createBrowserMockEngineClient(),
       world: null,
       loading: false,
       error: null,
       lastSave: null,
+      lastRecovery: null,
     });
   });
 
@@ -63,6 +66,38 @@ describe("App", () => {
     });
   });
 
+  it("recovers the current slot from the latest backup", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "保存" }));
+    await waitFor(() => {
+      expect(screen.getByText(/browser-memory:\/\/slot_1.json/)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /休息/ }));
+    await waitFor(() => {
+      expect(screen.getByText(/08:30/)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => {
+      expect(screen.getByText(/slot_1\.json\./)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /休息/ }));
+    await waitFor(() => {
+      expect(screen.getByText(/09:00/)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /恢复/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/已恢复：browser-memory:\/\/slot_1.json/)).toBeInTheDocument();
+      expect(screen.getByText(/08:00/)).toBeInTheDocument();
+      expect(screen.queryByText(/09:00/)).not.toBeInTheDocument();
+    });
+  });
+
   it("installs the sample content package through the engine store", async () => {
     render(<App />);
 
@@ -106,6 +141,10 @@ describe("App", () => {
 
     const communicateButton = screen.getByRole("button", { name: /交流/ });
     fireEvent.click(communicateButton);
+    await waitFor(() => {
+      expect(screen.getByText("6")).toBeInTheDocument();
+    });
+
     fireEvent.click(communicateButton);
 
     await waitFor(() => {

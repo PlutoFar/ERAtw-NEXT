@@ -4,6 +4,7 @@ import type {
   ContentPackage,
   EngineCommand,
   ModRegistry,
+  SaveRecoveryReport,
   SaveSlotReport,
   WorldState,
 } from "../types";
@@ -14,11 +15,13 @@ interface EngineStore {
   loading: boolean;
   error: string | null;
   lastSave: SaveSlotReport | null;
+  lastRecovery: SaveRecoveryReport | null;
   load: () => Promise<void>;
   dispatch: (command: EngineCommand) => Promise<void>;
   installContentPackage: (packageData: ContentPackage) => Promise<void>;
   saveSlot: (slotId: string) => Promise<void>;
   loadSlot: (slotId: string) => Promise<void>;
+  recoverSlot: (slotId: string) => Promise<void>;
 }
 
 const contentRegistryForWorld = (world: WorldState | null): ModRegistry => ({
@@ -42,6 +45,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
   loading: false,
   error: null,
   lastSave: null,
+  lastRecovery: null,
   async load() {
     set({ loading: true, error: null });
     try {
@@ -82,7 +86,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const lastSave = await get().client.saveSlot(slotId, Date.now());
-      set({ lastSave, loading: false });
+      set({ lastSave, lastRecovery: null, loading: false });
     } catch (error) {
       set({ error: String(error), loading: false });
     }
@@ -92,6 +96,15 @@ export const useEngine = create<EngineStore>((set, get) => ({
     try {
       const world = await get().client.loadSlot(slotId);
       set({ world, loading: false });
+    } catch (error) {
+      set({ error: String(error), loading: false });
+    }
+  },
+  async recoverSlot(slotId) {
+    set({ loading: true, error: null });
+    try {
+      const lastRecovery = await get().client.recoverSlot(slotId, Date.now());
+      set({ world: lastRecovery.save.world, lastRecovery, loading: false });
     } catch (error) {
       set({ error: String(error), loading: false });
     }
