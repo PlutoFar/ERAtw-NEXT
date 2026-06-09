@@ -17,6 +17,7 @@ M0 proves the new project can stand alone:
 - Content packages can add locations, characters, relationships, resources, dialogue, and scheduled events
 - Content package installation records save dependencies and enforces package dependency/conflict declarations
 - Content package installation can resolve dependency and conflict checks through the Mod registry
+- Content package install preflight reports validation, dependency, conflict, and reference issues before mutating world state
 - Resource load planning reports safe paths, missing assets, hash mismatches, and fallback modes
 - Mod manifest validation with dependency, conflict, unsafe capability, and load-order checks
 - Mod manifest discovery reports good and broken local Mod directories independently

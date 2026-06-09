@@ -586,6 +586,41 @@ describe("demo engine adapter", () => {
     ).toBe(true);
   });
 
+  it("preflights browser content package registry dependencies", async () => {
+    const client = createBrowserMockEngineClient();
+    const addon = createSampleContentPackage();
+    addon.manifest.package_id = "sample.addon";
+    addon.manifest.dependencies = [
+      {
+        package_id: "sample.base",
+        version: "0.1.0",
+        required: true,
+      },
+    ];
+    addon.locations = [];
+    addon.characters = [];
+    addon.relationships = [];
+    addon.resources = [];
+    addon.dialogue_scenes = [];
+    addon.scheduled_events = [];
+
+    const blocked = await client.preflightContentPackageInstall(addon);
+    const ready = await client.preflightContentPackageInstall(addon, {
+      enabled: [
+        {
+          namespace: "sample.base",
+          version: "0.1.0",
+          conflicts: [],
+        },
+      ],
+    });
+
+    expect(blocked.ready).toBe(false);
+    expect(blocked.issues[0].code).toBe("missing_content_package_dependency");
+    expect(ready.ready).toBe(true);
+    expect(ready.issues).toEqual([]);
+  });
+
   it("plans browser resource loads with safe paths and fallbacks", async () => {
     const client = createBrowserMockEngineClient();
 

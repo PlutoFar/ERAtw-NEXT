@@ -457,6 +457,91 @@ export interface ContentPackage {
   scheduled_events: ScheduledEvent[];
 }
 
+export type ContentIssueCode =
+  | "empty_package_id"
+  | "empty_namespace"
+  | "empty_version"
+  | "empty_dependency_package_id"
+  | "empty_dependency_version"
+  | "duplicate_dependency_package_id"
+  | "self_dependency"
+  | "empty_conflict_package_id"
+  | "duplicate_conflict_package_id"
+  | "self_conflict"
+  | "empty_location_id"
+  | "duplicate_location_id"
+  | "empty_location_name"
+  | "empty_location_terrain"
+  | "empty_character_id"
+  | "duplicate_character_id"
+  | "empty_character_name"
+  | "empty_character_location"
+  | "empty_relationship_reference"
+  | "duplicate_relationship"
+  | "empty_resource_id"
+  | "duplicate_resource_id"
+  | "empty_resource_path"
+  | "unsafe_resource_path"
+  | "empty_resource_license"
+  | "empty_resource_author"
+  | "duplicate_dialogue_scene_id"
+  | "duplicate_dialogue_node_id"
+  | "empty_dialogue_scene_id"
+  | "empty_dialogue_node_id"
+  | "empty_dialogue_text"
+  | "empty_dialogue_resource_ref"
+  | "missing_entry_node"
+  | "missing_choice_next_node"
+  | "empty_condition_reference"
+  | "invalid_condition_time"
+  | "unreachable_dialogue_node"
+  | "empty_scheduled_event_id"
+  | "duplicate_scheduled_event_id"
+  | "invalid_scheduled_event_time"
+  | "invalid_scheduled_repeat"
+  | "empty_scheduled_event_reference";
+
+export interface ContentIssue {
+  code: ContentIssueCode;
+  target: string;
+}
+
+export interface ContentValidationReport {
+  issues: ContentIssue[];
+}
+
+export type ContentInstallPreflightIssueCode =
+  | "validation_failed"
+  | "duplicate_dialogue_scene"
+  | "duplicate_scheduled_event"
+  | "duplicate_location"
+  | "duplicate_character"
+  | "duplicate_relationship"
+  | "duplicate_resource"
+  | "duplicate_content_package"
+  | "missing_content_package_dependency"
+  | "content_package_dependency_version_mismatch"
+  | "content_package_conflict"
+  | "missing_location_reference"
+  | "missing_character_reference"
+  | "missing_relationship_reference"
+  | "missing_dialogue_resource"
+  | "missing_scheduled_event_scene";
+
+export interface ContentInstallPreflightIssue {
+  code: ContentInstallPreflightIssueCode;
+  message: string;
+}
+
+export interface ContentInstallPreflightReport {
+  package_id: string;
+  namespace: string;
+  version: string;
+  ready: boolean;
+  validation: ContentValidationReport | null;
+  issues: ContentInstallPreflightIssue[];
+}
+
 export type EngineCommand =
   | { type: "advance_time"; minutes: number }
   | { type: "move_character"; character_id: string; location_id: string }

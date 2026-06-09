@@ -79,13 +79,7 @@ impl ContentPackage {
         mut world: WorldState,
         registry: &ModRegistry,
     ) -> Result<WorldState, ContentInstallError> {
-        let report = self.validate()?;
-        if !report.is_clean() {
-            return Err(ContentInstallError::ValidationFailed(report));
-        }
-
-        ensure_content_package_not_installed(&world, &self.manifest)?;
-        ensure_content_package_constraints(registry, &self.manifest)?;
+        ensure_content_package_installable(self, &world, registry)?;
         merge_locations(&mut world, self.locations.clone())?;
         merge_characters(&mut world, self.characters.clone())?;
         merge_relationships(&mut world, self.relationships.clone())?;
@@ -101,6 +95,56 @@ impl ContentPackage {
         ));
         Ok(world)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentInstallPreflightReport {
+    pub package_id: String,
+    pub namespace: String,
+    pub version: String,
+    pub ready: bool,
+    pub validation: Option<ContentValidationReport>,
+    pub issues: Vec<ContentInstallPreflightIssue>,
+}
+
+impl ContentInstallPreflightReport {
+    fn new(package: &ContentPackage) -> Self {
+        Self {
+            package_id: package.manifest.package_id.clone(),
+            namespace: package.manifest.namespace.clone(),
+            version: package.manifest.version.clone(),
+            ready: false,
+            validation: None,
+            issues: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentInstallPreflightIssue {
+    pub code: ContentInstallPreflightIssueCode,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentInstallPreflightIssueCode {
+    ValidationFailed,
+    DuplicateDialogueScene,
+    DuplicateScheduledEvent,
+    DuplicateLocation,
+    DuplicateCharacter,
+    DuplicateRelationship,
+    DuplicateResource,
+    DuplicateContentPackage,
+    MissingContentPackageDependency,
+    ContentPackageDependencyVersionMismatch,
+    ContentPackageConflict,
+    MissingLocationReference,
+    MissingCharacterReference,
+    MissingRelationshipReference,
+    MissingDialogueResource,
+    MissingScheduledEventScene,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,6 +292,139 @@ pub enum ContentInstallError {
 impl std::fmt::Display for ContentValidationReport {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{} issue(s)", self.issues.len())
+    }
+}
+
+pub fn preflight_content_package_install(
+    package: &ContentPackage,
+    world: &WorldState,
+) -> ContentInstallPreflightReport {
+    let registry = content_registry_from_world(world);
+    preflight_content_package_install_with_registry(package, world, &registry)
+}
+
+pub fn preflight_content_package_install_with_registry(
+    package: &ContentPackage,
+    world: &WorldState,
+    registry: &ModRegistry,
+) -> ContentInstallPreflightReport {
+    let mut report = ContentInstallPreflightReport::new(package);
+
+    let validation = match package.validate() {
+        Ok(validation) => validation,
+        Err(error) => {
+            report.issues.push(preflight_issue_from_install_error(
+                &ContentInstallError::Validation(error),
+            ));
+            return report;
+        }
+    };
+    let is_clean = validation.is_clean();
+    report.validation = Some(validation.clone());
+    if !is_clean {
+        report.issues.push(preflight_issue_from_install_error(
+            &ContentInstallError::ValidationFailed(validation),
+        ));
+        return report;
+    }
+
+    match ensure_content_package_installable(package, world, registry) {
+        Ok(()) => {
+            report.ready = true;
+        }
+        Err(error) => {
+            report
+                .issues
+                .push(preflight_issue_from_install_error(&error));
+        }
+    }
+
+    report
+}
+
+fn ensure_content_package_installable(
+    package: &ContentPackage,
+    world: &WorldState,
+    registry: &ModRegistry,
+) -> Result<(), ContentInstallError> {
+    let report = package.validate()?;
+    if !report.is_clean() {
+        return Err(ContentInstallError::ValidationFailed(report));
+    }
+
+    ensure_content_package_not_installed(world, &package.manifest)?;
+    ensure_content_package_constraints(registry, &package.manifest)?;
+
+    let mut staged = world.clone();
+    merge_locations(&mut staged, package.locations.clone())?;
+    merge_characters(&mut staged, package.characters.clone())?;
+    merge_relationships(&mut staged, package.relationships.clone())?;
+    merge_resources(&mut staged, package.resources.clone())?;
+    ensure_world_references_exist(&staged)?;
+    ensure_dialogue_references_exist(&staged, &package.dialogue_scenes)?;
+    merge_dialogue_scenes(&mut staged, package.dialogue_scenes.clone())?;
+    merge_scheduled_events(&mut staged, package.scheduled_events.clone())?;
+
+    Ok(())
+}
+
+fn preflight_issue_from_install_error(error: &ContentInstallError) -> ContentInstallPreflightIssue {
+    ContentInstallPreflightIssue {
+        code: preflight_issue_code(error),
+        message: error.to_string(),
+    }
+}
+
+fn preflight_issue_code(error: &ContentInstallError) -> ContentInstallPreflightIssueCode {
+    match error {
+        ContentInstallError::Validation(_) | ContentInstallError::ValidationFailed(_) => {
+            ContentInstallPreflightIssueCode::ValidationFailed
+        }
+        ContentInstallError::DuplicateDialogueScene(_) => {
+            ContentInstallPreflightIssueCode::DuplicateDialogueScene
+        }
+        ContentInstallError::DuplicateScheduledEvent(_) => {
+            ContentInstallPreflightIssueCode::DuplicateScheduledEvent
+        }
+        ContentInstallError::DuplicateLocation(_) => {
+            ContentInstallPreflightIssueCode::DuplicateLocation
+        }
+        ContentInstallError::DuplicateCharacter(_) => {
+            ContentInstallPreflightIssueCode::DuplicateCharacter
+        }
+        ContentInstallError::DuplicateRelationship { .. } => {
+            ContentInstallPreflightIssueCode::DuplicateRelationship
+        }
+        ContentInstallError::DuplicateResource(_) => {
+            ContentInstallPreflightIssueCode::DuplicateResource
+        }
+        ContentInstallError::DuplicateContentPackage { .. } => {
+            ContentInstallPreflightIssueCode::DuplicateContentPackage
+        }
+        ContentInstallError::MissingContentPackageDependency { .. } => {
+            ContentInstallPreflightIssueCode::MissingContentPackageDependency
+        }
+        ContentInstallError::ContentPackageDependencyVersionMismatch { .. } => {
+            ContentInstallPreflightIssueCode::ContentPackageDependencyVersionMismatch
+        }
+        ContentInstallError::ContentPackageConflict { .. } => {
+            ContentInstallPreflightIssueCode::ContentPackageConflict
+        }
+        ContentInstallError::MissingLocationReference { .. } => {
+            ContentInstallPreflightIssueCode::MissingLocationReference
+        }
+        ContentInstallError::MissingCharacterReference { .. } => {
+            ContentInstallPreflightIssueCode::MissingCharacterReference
+        }
+        ContentInstallError::MissingRelationshipReference { .. } => {
+            ContentInstallPreflightIssueCode::MissingRelationshipReference
+        }
+        ContentInstallError::MissingDialogueResource { .. } => {
+            ContentInstallPreflightIssueCode::MissingDialogueResource
+        }
+        ContentInstallError::MissingScheduledEventScene { .. } => {
+            ContentInstallPreflightIssueCode::MissingScheduledEventScene
+        }
     }
 }
 
@@ -1554,6 +1731,83 @@ mod tests {
             .installed_content_packages
             .iter()
             .any(|package| package.package_id == "core.addon"));
+    }
+
+    #[test]
+    fn preflight_content_install_reports_ready_without_mutating_world() {
+        let package = package_with("core.extra", Vec::new(), Vec::new());
+        let world = WorldState::bootstrap_demo();
+
+        let report = preflight_content_package_install(&package, &world);
+
+        assert!(report.ready);
+        assert_eq!(report.package_id, "core.extra");
+        assert!(report.validation.unwrap().is_clean());
+        assert!(report.issues.is_empty());
+        assert!(world.installed_content_packages.is_empty());
+    }
+
+    #[test]
+    fn preflight_content_install_reports_registry_dependency_errors() {
+        let mut addon = package_with("core.addon", Vec::new(), Vec::new());
+        addon.manifest.dependencies = vec![ContentPackageDependency {
+            package_id: "core.base".to_string(),
+            version: Some("0.1.0".to_string()),
+            required: true,
+        }];
+        let registry = ModRegistry {
+            enabled: vec![ModRegistryEntry {
+                namespace: "core.base".to_string(),
+                version: "9.9.9".to_string(),
+                conflicts: Vec::new(),
+            }],
+        };
+
+        let report = preflight_content_package_install_with_registry(
+            &addon,
+            &WorldState::bootstrap_demo(),
+            &registry,
+        );
+
+        assert!(!report.ready);
+        assert_eq!(
+            report.issues[0].code,
+            ContentInstallPreflightIssueCode::ContentPackageDependencyVersionMismatch
+        );
+    }
+
+    #[test]
+    fn preflight_content_install_reports_reference_errors_without_installing() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.bad_ref"),
+            locations: Vec::new(),
+            characters: vec![Character {
+                id: "lost".to_string(),
+                display_name: "Lost".to_string(),
+                location_id: "missing_location".to_string(),
+                state: eratw_engine::CharacterState {
+                    energy: 10,
+                    mood: 0,
+                },
+            }],
+            relationships: Vec::new(),
+            resources: Vec::new(),
+            dialogue_scenes: Vec::new(),
+            scheduled_events: Vec::new(),
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let report = preflight_content_package_install(&package, &world);
+
+        assert!(!report.ready);
+        assert_eq!(
+            report.issues[0].code,
+            ContentInstallPreflightIssueCode::MissingLocationReference
+        );
+        assert!(world
+            .characters
+            .iter()
+            .all(|character| character.id != "lost"));
     }
 
     #[test]

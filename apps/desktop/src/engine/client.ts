@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { applyDemoCommand, createDemoWorld } from "./demoWorld";
 import type {
   ContentPackage,
+  ContentInstallPreflightReport,
   EngineCommand,
   ModDiscoveryReport,
   ModEnablement,
@@ -30,6 +31,10 @@ export interface EngineClient {
     packageData: ContentPackage,
     registry?: ModRegistry | null,
   ): Promise<WorldState>;
+  preflightContentPackageInstall(
+    packageData: ContentPackage,
+    registry?: ModRegistry | null,
+  ): Promise<ContentInstallPreflightReport>;
   planResources(root: string): Promise<ResourceResolutionReport>;
   inspectResources(root: string): Promise<ResourceResolutionReport>;
   discoverMods(
@@ -86,6 +91,13 @@ export const createTauriEngineClient = (): EngineClient => ({
   dispatch: (command) => invoke<WorldState>("engine_dispatch", { command }),
   installContentPackage: (packageData, registry = null) =>
     invoke<WorldState>("engine_install_content_package", {
+      request: {
+        package: packageData,
+        registry,
+      },
+    }),
+  preflightContentPackageInstall: (packageData, registry = null) =>
+    invoke<ContentInstallPreflightReport>("engine_preflight_content_package_install", {
       request: {
         package: packageData,
         registry,
@@ -1073,6 +1085,60 @@ const installPackageIntoBrowserWorld = (
   };
 };
 
+const preflightPackageIntoBrowserWorld = (
+  world: WorldState,
+  packageData: ContentPackage,
+  registry: ModRegistry | null = null,
+): ContentInstallPreflightReport => {
+  const report: ContentInstallPreflightReport = {
+    package_id: packageData.manifest.package_id,
+    namespace: packageData.manifest.namespace,
+    version: packageData.manifest.version,
+    ready: false,
+    validation: { issues: [] },
+    issues: [],
+  };
+
+  const installed = installPackageIntoBrowserWorld(world, packageData, registry);
+  if (installed !== world) {
+    report.ready = true;
+    return report;
+  }
+
+  const registryEntries =
+    registry?.enabled ??
+    world.installed_content_packages.map((packageInfo) => ({
+      namespace: packageInfo.package_id,
+      version: packageInfo.version,
+      conflicts: packageInfo.conflicts,
+    }));
+  for (const dependency of normalizeContentPackageDependencies(packageData)) {
+    const found = registryEntries.find(
+      (entry) => entry.namespace === dependency.package_id,
+    );
+    if (!found && dependency.required) {
+      report.issues.push({
+        code: "missing_content_package_dependency",
+        message: `content package dependency is missing: ${packageData.manifest.package_id} -> ${dependency.package_id}`,
+      });
+      return report;
+    }
+    if (found && dependency.version !== null && found.version !== dependency.version) {
+      report.issues.push({
+        code: "content_package_dependency_version_mismatch",
+        message: `content package dependency version mismatch: ${packageData.manifest.package_id} -> ${dependency.package_id} expected ${dependency.version} found ${found.version}`,
+      });
+      return report;
+    }
+  }
+
+  report.issues.push({
+    code: "validation_failed",
+    message: "content package cannot be installed",
+  });
+  return report;
+};
+
 export const createBrowserMockEngineClient = (): EngineClient => {
   let world = createDemoWorld();
   const saves = new Map<string, SaveEnvelope>();
@@ -1088,6 +1154,11 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     async installContentPackage(packageData, registry = null) {
       world = installPackageIntoBrowserWorld(world, packageData, registry);
       return structuredClone(world);
+    },
+    async preflightContentPackageInstall(packageData, registry = null) {
+      return structuredClone(
+        preflightPackageIntoBrowserWorld(world, packageData, registry),
+      );
     },
     async planResources(root) {
       return structuredClone(planResourcesForBrowserWorld(world, root));

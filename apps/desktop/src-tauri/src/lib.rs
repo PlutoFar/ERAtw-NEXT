@@ -1,4 +1,7 @@
-use eratw_content::ContentPackage;
+use eratw_content::{
+    preflight_content_package_install, preflight_content_package_install_with_registry,
+    ContentInstallPreflightReport, ContentPackage,
+};
 use eratw_engine::{
     resource::{inspect_resource_files, plan_resource_loads, ResourceResolutionReport},
     save::{
@@ -228,6 +231,19 @@ fn engine_install_content_package(
     .map_err(|error| error.to_string())?;
     *world = installed;
     Ok(world.clone())
+}
+
+#[tauri::command]
+fn engine_preflight_content_package_install(
+    request: ContentPackageInstallRequest,
+    state: tauri::State<'_, Mutex<WorldState>>,
+) -> ContentInstallPreflightReport {
+    let world = state.lock().expect("engine state lock poisoned");
+    if let Some(registry) = &request.registry {
+        preflight_content_package_install_with_registry(&request.package, &world, registry)
+    } else {
+        preflight_content_package_install(&request.package, &world)
+    }
 }
 
 #[tauri::command]
@@ -1277,6 +1293,7 @@ pub fn run() {
             engine_snapshot,
             engine_dispatch,
             engine_install_content_package,
+            engine_preflight_content_package_install,
             engine_plan_resources,
             engine_inspect_resources,
             engine_discover_mods,
