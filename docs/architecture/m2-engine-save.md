@@ -10,6 +10,7 @@
 - `SaveModDependency`：记录存档需要的 Mod 命名空间、版本和是否必需。
 - `WorldState.installed_content_packages`：记录已成功安装的运行内容包 namespace、package_id 和版本。
 - `SaveValidationReport`：报告缺失必需 Mod、schema 不兼容和 engine 版本不一致。
+- `preflight_save_against_registry`：读取存档但不替换当前世界，用外部启用 Mod registry 严格检查存档依赖。
 - `SaveBackupPlan`：生成覆盖、迁移、恢复前的备份目标路径。
 - `write_save_atomic`：写入同目录临时文件，覆盖前复制备份，再替换主存档。
 - `read_save`：读取 JSON 存档，执行 schema migration，再做基础校验。
@@ -25,10 +26,10 @@
 - 旧 schema 通过 `migrate_to_current` 进入当前结构；真实迁移步骤后续逐版补齐。
 - 前端不得直接改写 `WorldState`，存档预览也通过 Tauri command 生成。
 - slot id 仅允许 ASCII 字母、数字、`-`、`_`，避免路径穿越。
-- 在完整 Mod registry 接入前，存档读取会把存档内嵌的已安装内容包记录视作当前可用依赖；外部 Mod 启停检查后续由 `eratw_mod_runtime` 提供。
+- 兼容读档路径仍会把存档内嵌的已安装内容包记录视作当前可用依赖；读档预检路径使用 `eratw_mod_runtime` 生成的外部启用 registry 严格检查缺失或版本不匹配的必需 Mod。
 
 ## 后续
 
 - 增加备份轮转、损坏存档恢复 UI 和恢复入口。
-- 将 Mod runtime 的 manifest 校验接入存档依赖检查。
+- 将桌面读档 UI 切到预检优先的确认流程。
 - 将 deterministic replay seed 接入当前事件调度器和 command log。

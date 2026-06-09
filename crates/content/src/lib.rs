@@ -3,6 +3,7 @@ use eratw_engine::{
     DialogueEffect, DialogueScene, InstalledContentPackage, Location, Relationship, ResourceAsset,
     ScheduledEvent, ScheduledEventKind, WorldState,
 };
+use eratw_mod_runtime::{ModRegistry, ModRegistryEntry};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 use thiserror::Error;
@@ -68,9 +69,15 @@ impl ContentPackage {
         Ok(report)
     }
 
-    pub fn install_into_world(
+    pub fn install_into_world(&self, world: WorldState) -> Result<WorldState, ContentInstallError> {
+        let registry = content_registry_from_world(&world);
+        self.install_into_world_with_registry(world, &registry)
+    }
+
+    pub fn install_into_world_with_registry(
         &self,
         mut world: WorldState,
+        registry: &ModRegistry,
     ) -> Result<WorldState, ContentInstallError> {
         let report = self.validate()?;
         if !report.is_clean() {
@@ -78,7 +85,7 @@ impl ContentPackage {
         }
 
         ensure_content_package_not_installed(&world, &self.manifest)?;
-        ensure_content_package_constraints(&world, &self.manifest)?;
+        ensure_content_package_constraints(registry, &self.manifest)?;
         merge_locations(&mut world, self.locations.clone())?;
         merge_characters(&mut world, self.characters.clone())?;
         merge_relationships(&mut world, self.relationships.clone())?;
@@ -829,14 +836,14 @@ fn ensure_content_package_not_installed(
 }
 
 fn ensure_content_package_constraints(
-    world: &WorldState,
+    registry: &ModRegistry,
     manifest: &ContentPackageManifest,
 ) -> Result<(), ContentInstallError> {
     for dependency in &manifest.dependencies {
-        match world
-            .installed_content_packages
+        match registry
+            .enabled
             .iter()
-            .find(|package| package.package_id == dependency.package_id)
+            .find(|entry| entry.namespace == dependency.package_id)
         {
             Some(installed) => {
                 if let Some(expected_version) = &dependency.version {
@@ -863,10 +870,10 @@ fn ensure_content_package_constraints(
     }
 
     for conflict in &manifest.conflicts {
-        if world
-            .installed_content_packages
+        if registry
+            .enabled
             .iter()
-            .any(|package| package.package_id == *conflict)
+            .any(|entry| entry.namespace == *conflict)
         {
             return Err(ContentInstallError::ContentPackageConflict {
                 package_id: manifest.package_id.clone(),
@@ -875,19 +882,32 @@ fn ensure_content_package_constraints(
         }
     }
 
-    if let Some(installed) = world.installed_content_packages.iter().find(|package| {
-        package
+    if let Some(installed) = registry.enabled.iter().find(|entry| {
+        entry
             .conflicts
             .iter()
             .any(|conflict| conflict == &manifest.package_id)
     }) {
         return Err(ContentInstallError::ContentPackageConflict {
             package_id: manifest.package_id.clone(),
-            conflict_package_id: installed.package_id.clone(),
+            conflict_package_id: installed.namespace.clone(),
         });
     }
 
     Ok(())
+}
+
+fn content_registry_from_world(world: &WorldState) -> ModRegistry {
+    let enabled = world
+        .installed_content_packages
+        .iter()
+        .map(|package| ModRegistryEntry {
+            namespace: package.package_id.clone(),
+            version: package.version.clone(),
+            conflicts: package.conflicts.clone(),
+        })
+        .collect();
+    ModRegistry { enabled }
 }
 
 fn record_installed_content_package(world: &mut WorldState, manifest: &ContentPackageManifest) {
@@ -1508,6 +1528,105 @@ mod tests {
             .unwrap();
         assert_eq!(recorded.dependencies, addon.manifest.dependencies);
         assert_eq!(recorded.conflicts, vec!["core.conflict".to_string()]);
+    }
+
+    #[test]
+    fn install_can_resolve_content_dependencies_from_mod_registry() {
+        let mut addon = package_with("core.addon", Vec::new(), Vec::new());
+        addon.manifest.dependencies = vec![ContentPackageDependency {
+            package_id: "core.base".to_string(),
+            version: Some("0.1.0".to_string()),
+            required: true,
+        }];
+        let registry = ModRegistry {
+            enabled: vec![ModRegistryEntry {
+                namespace: "core.base".to_string(),
+                version: "0.1.0".to_string(),
+                conflicts: Vec::new(),
+            }],
+        };
+
+        let installed = addon
+            .install_into_world_with_registry(WorldState::bootstrap_demo(), &registry)
+            .unwrap();
+
+        assert!(installed
+            .installed_content_packages
+            .iter()
+            .any(|package| package.package_id == "core.addon"));
+    }
+
+    #[test]
+    fn install_rejects_registry_dependency_version_mismatch() {
+        let mut addon = package_with("core.addon", Vec::new(), Vec::new());
+        addon.manifest.dependencies = vec![ContentPackageDependency {
+            package_id: "core.base".to_string(),
+            version: Some("0.1.0".to_string()),
+            required: true,
+        }];
+        let registry = ModRegistry {
+            enabled: vec![ModRegistryEntry {
+                namespace: "core.base".to_string(),
+                version: "9.9.9".to_string(),
+                conflicts: Vec::new(),
+            }],
+        };
+
+        let result =
+            addon.install_into_world_with_registry(WorldState::bootstrap_demo(), &registry);
+
+        assert_eq!(
+            result,
+            Err(
+                ContentInstallError::ContentPackageDependencyVersionMismatch {
+                    package_id: "core.addon".to_string(),
+                    dependency_package_id: "core.base".to_string(),
+                    expected_version: "0.1.0".to_string(),
+                    actual_version: "9.9.9".to_string(),
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn install_rejects_registry_conflicts_both_directions() {
+        let mut left = package_with("core.left", Vec::new(), Vec::new());
+        left.manifest.conflicts = vec!["core.right".to_string()];
+        let direct_registry = ModRegistry {
+            enabled: vec![ModRegistryEntry {
+                namespace: "core.right".to_string(),
+                version: "0.1.0".to_string(),
+                conflicts: Vec::new(),
+            }],
+        };
+        let reverse_registry = ModRegistry {
+            enabled: vec![ModRegistryEntry {
+                namespace: "core.right".to_string(),
+                version: "0.1.0".to_string(),
+                conflicts: vec!["core.left".to_string()],
+            }],
+        };
+
+        let direct = left
+            .clone()
+            .install_into_world_with_registry(WorldState::bootstrap_demo(), &direct_registry);
+        let reverse =
+            left.install_into_world_with_registry(WorldState::bootstrap_demo(), &reverse_registry);
+
+        assert_eq!(
+            direct,
+            Err(ContentInstallError::ContentPackageConflict {
+                package_id: "core.left".to_string(),
+                conflict_package_id: "core.right".to_string(),
+            })
+        );
+        assert_eq!(
+            reverse,
+            Err(ContentInstallError::ContentPackageConflict {
+                package_id: "core.left".to_string(),
+                conflict_package_id: "core.right".to_string(),
+            })
+        );
     }
 
     #[test]

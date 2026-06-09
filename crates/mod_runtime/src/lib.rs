@@ -116,6 +116,8 @@ pub struct ModRegistry {
 pub struct ModRegistryEntry {
     pub namespace: String,
     pub version: String,
+    #[serde(default)]
+    pub conflicts: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1424,6 +1426,7 @@ impl From<&ModManifest> for ModRegistryEntry {
         Self {
             namespace: manifest.namespace.clone(),
             version: manifest.version.clone(),
+            conflicts: manifest.conflicts.clone(),
         }
     }
 }
@@ -1969,10 +1972,12 @@ mod tests {
                 ModRegistryEntry {
                     namespace: "core.base".to_string(),
                     version: "0.1.0".to_string(),
+                    conflicts: Vec::new(),
                 },
                 ModRegistryEntry {
                     namespace: "example.addon".to_string(),
                     version: "0.1.0".to_string(),
+                    conflicts: Vec::new(),
                 },
             ]
         );

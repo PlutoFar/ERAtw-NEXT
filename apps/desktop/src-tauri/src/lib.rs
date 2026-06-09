@@ -29,6 +29,12 @@ struct SaveSlotReport {
 }
 
 #[derive(Debug, Deserialize)]
+struct ContentPackageInstallRequest {
+    package: ContentPackage,
+    registry: Option<ModRegistry>,
+}
+
+#[derive(Debug, Deserialize)]
 struct SavePreflightRequest {
     #[serde(alias = "slotId")]
     slot_id: String,
@@ -208,13 +214,18 @@ fn engine_dispatch(
 
 #[tauri::command]
 fn engine_install_content_package(
-    package: ContentPackage,
+    request: ContentPackageInstallRequest,
     state: tauri::State<'_, Mutex<WorldState>>,
 ) -> Result<WorldState, String> {
     let mut world = state.lock().expect("engine state lock poisoned");
-    let installed = package
-        .install_into_world(world.clone())
-        .map_err(|error| error.to_string())?;
+    let installed = if let Some(registry) = &request.registry {
+        request
+            .package
+            .install_into_world_with_registry(world.clone(), registry)
+    } else {
+        request.package.install_into_world(world.clone())
+    }
+    .map_err(|error| error.to_string())?;
     *world = installed;
     Ok(world.clone())
 }

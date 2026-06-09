@@ -474,6 +474,7 @@ describe("demo engine adapter", () => {
       {
         namespace: "example.minimal_character",
         version: "0.1.0",
+        conflicts: [],
       },
     ]);
     expect(ready.validation.missing_required_mods).toEqual([]);
@@ -546,6 +547,43 @@ describe("demo engine adapter", () => {
         required: true,
       },
     ]);
+  });
+
+  it("installs browser content packages with registry dependencies", async () => {
+    const client = createBrowserMockEngineClient();
+    const addon = createSampleContentPackage();
+    addon.manifest.package_id = "sample.addon";
+    addon.manifest.dependencies = [
+      {
+        package_id: "sample.base",
+        version: "0.1.0",
+        required: true,
+      },
+    ];
+    addon.locations = [];
+    addon.characters = [];
+    addon.relationships = [];
+    addon.resources = [];
+    addon.dialogue_scenes = [];
+    addon.scheduled_events = [];
+
+    const rejected = await client.installContentPackage(addon);
+    const installed = await client.installContentPackage(addon, {
+      enabled: [
+        {
+          namespace: "sample.base",
+          version: "0.1.0",
+          conflicts: [],
+        },
+      ],
+    });
+
+    expect(rejected.installed_content_packages).toEqual([]);
+    expect(
+      installed.installed_content_packages.some(
+        (packageInfo) => packageInfo.package_id === "sample.addon",
+      ),
+    ).toBe(true);
   });
 
   it("plans browser resource loads with safe paths and fallbacks", async () => {

@@ -12,6 +12,7 @@ import type {
   ModLoadErrorReport,
   ModManifest,
   ModCapability,
+  ModRegistry,
   ModUninstallPlanReport,
   ModUninstallReport,
   ResourceAsset,
@@ -25,7 +26,10 @@ import type {
 export interface EngineClient {
   snapshot(): Promise<WorldState>;
   dispatch(command: EngineCommand): Promise<WorldState>;
-  installContentPackage(packageData: ContentPackage): Promise<WorldState>;
+  installContentPackage(
+    packageData: ContentPackage,
+    registry?: ModRegistry | null,
+  ): Promise<WorldState>;
   planResources(root: string): Promise<ResourceResolutionReport>;
   inspectResources(root: string): Promise<ResourceResolutionReport>;
   discoverMods(
@@ -80,9 +84,12 @@ const isTauriRuntime = () =>
 export const createTauriEngineClient = (): EngineClient => ({
   snapshot: () => invoke<WorldState>("engine_snapshot"),
   dispatch: (command) => invoke<WorldState>("engine_dispatch", { command }),
-  installContentPackage: (packageData) =>
+  installContentPackage: (packageData, registry = null) =>
     invoke<WorldState>("engine_install_content_package", {
-      package: packageData,
+      request: {
+        package: packageData,
+        registry,
+      },
     }),
   planResources: (root) =>
     invoke<ResourceResolutionReport>("engine_plan_resources", { root }),
@@ -242,9 +249,6 @@ const relationshipKey = (sourceCharacterId: string, targetCharacterId: string) =
 
 const installedPackageKey = (namespace: string, packageId: string) =>
   `${namespace}\u0000${packageId}`;
-
-const installedPackageById = (world: WorldState, packageId: string) =>
-  world.installed_content_packages.find((packageInfo) => packageInfo.package_id === packageId);
 
 const isSafeResourceSourcePath = (sourcePath: string) => {
   const normalized = sourcePath.replaceAll("\\", "/");
@@ -760,6 +764,7 @@ const modRegistryFromEnabledPlan = (
   enabled: enabledPlan.enabled.map((manifest) => ({
     namespace: manifest.namespace,
     version: manifest.version,
+    conflicts: [...manifest.conflicts],
   })),
 });
 
@@ -853,6 +858,7 @@ const scheduledKindRefsExist = (
 const installPackageIntoBrowserWorld = (
   world: WorldState,
   packageData: ContentPackage,
+  registry: ModRegistry | null = null,
 ) => {
   if (
     packageData.manifest.schema_version !== "content-package/v0" ||
@@ -880,12 +886,21 @@ const installPackageIntoBrowserWorld = (
   }
 
   const dependencies = normalizeContentPackageDependencies(packageData);
+  const registryEntries =
+    registry?.enabled ??
+    world.installed_content_packages.map((packageInfo) => ({
+      namespace: packageInfo.package_id,
+      version: packageInfo.version,
+      conflicts: packageInfo.conflicts,
+    }));
   for (const dependency of dependencies) {
     if (!dependency.package_id.trim()) {
       return world;
     }
 
-    const installed = installedPackageById(world, dependency.package_id);
+    const installed = registryEntries.find(
+      (entry) => entry.namespace === dependency.package_id,
+    );
     if (!installed && dependency.required) {
       return world;
     }
@@ -900,10 +915,12 @@ const installPackageIntoBrowserWorld = (
 
   if (
     packageData.manifest.conflicts.some(
-      (conflict) => !conflict.trim() || installedPackageById(world, conflict),
+      (conflict) =>
+        !conflict.trim() ||
+        registryEntries.some((entry) => entry.namespace === conflict),
     ) ||
-    world.installed_content_packages.some((packageInfo) =>
-      packageInfo.conflicts.includes(packageData.manifest.package_id),
+    registryEntries.some((entry) =>
+      entry.conflicts.includes(packageData.manifest.package_id),
     )
   ) {
     return world;
@@ -1068,8 +1085,8 @@ export const createBrowserMockEngineClient = (): EngineClient => {
       world = applyDemoCommand(world, command);
       return structuredClone(world);
     },
-    async installContentPackage(packageData) {
-      world = installPackageIntoBrowserWorld(world, packageData);
+    async installContentPackage(packageData, registry = null) {
+      world = installPackageIntoBrowserWorld(world, packageData, registry);
       return structuredClone(world);
     },
     async planResources(root) {

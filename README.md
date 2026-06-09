@@ -16,6 +16,7 @@ M0 proves the new project can stand alone:
 - M2 deterministic event scheduler with command replay tests
 - Content packages can add locations, characters, relationships, resources, dialogue, and scheduled events
 - Content package installation records save dependencies and enforces package dependency/conflict declarations
+- Content package installation can resolve dependency and conflict checks through the Mod registry
 - Resource load planning reports safe paths, missing assets, hash mismatches, and fallback modes
 - Mod manifest validation with dependency, conflict, unsafe capability, and load-order checks
 - Mod manifest discovery reports good and broken local Mod directories independently

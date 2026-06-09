@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 eratw_engine = { path = "../engine" }
+eratw_mod_runtime = { path = "../mod_runtime" }
 serde.workspace = true
 thiserror.workspace = true
 

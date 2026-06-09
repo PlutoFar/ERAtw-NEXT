@@ -236,6 +236,7 @@ export interface ModEnablementPlanReport {
 export interface ModRegistryEntry {
   namespace: string;
   version: string;
+  conflicts: string[];
 }
 
 export interface ModRegistry {

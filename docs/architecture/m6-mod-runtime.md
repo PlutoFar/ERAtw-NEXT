@@ -21,10 +21,10 @@
 - `install_mod_package` / `install_mod_package_for_engine`：先校验发布包，再安装包内 `content/` 目录，复用安装 staging 和拒绝覆盖语义。
 - `plan_mod_uninstall` / `uninstall_mod`：按 namespace 生成卸载计划，先移动正式目录到 `.uninstalling-{namespace}` staging，再删除 staging，避免半删除状态被发现器当作可加载 Mod。
 - `discover_mods` / `discover_mods_for_engine`：扫描 Mod 根目录的一级子目录，分别返回成功发现的 manifest 和每个失败 manifest 的结构化错误。
-- `ModRegistry` / `mod_registry_from_enablement_plan`：把当前启用计划转换为稳定 namespace/version 快照，供存档依赖预检使用。
+- `ModRegistry` / `mod_registry_from_enablement_plan`：把当前启用计划转换为稳定 namespace/version/conflicts 快照，供存档依赖预检和内容包安装依赖/冲突检查使用。
 - `eratw-mod` CLI：提供作者侧 `new`、`validate`、`pack`、`check-package`、`preflight-install-package` 和 `install-package` 命令，作为 Mod SDK 的最小模板/验证/打包/发布检查/预检/安装入口；`--allow-capability <capability>` 用于显式授权受信 Mod 的高危能力。
-- Tauri `engine_discover_mods` / `engine_plan_mod_install` / `engine_preflight_mod_package_install` / `engine_install_mod` / `engine_plan_mod_uninstall` / `engine_uninstall_mod` / `engine_plan_enabled_mods` / `engine_preflight_load_slot`：桌面层把发现报告、安装/卸载计划、安装预检报告、安装/卸载结果、启用计划和存档依赖预检转换成前端稳定 DTO，包含可展示的错误类型和消息；安装/启用/预检请求可带 `authorizedUnsafeCapabilities`，未知授权返回 `unknown_capability`。
-- 运行时内容包安装成功后会写入 `WorldState.installed_content_packages`，包含 package_id、version、dependencies 和 conflicts；存档外壳据此生成 `mod_dependencies`，读档前可用当前启用的 `ModRegistry` 严格检查缺失必需 Mod。
+- Tauri `engine_discover_mods` / `engine_plan_mod_install` / `engine_preflight_mod_package_install` / `engine_install_mod` / `engine_plan_mod_uninstall` / `engine_uninstall_mod` / `engine_plan_enabled_mods` / `engine_preflight_load_slot`：桌面层把发现报告、安装/卸载计划、安装预检报告、安装/卸载结果、启用计划和存档依赖预检转换成前端稳定 DTO，包含可展示的错误类型和消息；内容包安装请求可带 `ModRegistry` 作为依赖/冲突来源；安装/启用/预检请求可带 `authorizedUnsafeCapabilities`，未知授权返回 `unknown_capability`。
+- 运行时内容包安装成功后会写入 `WorldState.installed_content_packages`，包含 package_id、version、dependencies 和 conflicts；存档外壳据此生成 `mod_dependencies`，读档前可用当前启用的 `ModRegistry` 严格检查缺失必需 Mod；内容包安装也提供 registry-aware 入口，桌面 API 可直接把当前启用 registry 作为依赖和冲突来源。
 
 ## 安全默认值
 
@@ -45,7 +45,7 @@
 - 禁用 Mod 不进入加载顺序；如果启用 Mod 依赖被禁用的必需 Mod，启用计划返回缺失依赖错误。
 - 存档读取兼容路径仍允许存档世界自带的内容包记录通过；读档预检路径使用外部 `ModRegistry` 严格检查，能在真正载入前报告缺失或版本不匹配的必需 Mod。
 - 前端只接收 discovery DTO，不依赖 Rust 内部错误枚举，避免后续 runtime 错误模型调整直接破坏 UI。
-- 内容包安装阶段已经执行必需依赖、可选依赖、版本匹配和双向冲突检查；完整 Mod registry 接入后会统一迁移到 `eratw_mod_runtime` 的启停计划。
+- 内容包安装阶段已经执行必需依赖、可选依赖、版本匹配和双向冲突检查；registry-aware 安装入口可直接使用 `eratw_mod_runtime` 的启用 registry，默认安装路径仍会从当前 world 生成兼容 registry。
 
 ## Manifest 示例
 
@@ -92,6 +92,5 @@ example.minimal_character-0.1.0/
 
 ## 后续
 
-- 将 `eratw_mod_runtime` 接入内容包安装和存档依赖检查。
-- 将内容包安装依赖解析统一迁移到 `eratw_mod_runtime` registry。
+- 将桌面 UI 的内容包安装流程切到玩家当前启用的 `ModRegistry`。
 - 增加更完整的错误恢复、安装撤销、卸载回滚和安装前资源/内容预检。
