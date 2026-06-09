@@ -4,8 +4,9 @@ use eratw_content::{
 };
 use eratw_engine::{
     resource::{
-        inspect_resource_files_with_options, plan_resource_loads_with_options,
-        preflight_resource_loads_with_options, ResourcePlanningOptions, ResourcePreflightReport,
+        cache_resource_loads_with_options, inspect_resource_files_with_options,
+        plan_resource_loads_with_options, preflight_resource_loads_with_options,
+        ResourceCacheReport, ResourcePlanningOptions, ResourcePreflightReport,
         ResourceResolutionReport,
     },
     save::{
@@ -299,6 +300,22 @@ fn engine_preflight_resources(
 ) -> ResourcePreflightReport {
     let world = state.lock().expect("engine state lock poisoned");
     preflight_resource_loads_with_options(
+        &world.resources,
+        root,
+        ResourcePlanningOptions {
+            low_spec: low_spec.unwrap_or_default(),
+        },
+    )
+}
+
+#[tauri::command]
+fn engine_cache_resources(
+    root: String,
+    low_spec: Option<bool>,
+    state: tauri::State<'_, Mutex<WorldState>>,
+) -> ResourceCacheReport {
+    let world = state.lock().expect("engine state lock poisoned");
+    cache_resource_loads_with_options(
         &world.resources,
         root,
         ResourcePlanningOptions {
@@ -1368,6 +1385,7 @@ pub fn run() {
             engine_plan_resources,
             engine_inspect_resources,
             engine_preflight_resources,
+            engine_cache_resources,
             engine_discover_mods,
             engine_plan_mod_install,
             engine_install_mod,

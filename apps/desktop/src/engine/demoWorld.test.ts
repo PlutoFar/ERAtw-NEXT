@@ -878,6 +878,25 @@ describe("demo engine adapter", () => {
     expect(report.resolution.entries[0].thumbnail_path).toMatch(/\.webp$/);
   });
 
+  it("simulates browser resource cache reports", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.cacheResources("mods/sample", true);
+
+    expect(report.ready).toBe(true);
+    expect(report.low_spec).toBe(true);
+    expect(report.cached_count).toBe(1);
+    expect(report.skipped_count).toBe(0);
+    expect(report.failed_count).toBe(0);
+    expect(report.entries[0]).toMatchObject({
+      resource_id: "core.demo.heroine.neutral",
+      status: "cached",
+      cache_path: expect.stringContaining(
+        "mods/sample/.eratw-cache/resources/core.demo.heroine.neutral-",
+      ) as string,
+    });
+  });
+
   it("discovers browser mod manifests through the engine client", async () => {
     const client = createBrowserMockEngineClient();
 

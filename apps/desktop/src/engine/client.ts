@@ -18,6 +18,7 @@ import type {
   ModUninstallPlanReport,
   ModUninstallReport,
   ResourceAsset,
+  ResourceCacheReport,
   ResourcePreflightIssue,
   ResourcePreflightReport,
   ResourceResolution,
@@ -43,6 +44,7 @@ export interface EngineClient {
   planResources(root: string, lowSpec?: boolean): Promise<ResourceResolutionReport>;
   inspectResources(root: string, lowSpec?: boolean): Promise<ResourceResolutionReport>;
   preflightResources(root: string, lowSpec?: boolean): Promise<ResourcePreflightReport>;
+  cacheResources(root: string, lowSpec?: boolean): Promise<ResourceCacheReport>;
   discoverMods(
     root: string,
     engineVersion?: string | null,
@@ -116,6 +118,8 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<ResourceResolutionReport>("engine_inspect_resources", { root, lowSpec }),
   preflightResources: (root, lowSpec = false) =>
     invoke<ResourcePreflightReport>("engine_preflight_resources", { root, lowSpec }),
+  cacheResources: (root, lowSpec = false) =>
+    invoke<ResourceCacheReport>("engine_cache_resources", { root, lowSpec }),
   discoverMods: (root, engineVersion = null, authorizedUnsafeCapabilities = []) =>
     invoke<ModDiscoveryReport>("engine_discover_mods", {
       root,
@@ -581,6 +585,49 @@ const preflightResourcesForBrowserWorld = (
     ready: issues.length === 0,
     resolution,
     issues,
+  };
+};
+
+const cacheResourcesForBrowserWorld = (
+  world: WorldState,
+  root: string,
+  lowSpec = false,
+): ResourceCacheReport => {
+  const resolution = planResourcesForBrowserWorld(world, root, lowSpec);
+  const entries = resolution.entries.map((entry) => {
+    if (entry.status !== "planned" || entry.cache_path === null) {
+      return {
+        resource_id: entry.resource_id,
+        source_path: entry.source_path,
+        cache_path: entry.cache_path,
+        status: "skipped" as const,
+        bytes_copied: 0,
+        message: "browser mock does not inspect missing files",
+      };
+    }
+
+    return {
+      resource_id: entry.resource_id,
+      source_path: entry.source_path,
+      cache_path: entry.cache_path,
+      status: "cached" as const,
+      bytes_copied: 0,
+      message: "browser mock resource cached",
+    };
+  });
+  const cachedCount = entries.filter((entry) => entry.status === "cached").length;
+  const skippedCount = entries.filter((entry) => entry.status === "skipped").length;
+  const failedCount = 0;
+
+  return {
+    root,
+    low_spec: lowSpec,
+    ready: failedCount === 0,
+    cached_count: cachedCount,
+    skipped_count: skippedCount,
+    failed_count: failedCount,
+    resolution,
+    entries,
   };
 };
 
@@ -1544,6 +1591,9 @@ export const createBrowserMockEngineClient = (): EngineClient => {
       return structuredClone(
         preflightResourcesForBrowserWorld(world, root, lowSpec),
       );
+    },
+    async cacheResources(root, lowSpec = false) {
+      return structuredClone(cacheResourcesForBrowserWorld(world, root, lowSpec));
     },
     async discoverMods(root, engineVersion = null, authorizedUnsafeCapabilities = []) {
       return structuredClone(

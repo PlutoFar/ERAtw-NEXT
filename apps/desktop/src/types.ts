@@ -107,6 +107,28 @@ export interface ResourcePreflightReport {
   issues: ResourcePreflightIssue[];
 }
 
+export type ResourceCacheStatus = "cached" | "skipped" | "failed";
+
+export interface ResourceCacheEntry {
+  resource_id: string;
+  source_path: string;
+  cache_path: string | null;
+  status: ResourceCacheStatus;
+  bytes_copied: number;
+  message: string;
+}
+
+export interface ResourceCacheReport {
+  root: string;
+  low_spec: boolean;
+  ready: boolean;
+  cached_count: number;
+  skipped_count: number;
+  failed_count: number;
+  resolution: ResourceResolutionReport;
+  entries: ResourceCacheEntry[];
+}
+
 export type ModCapability =
   | "content"
   | "theme"

@@ -38,6 +38,37 @@ pub struct ResourcePreflightReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceCacheReport {
+    pub root: String,
+    #[serde(default)]
+    pub low_spec: bool,
+    pub ready: bool,
+    pub cached_count: usize,
+    pub skipped_count: usize,
+    pub failed_count: usize,
+    pub resolution: ResourceResolutionReport,
+    pub entries: Vec<ResourceCacheEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceCacheEntry {
+    pub resource_id: String,
+    pub source_path: String,
+    pub cache_path: Option<String>,
+    pub status: ResourceCacheStatus,
+    pub bytes_copied: u64,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceCacheStatus {
+    Cached,
+    Skipped,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourcePreflightIssue {
     pub code: ResourcePreflightIssueCode,
     pub resource_id: String,
@@ -159,6 +190,49 @@ pub fn preflight_resource_loads_with_options(
         ready: issues.is_empty(),
         resolution,
         issues,
+    }
+}
+
+pub fn cache_resource_loads(
+    resources: &[ResourceAsset],
+    root: impl AsRef<Path>,
+) -> ResourceCacheReport {
+    cache_resource_loads_with_options(resources, root, ResourcePlanningOptions::default())
+}
+
+pub fn cache_resource_loads_with_options(
+    resources: &[ResourceAsset],
+    root: impl AsRef<Path>,
+    options: ResourcePlanningOptions,
+) -> ResourceCacheReport {
+    let resolution = inspect_resource_files_with_options(resources, root, options);
+    let entries = resolution
+        .entries
+        .iter()
+        .map(cache_resource_entry)
+        .collect::<Vec<_>>();
+    let cached_count = entries
+        .iter()
+        .filter(|entry| entry.status == ResourceCacheStatus::Cached)
+        .count();
+    let skipped_count = entries
+        .iter()
+        .filter(|entry| entry.status == ResourceCacheStatus::Skipped)
+        .count();
+    let failed_count = entries
+        .iter()
+        .filter(|entry| entry.status == ResourceCacheStatus::Failed)
+        .count();
+
+    ResourceCacheReport {
+        root: resolution.root.clone(),
+        low_spec: resolution.low_spec,
+        ready: failed_count == 0,
+        cached_count,
+        skipped_count,
+        failed_count,
+        resolution,
+        entries,
     }
 }
 
@@ -303,6 +377,61 @@ fn preflight_issue_from_resolution(entry: &ResourceResolution) -> Option<Resourc
         message: preflight_issue_message(entry),
         fallback: entry.fallback.clone(),
     })
+}
+
+fn cache_resource_entry(entry: &ResourceResolution) -> ResourceCacheEntry {
+    let Some(source_path) = entry.resolved_path.as_deref() else {
+        return skipped_cache_entry(entry, "resource path is unsafe");
+    };
+    let Some(cache_path) = entry.cache_path.as_deref() else {
+        return skipped_cache_entry(entry, "resource has no cache target");
+    };
+
+    if entry.status != ResourceResolutionStatus::Ready {
+        return skipped_cache_entry(
+            entry,
+            &format!("resource is not ready for caching: {:?}", entry.status),
+        );
+    }
+
+    let source_path = Path::new(source_path);
+    let cache_path = Path::new(cache_path);
+    let result = (|| -> io::Result<u64> {
+        if let Some(parent) = cache_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(source_path, cache_path)
+    })();
+
+    match result {
+        Ok(bytes_copied) => ResourceCacheEntry {
+            resource_id: entry.resource_id.clone(),
+            source_path: entry.source_path.clone(),
+            cache_path: entry.cache_path.clone(),
+            status: ResourceCacheStatus::Cached,
+            bytes_copied,
+            message: "resource cached".to_string(),
+        },
+        Err(error) => ResourceCacheEntry {
+            resource_id: entry.resource_id.clone(),
+            source_path: entry.source_path.clone(),
+            cache_path: entry.cache_path.clone(),
+            status: ResourceCacheStatus::Failed,
+            bytes_copied: 0,
+            message: format!("resource cache failed: {error}"),
+        },
+    }
+}
+
+fn skipped_cache_entry(entry: &ResourceResolution, message: &str) -> ResourceCacheEntry {
+    ResourceCacheEntry {
+        resource_id: entry.resource_id.clone(),
+        source_path: entry.source_path.clone(),
+        cache_path: entry.cache_path.clone(),
+        status: ResourceCacheStatus::Skipped,
+        bytes_copied: 0,
+        message: message.to_string(),
+    }
 }
 
 fn preflight_issue_message(entry: &ResourceResolution) -> String {
@@ -764,6 +893,73 @@ mod tests {
             ]
         );
         assert_eq!(report.issues[0].fallback, ResourceFallback::SilentAudio);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cache_resource_loads_copies_ready_resources_to_cache() {
+        let dir = temp_resource_dir("resource_cache_ready");
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::write(dir.join("assets/ready.txt"), b"ready").unwrap();
+        let ready_hash = sha256_file(&dir.join("assets/ready.txt")).unwrap();
+
+        let report = cache_resource_loads(
+            &[resource(
+                "ready",
+                "assets/ready.txt",
+                ResourceMediaType::Other,
+                Some(ready_hash),
+            )],
+            &dir,
+        );
+
+        assert!(report.ready);
+        assert_eq!(report.cached_count, 1);
+        assert_eq!(report.skipped_count, 0);
+        assert_eq!(report.failed_count, 0);
+        assert_eq!(report.entries[0].status, ResourceCacheStatus::Cached);
+        assert_eq!(report.entries[0].bytes_copied, 5);
+        let cache_path = PathBuf::from(report.entries[0].cache_path.as_ref().unwrap());
+        assert_eq!(fs::read(cache_path).unwrap(), b"ready");
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn cache_resource_loads_skips_blocked_resources() {
+        let dir = temp_resource_dir("resource_cache_blocked");
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::write(dir.join("assets/mismatch.txt"), b"mismatch").unwrap();
+
+        let report = cache_resource_loads(
+            &[
+                resource(
+                    "missing",
+                    "assets/missing.txt",
+                    ResourceMediaType::Audio,
+                    None,
+                ),
+                resource(
+                    "mismatch",
+                    "assets/mismatch.txt",
+                    ResourceMediaType::Font,
+                    Some("0000".to_string()),
+                ),
+                resource("unsafe", "../outside.txt", ResourceMediaType::Image, None),
+            ],
+            &dir,
+        );
+
+        assert!(report.ready);
+        assert_eq!(report.cached_count, 0);
+        assert_eq!(report.skipped_count, 3);
+        assert_eq!(report.failed_count, 0);
+        assert!(report
+            .entries
+            .iter()
+            .all(|entry| entry.status == ResourceCacheStatus::Skipped));
+        assert!(!dir.join(".eratw-cache/resources").exists());
 
         let _ = fs::remove_dir_all(dir);
     }

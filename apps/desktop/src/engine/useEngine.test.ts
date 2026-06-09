@@ -89,6 +89,16 @@ const createMockClient = (
       resolution: { root: "", low_spec: false, entries: [] },
       issues: [],
     })),
+    cacheResources: vi.fn(async () => ({
+      root: "",
+      low_spec: false,
+      ready: true,
+      cached_count: 0,
+      skipped_count: 0,
+      failed_count: 0,
+      resolution: { root: "", low_spec: false, entries: [] },
+      entries: [],
+    })),
     discoverMods: vi.fn(async (root) => ({
       root_path: root,
       discovered: [],
