@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "character/v0",
+  "id": "example.minimal_character.demo",
+  "displayName": "示例 Mod 角色",
+  "initialLocationId": "school_gate",
+  "resourceRefs": []
+}

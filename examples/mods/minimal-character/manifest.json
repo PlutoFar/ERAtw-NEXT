@@ -1,0 +1,8 @@
+{
+  "namespace": "example.minimal_character",
+  "name": "最小角色 Mod",
+  "version": "0.1.0",
+  "engineVersion": "0.1.0-m0",
+  "dependencies": [],
+  "capabilities": ["content"]
+}

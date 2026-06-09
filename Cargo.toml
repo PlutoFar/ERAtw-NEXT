@@ -1,0 +1,20 @@
+[workspace]
+members = [
+  "apps/desktop/src-tauri",
+  "crates/engine",
+  "crates/content",
+  "crates/mod_runtime"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "NOASSERTION"
+repository = "https://github.com/PlutoFar/ERAtw-NEXT"
+rust-version = "1.77"
+
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"

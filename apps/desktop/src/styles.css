@@ -1,0 +1,304 @@
+:root {
+  color: #e8edf0;
+  background: #111518;
+  font-family:
+    Inter, "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: #111518;
+  color: #e8edf0;
+  padding: 24px;
+}
+
+.top-bar {
+  align-items: center;
+  border-bottom: 1px solid #2d3940;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding-bottom: 18px;
+}
+
+.top-bar h1 {
+  font-size: 28px;
+  line-height: 1.1;
+  margin: 0 0 6px;
+}
+
+.top-bar p {
+  color: #aab7bf;
+  margin: 0;
+}
+
+.status-strip {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.status-strip span {
+  align-items: center;
+  background: #1a2227;
+  border: 1px solid #2d3940;
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.workspace {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  padding-top: 20px;
+}
+
+.mode-tabs,
+.mode-panel {
+  min-width: 0;
+}
+
+.mode-list {
+  display: inline-flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.mode-list button {
+  background: #1a2227;
+  border: 1px solid #2d3940;
+  border-radius: 8px;
+  color: #d4dde2;
+  cursor: pointer;
+  min-height: 36px;
+  padding: 0 16px;
+}
+
+.mode-list button[data-state="active"] {
+  background: #e8edf0;
+  color: #111518;
+}
+
+.traditional-view {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+}
+
+.ascii-map {
+  background: #151b1f;
+  border: 1px solid #2d3940;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(130px, 1fr));
+  min-height: 390px;
+  padding: 16px;
+}
+
+.ascii-cell {
+  align-items: center;
+  background: #202a30;
+  border: 1px solid #3a4952;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 112px;
+}
+
+.ascii-cell span {
+  font-family: "Microsoft YaHei Mono", Consolas, monospace;
+  font-size: 42px;
+  line-height: 1;
+}
+
+.ascii-cell small {
+  color: #b9c7ce;
+  font-size: 14px;
+}
+
+.log-panel,
+.side-panel section,
+.boot-panel {
+  background: #151b1f;
+  border: 1px solid #2d3940;
+  border-radius: 8px;
+}
+
+.log-panel {
+  min-height: 390px;
+  padding: 16px;
+}
+
+.log-panel h2,
+.character-panel h2 {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+
+.log-panel ol {
+  color: #c6d0d6;
+  line-height: 1.65;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.modern-view {
+  background: #151b1f;
+  border: 1px solid #2d3940;
+  border-radius: 8px;
+  min-height: 430px;
+  padding: 14px;
+}
+
+.pixi-host {
+  height: 400px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.pixi-host canvas {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.side-panel section {
+  padding: 16px;
+}
+
+.character-panel dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.character-panel div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.character-panel dt {
+  color: #9dadb6;
+}
+
+.character-panel dd {
+  margin: 0;
+}
+
+.command-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.command-panel button {
+  align-items: center;
+  background: #e8edf0;
+  border: 0;
+  border-radius: 8px;
+  color: #111518;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 9px;
+  justify-content: center;
+  min-height: 42px;
+}
+
+.command-panel button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
+.dialogue-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.dialogue-panel article {
+  border-left: 3px solid #f6d365;
+  padding-left: 10px;
+}
+
+.dialogue-panel strong {
+  color: #f6d365;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.dialogue-panel p,
+.empty-text,
+.error-text {
+  margin: 0;
+}
+
+.dialogue-panel p {
+  color: #d4dde2;
+  line-height: 1.55;
+}
+
+.empty-text {
+  color: #8fa0aa;
+}
+
+.error-text {
+  color: #ffb0a8;
+}
+
+.boot-panel {
+  margin: 15vh auto;
+  max-width: 520px;
+  padding: 20px;
+  text-align: center;
+}
+
+@media (max-width: 980px) {
+  .app-shell {
+    padding: 16px;
+  }
+
+  .top-bar,
+  .workspace,
+  .traditional-view {
+    grid-template-columns: 1fr;
+  }
+
+  .top-bar {
+    align-items: flex-start;
+    display: grid;
+  }
+
+  .status-strip {
+    justify-content: flex-start;
+  }
+}

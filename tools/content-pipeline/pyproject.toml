@@ -1,0 +1,8 @@
+[project]
+name = "eratw-next-content-pipeline"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "Offline tools for ERAtw-NEXT content audit and packaging."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
