@@ -12,8 +12,14 @@ MVP，其余内容仍按草案推进。
   "packageId": "core.demo",
   "version": "0.1.0",
   "engineVersion": "0.1.0-m0",
-  "dependencies": [],
-  "conflicts": [],
+  "dependencies": [
+    {
+      "packageId": "core.base",
+      "version": "0.1.0",
+      "required": true
+    }
+  ],
+  "conflicts": ["core.incompatible_pack"],
   "migrations": []
 }
 ```
@@ -87,7 +93,14 @@ ScheduledEvent。
     "namespace": "core",
     "package_id": "core.demo",
     "version": "0.1.0",
-    "dependencies": []
+    "dependencies": [
+      {
+        "package_id": "core.base",
+        "version": "0.1.0",
+        "required": true
+      }
+    ],
+    "conflicts": []
   },
   "locations": [
     {
@@ -170,6 +183,7 @@ ScheduledEvent。
 运行前检查复用。当前 issue code 覆盖：
 
 - manifest 空 namespace/package_id。
+- manifest 空版本、空/重复/自引用依赖、空依赖版本、空/重复/自冲突声明。
 - Location 空 ID、重复 ID、空名称、空地形。
 - Character 空 ID、重复 ID、空显示名、空位置。
 - Relationship 空双方引用、重复关系。
@@ -194,8 +208,10 @@ ScheduledEvent。
 安装后的世界中找到；
 事件若启动对话，其 `scene_id` 必须能在安装后的世界中找到；失败时不修改输入世界。
 安装成功后，`WorldState.installed_content_packages` 会记录 manifest 的 namespace、
-package_id 和 version；`SaveEnvelope` 会据此生成存档 `mod_dependencies`，当前以
-`package_id` 作为依赖 namespace。
+package_id、version、dependencies 和 conflicts；`SaveEnvelope` 会据此生成存档
+`mod_dependencies`，当前以 `package_id` 作为依赖 namespace。安装时会拒绝缺失的必需
+内容包依赖、版本不匹配的依赖、当前包声明的冲突，以及已安装包反向声明的冲突；缺失的
+可选依赖允许继续安装。
 
 ## 规则
 

@@ -89,6 +89,27 @@ const relationshipKey = (sourceCharacterId: string, targetCharacterId: string) =
 const installedPackageKey = (namespace: string, packageId: string) =>
   `${namespace}\u0000${packageId}`;
 
+const installedPackageById = (world: WorldState, packageId: string) =>
+  world.installed_content_packages.find((packageInfo) => packageInfo.package_id === packageId);
+
+const normalizeContentPackageDependency = (
+  dependency: ContentPackage["manifest"]["dependencies"][number],
+) =>
+  typeof dependency === "string"
+    ? {
+        package_id: dependency,
+        version: null,
+        required: true,
+      }
+    : {
+        package_id: dependency.package_id,
+        version: dependency.version ?? null,
+        required: dependency.required ?? true,
+      };
+
+const normalizeContentPackageDependencies = (packageData: ContentPackage) =>
+  packageData.manifest.dependencies.map(normalizeContentPackageDependency);
+
 const modDependenciesForWorld = (world: WorldState) =>
   [...world.installed_content_packages]
     .sort((left, right) => left.package_id.localeCompare(right.package_id))
@@ -196,6 +217,36 @@ const installPackageIntoBrowserWorld = (
         packageData.manifest.namespace,
         packageData.manifest.package_id,
       ),
+    )
+  ) {
+    return world;
+  }
+
+  const dependencies = normalizeContentPackageDependencies(packageData);
+  for (const dependency of dependencies) {
+    if (!dependency.package_id.trim()) {
+      return world;
+    }
+
+    const installed = installedPackageById(world, dependency.package_id);
+    if (!installed && dependency.required) {
+      return world;
+    }
+    if (
+      installed &&
+      dependency.version !== null &&
+      installed.version !== dependency.version
+    ) {
+      return world;
+    }
+  }
+
+  if (
+    packageData.manifest.conflicts.some(
+      (conflict) => !conflict.trim() || installedPackageById(world, conflict),
+    ) ||
+    world.installed_content_packages.some((packageInfo) =>
+      packageInfo.conflicts.includes(packageData.manifest.package_id),
     )
   ) {
     return world;
@@ -317,6 +368,8 @@ const installPackageIntoBrowserWorld = (
         namespace: packageData.manifest.namespace,
         package_id: packageData.manifest.package_id,
         version: packageData.manifest.version,
+        dependencies: structuredClone(dependencies),
+        conflicts: structuredClone(packageData.manifest.conflicts),
       },
     ].sort((left, right) =>
       left.namespace.localeCompare(right.namespace) ||

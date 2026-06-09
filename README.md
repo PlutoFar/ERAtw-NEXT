@@ -15,6 +15,7 @@ M0 proves the new project can stand alone:
 - M2 save envelope foundation in the Rust engine
 - M2 deterministic event scheduler with command replay tests
 - Content packages can add locations, characters, relationships, resources, dialogue, and scheduled events
+- Content package installation records save dependencies and enforces package dependency/conflict declarations
 - Mod manifest validation with dependency, conflict, unsafe capability, and load-order checks
 
 ## Development

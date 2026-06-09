@@ -7,6 +7,7 @@ export const createSampleContentPackage = (): ContentPackage => ({
     package_id: "sample.event_pack",
     version: "0.1.0",
     dependencies: [],
+    conflicts: [],
   },
   locations: [
     {

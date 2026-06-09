@@ -423,6 +423,8 @@ describe("demo engine adapter", () => {
         namespace: "sample",
         package_id: "sample.event_pack",
         version: "0.1.0",
+        dependencies: [],
+        conflicts: [],
       },
     ]);
     expect(installed.scheduled_events[0].id).toBe("sample_content_dialogue_at_0820");
@@ -441,6 +443,67 @@ describe("demo engine adapter", () => {
       {
         namespace: "sample.event_pack",
         version: "0.1.0",
+        required: true,
+      },
+    ]);
+  });
+
+  it("rejects browser content packages with missing dependencies or conflicts", async () => {
+    const client = createBrowserMockEngineClient();
+    const packageData = createSampleContentPackage();
+    packageData.manifest.dependencies = [
+      {
+        package_id: "sample.missing",
+        version: null,
+        required: true,
+      },
+    ];
+
+    const unchanged = await client.installContentPackage(packageData);
+
+    expect(unchanged.installed_content_packages).toEqual([]);
+
+    const base = createSampleContentPackage();
+    const conflict = createSampleContentPackage();
+    conflict.manifest.package_id = "sample.conflict";
+    conflict.manifest.conflicts = ["sample.event_pack"];
+    await client.installContentPackage(base);
+    const afterConflict = await client.installContentPackage(conflict);
+
+    expect(afterConflict.installed_content_packages).toEqual([
+      {
+        namespace: "sample",
+        package_id: "sample.event_pack",
+        version: "0.1.0",
+        dependencies: [],
+        conflicts: [],
+      },
+    ]);
+  });
+
+  it("accepts browser content package dependency strings as required dependencies", async () => {
+    const client = createBrowserMockEngineClient();
+    await client.installContentPackage(createSampleContentPackage());
+    const addon = createSampleContentPackage();
+    addon.manifest.package_id = "sample.addon";
+    addon.manifest.dependencies = ["sample.event_pack"];
+    addon.locations = [];
+    addon.characters = [];
+    addon.relationships = [];
+    addon.resources = [];
+    addon.dialogue_scenes = [];
+    addon.scheduled_events = [];
+
+    const installed = await client.installContentPackage(addon);
+
+    expect(
+      installed.installed_content_packages.find(
+        (packageInfo) => packageInfo.package_id === "sample.addon",
+      )?.dependencies,
+    ).toEqual([
+      {
+        package_id: "sample.event_pack",
+        version: null,
         required: true,
       },
     ]);

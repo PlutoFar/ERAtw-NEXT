@@ -1,6 +1,7 @@
 use eratw_engine::{
-    Character, DialogueCondition, DialogueEffect, DialogueScene, InstalledContentPackage, Location,
-    Relationship, ResourceAsset, ScheduledEvent, ScheduledEventKind, WorldState,
+    Character, ContentPackageDependency, DialogueCondition, DialogueEffect, DialogueScene,
+    InstalledContentPackage, Location, Relationship, ResourceAsset, ScheduledEvent,
+    ScheduledEventKind, WorldState,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
@@ -10,11 +11,16 @@ pub const CONTENT_SCHEMA_VERSION: &str = "content-package/v0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContentPackageManifest {
+    #[serde(alias = "schemaVersion")]
     pub schema_version: String,
     pub namespace: String,
+    #[serde(alias = "packageId")]
     pub package_id: String,
     pub version: String,
-    pub dependencies: Vec<String>,
+    #[serde(default)]
+    pub dependencies: Vec<ContentPackageDependency>,
+    #[serde(default)]
+    pub conflicts: Vec<String>,
 }
 
 impl ContentPackageManifest {
@@ -25,6 +31,7 @@ impl ContentPackageManifest {
             package_id: package_id.into(),
             version: "0.1.0".to_string(),
             dependencies: Vec::new(),
+            conflicts: Vec::new(),
         }
     }
 }
@@ -71,6 +78,7 @@ impl ContentPackage {
         }
 
         ensure_content_package_not_installed(&world, &self.manifest)?;
+        ensure_content_package_constraints(&world, &self.manifest)?;
         merge_locations(&mut world, self.locations.clone())?;
         merge_characters(&mut world, self.characters.clone())?;
         merge_relationships(&mut world, self.relationships.clone())?;
@@ -118,6 +126,13 @@ pub enum ContentIssueCode {
     EmptyPackageId,
     EmptyNamespace,
     EmptyVersion,
+    EmptyDependencyPackageId,
+    EmptyDependencyVersion,
+    DuplicateDependencyPackageId,
+    SelfDependency,
+    EmptyConflictPackageId,
+    DuplicateConflictPackageId,
+    SelfConflict,
     EmptyLocationId,
     DuplicateLocationId,
     EmptyLocationName,
@@ -183,6 +198,23 @@ pub enum ContentInstallError {
         namespace: String,
         package_id: String,
     },
+    #[error("content package dependency is missing: {package_id} -> {dependency_package_id}")]
+    MissingContentPackageDependency {
+        package_id: String,
+        dependency_package_id: String,
+    },
+    #[error("content package dependency version mismatch: {package_id} -> {dependency_package_id} expected {expected_version} found {actual_version}")]
+    ContentPackageDependencyVersionMismatch {
+        package_id: String,
+        dependency_package_id: String,
+        expected_version: String,
+        actual_version: String,
+    },
+    #[error("content package conflict detected: {package_id} <-> {conflict_package_id}")]
+    ContentPackageConflict {
+        package_id: String,
+        conflict_package_id: String,
+    },
     #[error("location reference is missing: {target} -> {location_id}")]
     MissingLocationReference { target: String, location_id: String },
     #[error("character reference is missing: {target} -> {character_id}")]
@@ -231,6 +263,54 @@ fn validate_manifest(
 
     if manifest.version.trim().is_empty() {
         report.push(ContentIssueCode::EmptyVersion, "manifest.version");
+    }
+
+    let mut dependencies = BTreeSet::new();
+    for dependency in &manifest.dependencies {
+        let target = if dependency.package_id.trim().is_empty() {
+            "manifest.dependencies".to_string()
+        } else {
+            dependency.package_id.clone()
+        };
+
+        if dependency.package_id.trim().is_empty() {
+            report.push(
+                ContentIssueCode::EmptyDependencyPackageId,
+                "manifest.dependencies",
+            );
+        } else if dependency.package_id == manifest.package_id {
+            report.push(ContentIssueCode::SelfDependency, &target);
+        } else if !dependencies.insert(dependency.package_id.as_str()) {
+            report.push(ContentIssueCode::DuplicateDependencyPackageId, &target);
+        }
+
+        if dependency
+            .version
+            .as_ref()
+            .is_some_and(|version| version.trim().is_empty())
+        {
+            report.push(ContentIssueCode::EmptyDependencyVersion, &target);
+        }
+    }
+
+    let mut conflicts = BTreeSet::new();
+    for conflict in &manifest.conflicts {
+        let target = if conflict.trim().is_empty() {
+            "manifest.conflicts".to_string()
+        } else {
+            conflict.clone()
+        };
+
+        if conflict.trim().is_empty() {
+            report.push(
+                ContentIssueCode::EmptyConflictPackageId,
+                "manifest.conflicts",
+            );
+        } else if conflict == &manifest.package_id {
+            report.push(ContentIssueCode::SelfConflict, &target);
+        } else if !conflicts.insert(conflict.as_str()) {
+            report.push(ContentIssueCode::DuplicateConflictPackageId, &target);
+        }
     }
 
     Ok(())
@@ -745,6 +825,68 @@ fn ensure_content_package_not_installed(
     Ok(())
 }
 
+fn ensure_content_package_constraints(
+    world: &WorldState,
+    manifest: &ContentPackageManifest,
+) -> Result<(), ContentInstallError> {
+    for dependency in &manifest.dependencies {
+        match world
+            .installed_content_packages
+            .iter()
+            .find(|package| package.package_id == dependency.package_id)
+        {
+            Some(installed) => {
+                if let Some(expected_version) = &dependency.version {
+                    if installed.version != *expected_version {
+                        return Err(
+                            ContentInstallError::ContentPackageDependencyVersionMismatch {
+                                package_id: manifest.package_id.clone(),
+                                dependency_package_id: dependency.package_id.clone(),
+                                expected_version: expected_version.clone(),
+                                actual_version: installed.version.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+            None if dependency.required => {
+                return Err(ContentInstallError::MissingContentPackageDependency {
+                    package_id: manifest.package_id.clone(),
+                    dependency_package_id: dependency.package_id.clone(),
+                });
+            }
+            None => {}
+        }
+    }
+
+    for conflict in &manifest.conflicts {
+        if world
+            .installed_content_packages
+            .iter()
+            .any(|package| package.package_id == *conflict)
+        {
+            return Err(ContentInstallError::ContentPackageConflict {
+                package_id: manifest.package_id.clone(),
+                conflict_package_id: conflict.clone(),
+            });
+        }
+    }
+
+    if let Some(installed) = world.installed_content_packages.iter().find(|package| {
+        package
+            .conflicts
+            .iter()
+            .any(|conflict| conflict == &manifest.package_id)
+    }) {
+        return Err(ContentInstallError::ContentPackageConflict {
+            package_id: manifest.package_id.clone(),
+            conflict_package_id: installed.package_id.clone(),
+        });
+    }
+
+    Ok(())
+}
+
 fn record_installed_content_package(world: &mut WorldState, manifest: &ContentPackageManifest) {
     world
         .installed_content_packages
@@ -752,6 +894,8 @@ fn record_installed_content_package(world: &mut WorldState, manifest: &ContentPa
             namespace: manifest.namespace.clone(),
             package_id: manifest.package_id.clone(),
             version: manifest.version.clone(),
+            dependencies: manifest.dependencies.clone(),
+            conflicts: manifest.conflicts.clone(),
         });
     world.installed_content_packages.sort_by(|left, right| {
         left.namespace
@@ -1058,6 +1202,36 @@ mod tests {
     fn manifest_validation_reports_empty_ids() {
         let mut manifest = ContentPackageManifest::new("", "");
         manifest.version = String::new();
+        manifest.dependencies = vec![
+            ContentPackageDependency {
+                package_id: String::new(),
+                version: None,
+                required: true,
+            },
+            ContentPackageDependency {
+                package_id: String::new(),
+                version: None,
+                required: true,
+            },
+            ContentPackageDependency {
+                package_id: "self.package".to_string(),
+                version: Some(String::new()),
+                required: true,
+            },
+            ContentPackageDependency {
+                package_id: "self.package".to_string(),
+                version: None,
+                required: true,
+            },
+        ];
+        manifest.package_id = "self.package".to_string();
+        manifest.conflicts = vec![
+            String::new(),
+            String::new(),
+            "self.package".to_string(),
+            "sample.conflict".to_string(),
+            "sample.conflict".to_string(),
+        ];
         let package = ContentPackage {
             manifest,
             locations: Vec::new(),
@@ -1074,9 +1248,60 @@ mod tests {
             issue_codes(&report),
             vec![
                 ContentIssueCode::EmptyNamespace,
-                ContentIssueCode::EmptyPackageId,
                 ContentIssueCode::EmptyVersion,
+                ContentIssueCode::EmptyDependencyPackageId,
+                ContentIssueCode::EmptyDependencyPackageId,
+                ContentIssueCode::SelfDependency,
+                ContentIssueCode::EmptyDependencyVersion,
+                ContentIssueCode::SelfDependency,
+                ContentIssueCode::EmptyConflictPackageId,
+                ContentIssueCode::EmptyConflictPackageId,
+                ContentIssueCode::SelfConflict,
+                ContentIssueCode::DuplicateConflictPackageId,
             ]
+        );
+    }
+
+    #[test]
+    fn manifest_dependency_strings_deserialize_as_required_dependencies() {
+        let value = serde_json::json!({
+            "manifest": {
+                "schema_version": CONTENT_SCHEMA_VERSION,
+                "namespace": "sample",
+                "package_id": "sample.addon",
+                "version": "0.1.0",
+                "dependencies": [
+                    "sample.base",
+                    {
+                        "package_id": "sample.optional",
+                        "version": "0.2.0",
+                        "required": false
+                    }
+                ],
+                "conflicts": ["sample.conflict"]
+            }
+        });
+
+        let package: ContentPackage = serde_json::from_value(value).unwrap();
+
+        assert_eq!(
+            package.manifest.dependencies,
+            vec![
+                ContentPackageDependency {
+                    package_id: "sample.base".to_string(),
+                    version: None,
+                    required: true,
+                },
+                ContentPackageDependency {
+                    package_id: "sample.optional".to_string(),
+                    version: Some("0.2.0".to_string()),
+                    required: false,
+                },
+            ]
+        );
+        assert_eq!(
+            package.manifest.conflicts,
+            vec!["sample.conflict".to_string()]
         );
     }
 
@@ -1137,6 +1362,8 @@ mod tests {
                 namespace: "core".to_string(),
                 package_id: "core.extra".to_string(),
                 version: "0.1.0".to_string(),
+                dependencies: Vec::new(),
+                conflicts: Vec::new(),
             }]
         );
         assert!(installed
@@ -1204,6 +1431,114 @@ mod tests {
             Err(ContentInstallError::DuplicateContentPackage {
                 namespace: "core".to_string(),
                 package_id: "core.extra".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn install_enforces_content_package_dependencies_and_records_constraints() {
+        let base = package_with("core.base", Vec::new(), Vec::new());
+        let mut addon = package_with("core.addon", Vec::new(), Vec::new());
+        addon.manifest.dependencies = vec![
+            ContentPackageDependency {
+                package_id: "core.base".to_string(),
+                version: Some("0.1.0".to_string()),
+                required: true,
+            },
+            ContentPackageDependency {
+                package_id: "core.optional".to_string(),
+                version: None,
+                required: false,
+            },
+        ];
+        addon.manifest.conflicts = vec!["core.conflict".to_string()];
+
+        let missing = addon
+            .install_into_world(WorldState::bootstrap_demo())
+            .unwrap_err();
+        let world = base
+            .install_into_world(WorldState::bootstrap_demo())
+            .unwrap();
+        let installed = addon.install_into_world(world).unwrap();
+
+        assert_eq!(
+            missing,
+            ContentInstallError::MissingContentPackageDependency {
+                package_id: "core.addon".to_string(),
+                dependency_package_id: "core.base".to_string(),
+            }
+        );
+        let recorded = installed
+            .installed_content_packages
+            .iter()
+            .find(|package| package.package_id == "core.addon")
+            .unwrap();
+        assert_eq!(recorded.dependencies, addon.manifest.dependencies);
+        assert_eq!(recorded.conflicts, vec!["core.conflict".to_string()]);
+    }
+
+    #[test]
+    fn install_rejects_content_package_dependency_version_mismatch() {
+        let mut base = package_with("core.base", Vec::new(), Vec::new());
+        base.manifest.version = "0.2.0".to_string();
+        let mut addon = package_with("core.addon", Vec::new(), Vec::new());
+        addon.manifest.dependencies = vec![ContentPackageDependency {
+            package_id: "core.base".to_string(),
+            version: Some("0.1.0".to_string()),
+            required: true,
+        }];
+        let world = base
+            .install_into_world(WorldState::bootstrap_demo())
+            .unwrap();
+
+        let result = addon.install_into_world(world);
+
+        assert_eq!(
+            result,
+            Err(
+                ContentInstallError::ContentPackageDependencyVersionMismatch {
+                    package_id: "core.addon".to_string(),
+                    dependency_package_id: "core.base".to_string(),
+                    expected_version: "0.1.0".to_string(),
+                    actual_version: "0.2.0".to_string(),
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn install_rejects_content_package_conflicts_both_directions() {
+        let mut left = package_with("core.left", Vec::new(), Vec::new());
+        left.manifest.conflicts = vec!["core.right".to_string()];
+        let right = package_with("core.right", Vec::new(), Vec::new());
+        let world = left
+            .install_into_world(WorldState::bootstrap_demo())
+            .unwrap();
+
+        let reverse_conflict = right.install_into_world(world);
+
+        assert_eq!(
+            reverse_conflict,
+            Err(ContentInstallError::ContentPackageConflict {
+                package_id: "core.right".to_string(),
+                conflict_package_id: "core.left".to_string(),
+            })
+        );
+
+        let mut left = package_with("core.left", Vec::new(), Vec::new());
+        left.manifest.conflicts = vec!["core.right".to_string()];
+        let right = package_with("core.right", Vec::new(), Vec::new());
+        let world = right
+            .install_into_world(WorldState::bootstrap_demo())
+            .unwrap();
+
+        let direct_conflict = left.install_into_world(world);
+
+        assert_eq!(
+            direct_conflict,
+            Err(ContentInstallError::ContentPackageConflict {
+                package_id: "core.left".to_string(),
+                conflict_package_id: "core.right".to_string(),
             })
         );
     }

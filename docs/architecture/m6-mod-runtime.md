@@ -7,7 +7,7 @@
 - `ModCapability`：当前支持 `content`、`theme`、`rules_extension`，以及默认拒绝的高危能力。
 - `validate_manifest`：拒绝空 namespace/name/version/engine_version、重复依赖、重复冲突和默认高危能力。
 - `plan_load_order`：在启用 Mod 集合上执行依赖检查、版本检查、冲突检查、循环依赖检查，并输出稳定加载顺序。
-- 运行时内容包安装成功后会写入 `WorldState.installed_content_packages`；存档外壳据此生成 `mod_dependencies`，为后续 Mod registry 接管启停检查预留稳定入口。
+- 运行时内容包安装成功后会写入 `WorldState.installed_content_packages`，包含 package_id、version、dependencies 和 conflicts；存档外壳据此生成 `mod_dependencies`，为后续 Mod registry 接管启停检查预留稳定入口。
 
 ## 安全默认值
 
@@ -15,6 +15,7 @@
 - 缺失必需依赖时不加载；缺失可选依赖时允许继续。
 - 依赖版本不匹配、声明冲突或循环依赖都会返回结构化错误。
 - 加载顺序先保证依赖在被依赖者之前，再在当前可加载集合内按 `load_order` 和 namespace 排序。
+- 内容包安装阶段已经执行必需依赖、可选依赖、版本匹配和双向冲突检查；完整 Mod registry 接入后会统一迁移到 `eratw_mod_runtime` 的启停计划。
 
 ## Manifest 示例
 

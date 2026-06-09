@@ -52,6 +52,8 @@ export interface InstalledContentPackage {
   namespace: string;
   package_id: string;
   version: string;
+  dependencies: ContentPackageDependencyObject[];
+  conflicts: string[];
 }
 
 export interface Relationship {
@@ -198,7 +200,16 @@ export interface ContentPackageManifest {
   namespace: string;
   package_id: string;
   version: string;
-  dependencies: string[];
+  dependencies: ContentPackageDependency[];
+  conflicts: string[];
+}
+
+export type ContentPackageDependency = string | ContentPackageDependencyObject;
+
+export interface ContentPackageDependencyObject {
+  package_id: string;
+  version: string | null;
+  required: boolean;
 }
 
 export interface ContentPackage {

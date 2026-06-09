@@ -187,10 +187,63 @@ pub struct ResourceAsset {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "ContentPackageDependencyWire")]
+pub struct ContentPackageDependency {
+    pub package_id: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default = "default_required")]
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+enum ContentPackageDependencyWire {
+    PackageId(String),
+    Object {
+        #[serde(alias = "packageId")]
+        package_id: String,
+        #[serde(default)]
+        version: Option<String>,
+        #[serde(default = "default_required")]
+        required: bool,
+    },
+}
+
+impl From<ContentPackageDependencyWire> for ContentPackageDependency {
+    fn from(value: ContentPackageDependencyWire) -> Self {
+        match value {
+            ContentPackageDependencyWire::PackageId(package_id) => Self {
+                package_id,
+                version: None,
+                required: true,
+            },
+            ContentPackageDependencyWire::Object {
+                package_id,
+                version,
+                required,
+            } => Self {
+                package_id,
+                version,
+                required,
+            },
+        }
+    }
+}
+
+fn default_required() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstalledContentPackage {
     pub namespace: String,
     pub package_id: String,
     pub version: String,
+    #[serde(default)]
+    pub dependencies: Vec<ContentPackageDependency>,
+    #[serde(default)]
+    pub conflicts: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1483,6 +1536,58 @@ mod tests {
         let decoded: WorldState = serde_json::from_value(value).unwrap();
 
         assert!(decoded.installed_content_packages.is_empty());
+    }
+
+    #[test]
+    fn installed_content_package_constraints_deserialize_with_defaults() {
+        let mut value = serde_json::to_value(WorldState::bootstrap_demo()).unwrap();
+        value["installed_content_packages"] = serde_json::json!([
+            {
+                "namespace": "sample",
+                "package_id": "sample.event_pack",
+                "version": "0.1.0"
+            },
+            {
+                "namespace": "sample",
+                "package_id": "sample.addon",
+                "version": "0.1.0",
+                "dependencies": [
+                    "sample.event_pack",
+                    {
+                        "packageId": "sample.optional",
+                        "version": "0.2.0",
+                        "required": false
+                    }
+                ],
+                "conflicts": ["sample.conflict"]
+            }
+        ]);
+
+        let decoded: WorldState = serde_json::from_value(value).unwrap();
+
+        assert!(decoded.installed_content_packages[0]
+            .dependencies
+            .is_empty());
+        assert!(decoded.installed_content_packages[0].conflicts.is_empty());
+        assert_eq!(
+            decoded.installed_content_packages[1].dependencies,
+            vec![
+                ContentPackageDependency {
+                    package_id: "sample.event_pack".to_string(),
+                    version: None,
+                    required: true,
+                },
+                ContentPackageDependency {
+                    package_id: "sample.optional".to_string(),
+                    version: Some("0.2.0".to_string()),
+                    required: false,
+                },
+            ]
+        );
+        assert_eq!(
+            decoded.installed_content_packages[1].conflicts,
+            vec!["sample.conflict".to_string()]
+        );
     }
 
     #[test]

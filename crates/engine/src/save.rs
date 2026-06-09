@@ -306,6 +306,8 @@ mod tests {
                 namespace: "sample".to_string(),
                 package_id: "sample.event_pack".to_string(),
                 version: "0.1.0".to_string(),
+                dependencies: Vec::new(),
+                conflicts: Vec::new(),
             });
 
         let save = SaveEnvelope::new("slot-1", world, 123);

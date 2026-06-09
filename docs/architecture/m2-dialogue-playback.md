@@ -14,7 +14,7 @@
 - `EngineCommand::ChooseDialogue`：前端只提交选择命令，状态由 engine 结算。
 - `eratw_content::ContentPackage`：封装 manifest、Location、Character、Relationship、ResourceAsset、DialogueScene 与 ScheduledEvent 列表。
 - `ContentPackage::validate`：在运行前报告角色/地点/关系结构错误、资源元数据缺失、入口缺失、死链、重复 ID、不可达节点、非法调度事件等问题。
-- `ContentPackage::install_into_world`：只安装校验干净且不与现有世界 ID 冲突的 Location/Character/Relationship/ResourceAsset/DialogueScene/ScheduledEvent。
+- `ContentPackage::install_into_world`：只安装校验干净、满足内容包依赖/冲突声明，且不与现有世界 ID 冲突的 Location/Character/Relationship/ResourceAsset/DialogueScene/ScheduledEvent。
 - `engine_install_content_package`：桌面端通过 Tauri command 安装内容包，前端和浏览器 mock 共用同一安装语义。
 
 ## 规则
@@ -27,6 +27,7 @@
 - Dialogue 数据不执行旧 ERB，只引用 `resourceId`，不直接引用文件路径。
 - 内容包新增角色必须引用已存在或同包新增的地点；关系、条件、效果和事件动作必须引用已存在或同包新增的角色/关系。
 - 内容包校验返回结构化 issue code 和 target，供 CLI、编辑器和运行前检查复用。
+- 内容包必需依赖缺失、依赖版本不匹配、正向或反向冲突声明命中时，安装失败且世界不变。
 - 内容包安装失败时返回错误，不修改输入 `WorldState`。
 - 内容包事件可启动同包新增的 DialogueScene，安装后由 engine scheduler 正常触发。
 
