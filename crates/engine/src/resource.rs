@@ -2,6 +2,7 @@ use crate::{ResourceAsset, ResourceMediaType};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeSet,
     fs,
     io::{self, Read},
     path::{Component, Path, PathBuf},
@@ -51,6 +52,22 @@ pub struct ResourceCacheReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceCacheCleanReport {
+    pub root: String,
+    #[serde(default)]
+    pub low_spec: bool,
+    pub ready: bool,
+    pub cache_root: String,
+    pub kept_count: usize,
+    pub removed_count: usize,
+    pub skipped_count: usize,
+    pub failed_count: usize,
+    pub bytes_removed: u64,
+    pub resolution: ResourceResolutionReport,
+    pub entries: Vec<ResourceCacheCleanEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceCacheEntry {
     pub resource_id: String,
     pub source_path: String,
@@ -64,6 +81,23 @@ pub struct ResourceCacheEntry {
 #[serde(rename_all = "snake_case")]
 pub enum ResourceCacheStatus {
     Cached,
+    Skipped,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceCacheCleanEntry {
+    pub path: String,
+    pub status: ResourceCacheCleanStatus,
+    pub bytes_removed: u64,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceCacheCleanStatus {
+    Kept,
+    Removed,
     Skipped,
     Failed,
 }
@@ -205,11 +239,12 @@ pub fn cache_resource_loads_with_options(
     root: impl AsRef<Path>,
     options: ResourcePlanningOptions,
 ) -> ResourceCacheReport {
+    let root = root.as_ref();
     let resolution = inspect_resource_files_with_options(resources, root, options);
     let entries = resolution
         .entries
         .iter()
-        .map(cache_resource_entry)
+        .map(|entry| cache_resource_entry(root, entry))
         .collect::<Vec<_>>();
     let cached_count = entries
         .iter()
@@ -231,6 +266,78 @@ pub fn cache_resource_loads_with_options(
         cached_count,
         skipped_count,
         failed_count,
+        resolution,
+        entries,
+    }
+}
+
+pub fn clean_resource_cache(
+    resources: &[ResourceAsset],
+    root: impl AsRef<Path>,
+) -> ResourceCacheCleanReport {
+    clean_resource_cache_with_options(resources, root, ResourcePlanningOptions::default())
+}
+
+pub fn clean_resource_cache_with_options(
+    resources: &[ResourceAsset],
+    root: impl AsRef<Path>,
+    options: ResourcePlanningOptions,
+) -> ResourceCacheCleanReport {
+    let root = root.as_ref();
+    let resolution = plan_resource_loads_with_options(resources, root, options);
+    let cache_root = root.join(".eratw-cache");
+    let resource_targets =
+        planned_cache_file_names(&resolution, |entry| entry.cache_path.as_deref());
+    let thumbnail_targets =
+        planned_cache_file_names(&resolution, |entry| entry.thumbnail_path.as_deref());
+    let mut entries = Vec::new();
+
+    clean_resource_cache_dir(
+        root,
+        &cache_root.join("resources"),
+        &resource_targets,
+        &mut entries,
+    );
+    clean_resource_cache_dir(
+        root,
+        &cache_root.join("thumbnails"),
+        &thumbnail_targets,
+        &mut entries,
+    );
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
+
+    let kept_count = entries
+        .iter()
+        .filter(|entry| entry.status == ResourceCacheCleanStatus::Kept)
+        .count();
+    let removed_count = entries
+        .iter()
+        .filter(|entry| entry.status == ResourceCacheCleanStatus::Removed)
+        .count();
+    let skipped_count = entries
+        .iter()
+        .filter(|entry| entry.status == ResourceCacheCleanStatus::Skipped)
+        .count();
+    let failed_count = entries
+        .iter()
+        .filter(|entry| entry.status == ResourceCacheCleanStatus::Failed)
+        .count();
+    let bytes_removed = entries
+        .iter()
+        .filter(|entry| entry.status == ResourceCacheCleanStatus::Removed)
+        .map(|entry| entry.bytes_removed)
+        .sum();
+
+    ResourceCacheCleanReport {
+        root: resolution.root.clone(),
+        low_spec: resolution.low_spec,
+        ready: failed_count == 0,
+        cache_root: cache_root.to_string_lossy().to_string(),
+        kept_count,
+        removed_count,
+        skipped_count,
+        failed_count,
+        bytes_removed,
         resolution,
         entries,
     }
@@ -379,7 +486,7 @@ fn preflight_issue_from_resolution(entry: &ResourceResolution) -> Option<Resourc
     })
 }
 
-fn cache_resource_entry(entry: &ResourceResolution) -> ResourceCacheEntry {
+fn cache_resource_entry(root: &Path, entry: &ResourceResolution) -> ResourceCacheEntry {
     let Some(source_path) = entry.resolved_path.as_deref() else {
         return skipped_cache_entry(entry, "resource path is unsafe");
     };
@@ -397,9 +504,7 @@ fn cache_resource_entry(entry: &ResourceResolution) -> ResourceCacheEntry {
     let source_path = Path::new(source_path);
     let cache_path = Path::new(cache_path);
     let result = (|| -> io::Result<u64> {
-        if let Some(parent) = cache_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
+        prepare_cache_file_target(root, cache_path)?;
         fs::copy(source_path, cache_path)
     })();
 
@@ -420,6 +525,227 @@ fn cache_resource_entry(entry: &ResourceResolution) -> ResourceCacheEntry {
             bytes_copied: 0,
             message: format!("resource cache failed: {error}"),
         },
+    }
+}
+
+fn planned_cache_file_names(
+    resolution: &ResourceResolutionReport,
+    path_for_entry: impl Fn(&ResourceResolution) -> Option<&str>,
+) -> BTreeSet<String> {
+    resolution
+        .entries
+        .iter()
+        .filter_map(path_for_entry)
+        .filter_map(|path| Path::new(path).file_name())
+        .map(|file_name| file_name.to_string_lossy().to_string())
+        .collect()
+}
+
+fn clean_resource_cache_dir(
+    root: &Path,
+    cache_dir: &Path,
+    planned_file_names: &BTreeSet<String>,
+    entries: &mut Vec<ResourceCacheCleanEntry>,
+) {
+    let metadata = match fs::symlink_metadata(cache_dir) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return,
+        Err(error) => {
+            entries.push(failed_clean_entry(
+                cache_dir,
+                format!("resource cache directory could not be inspected: {error}"),
+            ));
+            return;
+        }
+    };
+
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        entries.push(failed_clean_entry(
+            cache_dir,
+            "resource cache path is not a safe directory".to_string(),
+        ));
+        return;
+    }
+
+    if let Err(error) = ensure_cache_path_stays_in_root(root, cache_dir) {
+        entries.push(failed_clean_entry(
+            cache_dir,
+            format!("resource cache directory is outside the content root: {error}"),
+        ));
+        return;
+    }
+
+    let read_dir = match fs::read_dir(cache_dir) {
+        Ok(read_dir) => read_dir,
+        Err(error) => {
+            entries.push(failed_clean_entry(
+                cache_dir,
+                format!("resource cache directory could not be read: {error}"),
+            ));
+            return;
+        }
+    };
+
+    for candidate in read_dir {
+        match candidate {
+            Ok(candidate) => clean_resource_cache_candidate(
+                candidate.path(),
+                &candidate.file_name().to_string_lossy(),
+                planned_file_names,
+                entries,
+            ),
+            Err(error) => entries.push(failed_clean_entry(
+                cache_dir,
+                format!("resource cache entry could not be read: {error}"),
+            )),
+        }
+    }
+}
+
+fn clean_resource_cache_candidate(
+    path: PathBuf,
+    file_name: &str,
+    planned_file_names: &BTreeSet<String>,
+    entries: &mut Vec<ResourceCacheCleanEntry>,
+) {
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            entries.push(failed_clean_entry(
+                &path,
+                format!("resource cache entry could not be inspected: {error}"),
+            ));
+            return;
+        }
+    };
+
+    if metadata.file_type().is_symlink() {
+        match fs::remove_file(&path) {
+            Ok(()) => entries.push(ResourceCacheCleanEntry {
+                path: path.to_string_lossy().to_string(),
+                status: ResourceCacheCleanStatus::Removed,
+                bytes_removed: metadata.len(),
+                message: "unsafe resource cache symlink removed".to_string(),
+            }),
+            Err(error) => entries.push(ResourceCacheCleanEntry {
+                path: path.to_string_lossy().to_string(),
+                status: ResourceCacheCleanStatus::Failed,
+                bytes_removed: 0,
+                message: format!("unsafe resource cache symlink could not be removed: {error}"),
+            }),
+        }
+        return;
+    }
+
+    if metadata.is_dir() {
+        entries.push(ResourceCacheCleanEntry {
+            path: path.to_string_lossy().to_string(),
+            status: ResourceCacheCleanStatus::Skipped,
+            bytes_removed: 0,
+            message: "resource cache entry is a directory".to_string(),
+        });
+        return;
+    }
+
+    if planned_file_names.contains(file_name) {
+        entries.push(ResourceCacheCleanEntry {
+            path: path.to_string_lossy().to_string(),
+            status: ResourceCacheCleanStatus::Kept,
+            bytes_removed: 0,
+            message: "resource cache entry is current".to_string(),
+        });
+        return;
+    }
+
+    let bytes_removed = metadata.len();
+    match fs::remove_file(&path) {
+        Ok(()) => entries.push(ResourceCacheCleanEntry {
+            path: path.to_string_lossy().to_string(),
+            status: ResourceCacheCleanStatus::Removed,
+            bytes_removed,
+            message: "stale resource cache entry removed".to_string(),
+        }),
+        Err(error) => entries.push(ResourceCacheCleanEntry {
+            path: path.to_string_lossy().to_string(),
+            status: ResourceCacheCleanStatus::Failed,
+            bytes_removed: 0,
+            message: format!("stale resource cache entry could not be removed: {error}"),
+        }),
+    }
+}
+
+fn failed_clean_entry(path: &Path, message: String) -> ResourceCacheCleanEntry {
+    ResourceCacheCleanEntry {
+        path: path.to_string_lossy().to_string(),
+        status: ResourceCacheCleanStatus::Failed,
+        bytes_removed: 0,
+        message,
+    }
+}
+
+fn prepare_cache_file_target(root: &Path, cache_path: &Path) -> io::Result<()> {
+    if let Some(parent) = cache_path.parent() {
+        create_cache_directory(root, parent)?;
+    }
+
+    match fs::symlink_metadata(cache_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || metadata.is_dir() => {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "resource cache target is not a safe file",
+            ))
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn create_cache_directory(root: &Path, directory: &Path) -> io::Result<()> {
+    let relative_directory = directory.strip_prefix(root).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "resource cache directory is not under the content root",
+        )
+    })?;
+    let mut current = root.to_path_buf();
+
+    for component in relative_directory.components() {
+        let Component::Normal(part) = component else {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "resource cache directory has an unsafe component",
+            ));
+        };
+
+        current.push(part);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "resource cache directory is not a safe directory",
+                ));
+            }
+            Ok(_) => ensure_cache_path_stays_in_root(root, &current)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir(&current)?;
+                ensure_cache_path_stays_in_root(root, &current)?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_cache_path_stays_in_root(root: &Path, path: &Path) -> io::Result<()> {
+    if ensure_resolved_path_stays_in_root(root, path)? {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "path escapes the content root",
+        ))
     }
 }
 
@@ -960,6 +1286,103 @@ mod tests {
             .iter()
             .all(|entry| entry.status == ResourceCacheStatus::Skipped));
         assert!(!dir.join(".eratw-cache/resources").exists());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn clean_resource_cache_removes_stale_resource_and_thumbnail_files() {
+        let dir = temp_resource_dir("resource_cache_clean_stale");
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::write(dir.join("assets/ready.webp"), b"ready").unwrap();
+        let resources = vec![resource(
+            "ready",
+            "assets/ready.webp",
+            ResourceMediaType::Image,
+            None,
+        )];
+        let plan = plan_resource_loads_with_options(
+            &resources,
+            &dir,
+            ResourcePlanningOptions { low_spec: true },
+        );
+        let current_cache_path = PathBuf::from(plan.entries[0].cache_path.as_ref().unwrap());
+        let current_thumbnail_path =
+            PathBuf::from(plan.entries[0].thumbnail_path.as_ref().unwrap());
+        let stale_cache_path = dir.join(".eratw-cache/resources/stale.bin");
+        let stale_thumbnail_path = dir.join(".eratw-cache/thumbnails/stale.webp");
+        let nested_dir = dir.join(".eratw-cache/resources/nested");
+        fs::create_dir_all(current_cache_path.parent().unwrap()).unwrap();
+        fs::create_dir_all(current_thumbnail_path.parent().unwrap()).unwrap();
+        fs::create_dir_all(&nested_dir).unwrap();
+        fs::write(&current_cache_path, b"keep-resource").unwrap();
+        fs::write(&current_thumbnail_path, b"keep-thumbnail").unwrap();
+        fs::write(&stale_cache_path, b"remove-resource").unwrap();
+        fs::write(&stale_thumbnail_path, b"remove-thumbnail").unwrap();
+
+        let report = clean_resource_cache_with_options(
+            &resources,
+            &dir,
+            ResourcePlanningOptions { low_spec: true },
+        );
+
+        assert!(report.ready);
+        assert!(report.low_spec);
+        assert_eq!(report.kept_count, 2);
+        assert_eq!(report.removed_count, 2);
+        assert_eq!(report.skipped_count, 1);
+        assert_eq!(report.failed_count, 0);
+        assert_eq!(
+            report.bytes_removed,
+            b"remove-resource".len() as u64 + b"remove-thumbnail".len() as u64
+        );
+        assert!(current_cache_path.exists());
+        assert!(current_thumbnail_path.exists());
+        assert!(!stale_cache_path.exists());
+        assert!(!stale_thumbnail_path.exists());
+        assert!(nested_dir.exists());
+        assert_eq!(
+            report.resolution.entries[0].status,
+            ResourceResolutionStatus::Planned
+        );
+        assert!(report
+            .entries
+            .iter()
+            .any(|entry| entry.status == ResourceCacheCleanStatus::Skipped
+                && entry.path.ends_with("nested")));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn clean_resource_cache_keeps_cache_for_changed_resource_identity_separate() {
+        let dir = temp_resource_dir("resource_cache_clean_identity");
+        let old_resource = resource(
+            "portrait",
+            "assets/portrait.webp",
+            ResourceMediaType::Image,
+            Some("old-hash".to_string()),
+        );
+        let new_resource = resource(
+            "portrait",
+            "assets/portrait.webp",
+            ResourceMediaType::Image,
+            Some("new-hash".to_string()),
+        );
+        let old_plan = plan_resource_loads(&[old_resource], &dir);
+        let new_plan = plan_resource_loads(&[new_resource.clone()], &dir);
+        let old_cache_path = PathBuf::from(old_plan.entries[0].cache_path.as_ref().unwrap());
+        let new_cache_path = PathBuf::from(new_plan.entries[0].cache_path.as_ref().unwrap());
+        fs::create_dir_all(old_cache_path.parent().unwrap()).unwrap();
+        fs::write(&old_cache_path, b"old").unwrap();
+        fs::write(&new_cache_path, b"new").unwrap();
+
+        let report = clean_resource_cache(&[new_resource], &dir);
+
+        assert_eq!(report.kept_count, 1);
+        assert_eq!(report.removed_count, 1);
+        assert!(new_cache_path.exists());
+        assert!(!old_cache_path.exists());
 
         let _ = fs::remove_dir_all(dir);
     }

@@ -17,6 +17,7 @@ import type {
   ModRegistry,
   ModUninstallPlanReport,
   ModUninstallReport,
+  ResourceCacheCleanReport,
   ResourceAsset,
   ResourceCacheReport,
   ResourcePreflightIssue,
@@ -45,6 +46,10 @@ export interface EngineClient {
   inspectResources(root: string, lowSpec?: boolean): Promise<ResourceResolutionReport>;
   preflightResources(root: string, lowSpec?: boolean): Promise<ResourcePreflightReport>;
   cacheResources(root: string, lowSpec?: boolean): Promise<ResourceCacheReport>;
+  cleanResourceCache(
+    root: string,
+    lowSpec?: boolean,
+  ): Promise<ResourceCacheCleanReport>;
   discoverMods(
     root: string,
     engineVersion?: string | null,
@@ -120,6 +125,8 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<ResourcePreflightReport>("engine_preflight_resources", { root, lowSpec }),
   cacheResources: (root, lowSpec = false) =>
     invoke<ResourceCacheReport>("engine_cache_resources", { root, lowSpec }),
+  cleanResourceCache: (root, lowSpec = false) =>
+    invoke<ResourceCacheCleanReport>("engine_clean_resource_cache", { root, lowSpec }),
   discoverMods: (root, engineVersion = null, authorizedUnsafeCapabilities = []) =>
     invoke<ModDiscoveryReport>("engine_discover_mods", {
       root,
@@ -626,6 +633,39 @@ const cacheResourcesForBrowserWorld = (
     cached_count: cachedCount,
     skipped_count: skippedCount,
     failed_count: failedCount,
+    resolution,
+    entries,
+  };
+};
+
+const cleanResourceCacheForBrowserWorld = (
+  world: WorldState,
+  root: string,
+  lowSpec = false,
+): ResourceCacheCleanReport => {
+  const resolution = planResourcesForBrowserWorld(world, root, lowSpec);
+  const plannedPaths = resolution.entries.flatMap((entry) =>
+    [entry.cache_path, entry.thumbnail_path].filter(
+      (path): path is string => path !== null,
+    ),
+  );
+  const entries = plannedPaths.map((path) => ({
+    path,
+    status: "kept" as const,
+    bytes_removed: 0,
+    message: "browser mock keeps planned cache entries",
+  }));
+
+  return {
+    root,
+    low_spec: lowSpec,
+    ready: true,
+    cache_root: joinResourcePath(root, ".eratw-cache"),
+    kept_count: entries.length,
+    removed_count: 0,
+    skipped_count: 0,
+    failed_count: 0,
+    bytes_removed: 0,
     resolution,
     entries,
   };
@@ -1594,6 +1634,11 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     },
     async cacheResources(root, lowSpec = false) {
       return structuredClone(cacheResourcesForBrowserWorld(world, root, lowSpec));
+    },
+    async cleanResourceCache(root, lowSpec = false) {
+      return structuredClone(
+        cleanResourceCacheForBrowserWorld(world, root, lowSpec),
+      );
     },
     async discoverMods(root, engineVersion = null, authorizedUnsafeCapabilities = []) {
       return structuredClone(

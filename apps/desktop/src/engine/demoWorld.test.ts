@@ -897,6 +897,26 @@ describe("demo engine adapter", () => {
     });
   });
 
+  it("simulates browser resource cache clean reports", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.cleanResourceCache("mods/sample", true);
+
+    expect(report.ready).toBe(true);
+    expect(report.low_spec).toBe(true);
+    expect(report.cache_root).toBe("mods/sample/.eratw-cache");
+    expect(report.kept_count).toBe(2);
+    expect(report.removed_count).toBe(0);
+    expect(report.failed_count).toBe(0);
+    expect(report.entries.map((entry) => entry.status)).toEqual(["kept", "kept"]);
+    expect(report.entries[0].path).toContain(
+      "mods/sample/.eratw-cache/resources/core.demo.heroine.neutral-",
+    );
+    expect(report.entries[1].path).toContain(
+      "mods/sample/.eratw-cache/thumbnails/core.demo.heroine.neutral-",
+    );
+  });
+
   it("discovers browser mod manifests through the engine client", async () => {
     const client = createBrowserMockEngineClient();
 

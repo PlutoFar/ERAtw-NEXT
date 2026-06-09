@@ -129,6 +129,29 @@ export interface ResourceCacheReport {
   entries: ResourceCacheEntry[];
 }
 
+export type ResourceCacheCleanStatus = "kept" | "removed" | "skipped" | "failed";
+
+export interface ResourceCacheCleanEntry {
+  path: string;
+  status: ResourceCacheCleanStatus;
+  bytes_removed: number;
+  message: string;
+}
+
+export interface ResourceCacheCleanReport {
+  root: string;
+  low_spec: boolean;
+  ready: boolean;
+  cache_root: string;
+  kept_count: number;
+  removed_count: number;
+  skipped_count: number;
+  failed_count: number;
+  bytes_removed: number;
+  resolution: ResourceResolutionReport;
+  entries: ResourceCacheCleanEntry[];
+}
+
 export type ModCapability =
   | "content"
   | "theme"
