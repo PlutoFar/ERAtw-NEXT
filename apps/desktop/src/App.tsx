@@ -3,6 +3,7 @@ import * as Tabs from "@radix-ui/react-tabs";
 import { Clock3, CloudSun, Dices, MessageSquareText, MoveRight } from "lucide-react";
 import { useEngine } from "./engine/useEngine";
 import { visibleChoices } from "./engine/demoWorld";
+import { createSampleContentPackage } from "./engine/sampleContentPackage";
 import { ModernMap } from "./components/ModernMap";
 import { TraditionalView } from "./components/TraditionalView";
 import type { Location, WorldState } from "./types";
@@ -54,7 +55,17 @@ const formatScheduledEventTime = (world: WorldState) => {
 const DEFAULT_SLOT_ID = "slot_1";
 
 export const App = () => {
-  const { dispatch, error, lastSave, load, loadSlot, loading, saveSlot, world } =
+  const {
+    dispatch,
+    error,
+    installContentPackage,
+    lastSave,
+    load,
+    loadSlot,
+    loading,
+    saveSlot,
+    world,
+  } =
     useEngine();
 
   useEffect(() => {
@@ -195,6 +206,13 @@ export const App = () => {
               disabled={loading}
             >
               <MessageSquareText size={17} /> 交流
+            </button>
+            <button
+              type="button"
+              onClick={() => installContentPackage(createSampleContentPackage())}
+              disabled={loading}
+            >
+              <MessageSquareText size={17} /> 示例包
             </button>
             <button
               type="button"

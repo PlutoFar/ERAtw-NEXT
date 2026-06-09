@@ -49,6 +49,22 @@ describe("App", () => {
     });
   });
 
+  it("installs the sample content package through the engine store", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /示例包/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/内容包 sample:sample.event_pack 已加载/)).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /休息/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/内容包安装进来的事件对话/)).toBeInTheDocument();
+    });
+  });
+
   it("dispatches relationship command through the engine store", async () => {
     render(<App />);
 

@@ -723,6 +723,7 @@ dependencies = [
 name = "eratw-next-desktop"
 version = "0.1.0"
 dependencies = [
+ "eratw_content",
  "eratw_engine",
  "serde",
  "serde_json",

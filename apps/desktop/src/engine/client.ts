@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { applyDemoCommand, createDemoWorld } from "./demoWorld";
 import type {
+  ContentPackage,
   EngineCommand,
   SaveEnvelope,
   SaveSlotReport,
@@ -10,6 +11,7 @@ import type {
 export interface EngineClient {
   snapshot(): Promise<WorldState>;
   dispatch(command: EngineCommand): Promise<WorldState>;
+  installContentPackage(packageData: ContentPackage): Promise<WorldState>;
   savePreview(slotId: string, savedAtUnixMs: number): Promise<SaveEnvelope>;
   saveSlot(slotId: string, savedAtUnixMs: number): Promise<SaveSlotReport>;
   loadSlot(slotId: string): Promise<WorldState>;
@@ -21,6 +23,10 @@ const isTauriRuntime = () =>
 export const createTauriEngineClient = (): EngineClient => ({
   snapshot: () => invoke<WorldState>("engine_snapshot"),
   dispatch: (command) => invoke<WorldState>("engine_dispatch", { command }),
+  installContentPackage: (packageData) =>
+    invoke<WorldState>("engine_install_content_package", {
+      package: packageData,
+    }),
   savePreview: (slotId, savedAtUnixMs) =>
     invoke<SaveEnvelope>("engine_save_preview", {
       slotId,
@@ -37,6 +43,80 @@ export const createTauriEngineClient = (): EngineClient => ({
     }),
 });
 
+const scheduledEventMinute = (event: ContentPackage["scheduled_events"][number]) =>
+  Math.max(0, event.due.day - 1) * 1440 + event.due.hour * 60 + event.due.minute;
+
+const byScheduledEventOrder = (
+  left: ContentPackage["scheduled_events"][number],
+  right: ContentPackage["scheduled_events"][number],
+) => {
+  const dueDelta = scheduledEventMinute(left) - scheduledEventMinute(right);
+  if (dueDelta !== 0) {
+    return dueDelta;
+  }
+
+  const priorityDelta = right.priority - left.priority;
+  return priorityDelta === 0 ? left.id.localeCompare(right.id) : priorityDelta;
+};
+
+const isValidScheduledEvent = (event: ContentPackage["scheduled_events"][number]) =>
+  event.id.trim() &&
+  event.due.day > 0 &&
+  event.due.hour >= 0 &&
+  event.due.hour < 24 &&
+  event.due.minute >= 0 &&
+  event.due.minute < 60 &&
+  (event.repeat === null ||
+    (event.repeat.every_minutes > 0 && event.repeat.remaining_runs !== 0));
+
+const installPackageIntoBrowserWorld = (
+  world: WorldState,
+  packageData: ContentPackage,
+) => {
+  if (
+    packageData.manifest.schema_version !== "content-package/v0" ||
+    !packageData.manifest.namespace.trim() ||
+    !packageData.manifest.package_id.trim()
+  ) {
+    return world;
+  }
+
+  const sceneIds = new Set(world.dialogue_scenes.map((scene) => scene.id));
+  for (const scene of packageData.dialogue_scenes) {
+    if (!scene.id.trim() || sceneIds.has(scene.id)) {
+      return world;
+    }
+    sceneIds.add(scene.id);
+  }
+
+  const eventIds = new Set(world.scheduled_events.map((event) => event.id));
+  for (const event of packageData.scheduled_events) {
+    if (!isValidScheduledEvent(event) || eventIds.has(event.id)) {
+      return world;
+    }
+    if (event.kind.type === "start_dialogue" && !sceneIds.has(event.kind.scene_id)) {
+      return world;
+    }
+    eventIds.add(event.id);
+  }
+
+  return {
+    ...world,
+    dialogue_scenes: [
+      ...world.dialogue_scenes,
+      ...structuredClone(packageData.dialogue_scenes),
+    ],
+    scheduled_events: [
+      ...world.scheduled_events,
+      ...structuredClone(packageData.scheduled_events),
+    ].sort(byScheduledEventOrder),
+    event_log: [
+      `内容包 ${packageData.manifest.namespace}:${packageData.manifest.package_id} 已加载。`,
+      ...world.event_log,
+    ],
+  };
+};
+
 export const createBrowserMockEngineClient = (): EngineClient => {
   let world = createDemoWorld();
   const saves = new Map<string, SaveEnvelope>();
@@ -47,6 +127,10 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     },
     async dispatch(command) {
       world = applyDemoCommand(world, command);
+      return structuredClone(world);
+    },
+    async installContentPackage(packageData) {
+      world = installPackageIntoBrowserWorld(world, packageData);
       return structuredClone(world);
     },
     async savePreview(slotId, savedAtUnixMs) {

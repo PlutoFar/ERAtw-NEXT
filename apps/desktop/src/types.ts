@@ -170,6 +170,20 @@ export interface SaveSlotReport {
   backup_path: string | null;
 }
 
+export interface ContentPackageManifest {
+  schema_version: string;
+  namespace: string;
+  package_id: string;
+  version: string;
+  dependencies: string[];
+}
+
+export interface ContentPackage {
+  manifest: ContentPackageManifest;
+  dialogue_scenes: DialogueScene[];
+  scheduled_events: ScheduledEvent[];
+}
+
 export type EngineCommand =
   | { type: "advance_time"; minutes: number }
   | { type: "move_character"; character_id: string; location_id: string }

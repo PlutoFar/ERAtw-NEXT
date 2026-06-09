@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createBrowserMockEngineClient } from "./client";
 import { applyDemoCommand, createDemoWorld, visibleChoices } from "./demoWorld";
+import { createSampleContentPackage } from "./sampleContentPackage";
 
 describe("demo engine adapter", () => {
   it("creates deterministic demo state", () => {
@@ -388,5 +389,19 @@ describe("demo engine adapter", () => {
     expect(report.backup_path).toBeNull();
     expect(world.engine_version).toBe("0.1.0-m0");
     expect(world.characters[0].location_id).toBe("school_gate");
+  });
+
+  it("installs browser content packages and triggers their scheduled events", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const installed = await client.installContentPackage(createSampleContentPackage());
+    const advanced = await client.dispatch({ type: "advance_time", minutes: 20 });
+
+    expect(
+      installed.dialogue_scenes.some((scene) => scene.id === "sample_event_dialogue"),
+    ).toBe(true);
+    expect(installed.scheduled_events[0].id).toBe("sample_content_dialogue_at_0820");
+    expect(advanced.active_dialogue_scene_id).toBe("sample_event_dialogue");
+    expect(advanced.active_dialogue[0].text).toContain("内容包安装进来的事件对话");
   });
 });

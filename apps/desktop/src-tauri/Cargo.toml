@@ -15,6 +15,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+eratw_content = { path = "../../../crates/content" }
 eratw_engine = { path = "../../../crates/engine" }
 serde.workspace = true
 serde_json.workspace = true

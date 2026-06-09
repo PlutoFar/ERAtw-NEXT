@@ -1,3 +1,4 @@
+use eratw_content::ContentPackage;
 use eratw_engine::{
     save::{read_save, write_save_atomic, SaveEnvelope},
     EngineCommand, WorldState,
@@ -27,6 +28,19 @@ fn engine_dispatch(
     world
         .apply_command(command)
         .map_err(|error| error.to_string())?;
+    Ok(world.clone())
+}
+
+#[tauri::command]
+fn engine_install_content_package(
+    package: ContentPackage,
+    state: tauri::State<'_, Mutex<WorldState>>,
+) -> Result<WorldState, String> {
+    let mut world = state.lock().expect("engine state lock poisoned");
+    let installed = package
+        .install_into_world(world.clone())
+        .map_err(|error| error.to_string())?;
+    *world = installed;
     Ok(world.clone())
 }
 
@@ -107,6 +121,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             engine_snapshot,
             engine_dispatch,
+            engine_install_content_package,
             engine_save_preview,
             engine_save_slot,
             engine_load_slot
