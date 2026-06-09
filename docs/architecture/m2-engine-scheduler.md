@@ -7,7 +7,7 @@
 ## 当前结构
 
 - `ScheduledTime`：以 day/hour/minute 表达事件触发时间，序列化进入 `WorldState`。
-- `ScheduledEvent`：稳定事件 ID、到期时间和事件类型。
+- `ScheduledEvent`：稳定事件 ID、到期时间、条件列表和事件类型。
 - `ScheduledEventKind`：当前支持天气切换、对话启动、角色状态调整。
 - `EngineCommand::ScheduleEvent`：通过 command API 注册事件，前端不直接修改事件队列。
 - `Relationship`：保存来源 ID、目标角色 ID、好感和信赖，进入 `WorldState` 与存档。
@@ -25,6 +25,8 @@
 - 只有成功命令进入 `command_log`，失败命令不污染回放历史。
 - `advance_time` 触发所有到期事件；事件按到期分钟和 ID 排序。
 - 到期事件只触发一次，触发后从队列移除。
+- 到期但条件未满足的事件保留在队列中，后续时间推进继续尝试。
+- 事件条件复用 `DialogueCondition`，当前支持地点、心情、关系、天气和时间判断。
 - 角色状态调整使用边界约束：体力 `0..100`，心情 `-100..100`。
 - 关系调整使用边界约束：好感/信赖 `-100..100`。
 - 关系目标必须是已存在角色；关系来源可为 `player` 等稳定领域 ID。
@@ -36,7 +38,7 @@
 
 ## 后续
 
-- 增加事件条件、优先级、取消、循环事件。
+- 增加事件优先级、取消、循环事件。
 - 将随机结算接入事件条件、互动命令和内容效果。
 - 将 Dialogue/Scene 内容包接入 `StartDialogue`。
 - 补内容包加载后的跨模块调度测试。

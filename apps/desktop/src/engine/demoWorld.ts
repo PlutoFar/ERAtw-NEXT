@@ -219,11 +219,13 @@ export const createDemoWorld = (): WorldState => ({
     {
       id: "demo_clouds_at_gate",
       due: { day: 1, hour: 8, minute: 30 },
+      conditions: [],
       kind: { type: "change_weather", weather: "cloudy" },
     },
     {
       id: "demo_morning_mood",
       due: { day: 1, hour: 9, minute: 0 },
+      conditions: [],
       kind: {
         type: "adjust_character_state",
         character_id: "demo_heroine",
@@ -464,13 +466,22 @@ const triggerDueEvents = (world: WorldState, endMinute: number) => {
   const dueEvents = world.scheduled_events
     .filter((event) => absoluteMinute(event.due) <= endMinute)
     .sort(byDueTime);
-  world.scheduled_events = world.scheduled_events.filter(
+  const pendingEvents = world.scheduled_events.filter(
     (event) => absoluteMinute(event.due) > endMinute,
   );
 
   for (const event of dueEvents) {
-    applyScheduledEventKind(world, event.id, event.kind);
+    const conditionsMet = event.conditions.every((condition) =>
+      dialogueConditionMet(world, condition),
+    );
+    if (conditionsMet) {
+      applyScheduledEventKind(world, event.id, event.kind);
+    } else {
+      pendingEvents.push(event);
+    }
   }
+
+  world.scheduled_events = pendingEvents.sort(byDueTime);
 };
 
 export const applyDemoCommand = (
@@ -563,7 +574,11 @@ export const applyDemoCommand = (
     const hasDuplicate = next.scheduled_events.some(
       (event) => event.id === command.event.id,
     );
-    if (!command.event.id.trim() || !isValidDue(command.event.due) || hasDuplicate) {
+    if (
+      !command.event.id.trim() ||
+      !isValidDue(command.event.due) ||
+      hasDuplicate
+    ) {
       return next;
     }
 

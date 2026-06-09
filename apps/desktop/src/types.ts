@@ -124,6 +124,7 @@ export type ScheduledEventKind =
 export interface ScheduledEvent {
   id: string;
   due: ScheduledTime;
+  conditions: DialogueCondition[];
   kind: ScheduledEventKind;
 }
 

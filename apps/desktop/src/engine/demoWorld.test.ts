@@ -35,6 +35,51 @@ describe("demo engine adapter", () => {
     expect(first.characters[0].state.mood).toBe(15);
   });
 
+  it("keeps conditional scheduled events pending until conditions pass", () => {
+    const scheduled = applyDemoCommand(createDemoWorld(), {
+      type: "schedule_event",
+      event: {
+        id: "trust_dialogue",
+        due: { day: 1, hour: 8, minute: 10 },
+        conditions: [
+          {
+            type: "relationship_affinity_at_least",
+            source_character_id: "player",
+            target_character_id: "demo_heroine",
+            value: 7,
+          },
+        ],
+        kind: { type: "start_dialogue", scene_id: "demo_morning" },
+      },
+    });
+    const waiting = applyDemoCommand(scheduled, {
+      type: "advance_time",
+      minutes: 10,
+    });
+
+    expect(waiting.active_dialogue_scene_id).toBeNull();
+    expect(waiting.scheduled_events.some((event) => event.id === "trust_dialogue")).toBe(
+      true,
+    );
+
+    const unlocked = applyDemoCommand(waiting, {
+      type: "adjust_relationship",
+      source_character_id: "player",
+      target_character_id: "demo_heroine",
+      affinity_delta: 2,
+      trust_delta: 0,
+    });
+    const triggered = applyDemoCommand(unlocked, {
+      type: "advance_time",
+      minutes: 1,
+    });
+
+    expect(triggered.active_dialogue_scene_id).toBe("demo_morning");
+    expect(
+      triggered.scheduled_events.some((event) => event.id === "trust_dialogue"),
+    ).toBe(false);
+  });
+
   it("starts a versioned dialogue scene", () => {
     const world = applyDemoCommand(createDemoWorld(), {
       type: "start_dialogue",

@@ -217,6 +217,8 @@ pub struct DialogueScene {
 pub struct ScheduledEvent {
     pub id: String,
     pub due: ScheduledTime,
+    #[serde(default)]
+    pub conditions: Vec<DialogueCondition>,
     pub kind: ScheduledEventKind,
 }
 
@@ -379,6 +381,7 @@ impl WorldState {
                 ScheduledEvent {
                     id: "demo_clouds_at_gate".to_string(),
                     due: ScheduledTime::new(1, 8, 30),
+                    conditions: Vec::new(),
                     kind: ScheduledEventKind::ChangeWeather {
                         weather: Weather::Cloudy,
                     },
@@ -386,6 +389,7 @@ impl WorldState {
                 ScheduledEvent {
                     id: "demo_morning_mood".to_string(),
                     due: ScheduledTime::new(1, 9, 0),
+                    conditions: Vec::new(),
                     kind: ScheduledEventKind::AdjustCharacterState {
                         character_id: "demo_heroine".to_string(),
                         energy_delta: -3,
@@ -684,7 +688,6 @@ impl WorldState {
             }
         }
 
-        self.scheduled_events = pending_events;
         due_events.sort_by(|left, right| {
             left.due
                 .absolute_minute()
@@ -693,10 +696,25 @@ impl WorldState {
         });
 
         for event in due_events {
-            self.execute_scheduled_event(&event)?;
+            if self.scheduled_event_conditions_met(&event)? {
+                self.execute_scheduled_event(&event)?;
+            } else {
+                pending_events.push(event);
+            }
         }
 
+        self.scheduled_events = pending_events;
+        self.sort_scheduled_events();
         Ok(())
+    }
+
+    fn scheduled_event_conditions_met(&self, event: &ScheduledEvent) -> Result<bool, EngineError> {
+        for condition in &event.conditions {
+            if !self.dialogue_condition_met(condition)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     fn execute_scheduled_event(&mut self, event: &ScheduledEvent) -> Result<(), EngineError> {
@@ -1314,6 +1332,7 @@ mod tests {
             event: ScheduledEvent {
                 id: "demo_clouds_at_gate".to_string(),
                 due: ScheduledTime::new(1, 10, 0),
+                conditions: Vec::new(),
                 kind: ScheduledEventKind::ChangeWeather {
                     weather: Weather::Rain,
                 },
@@ -1347,5 +1366,57 @@ mod tests {
 
         assert_eq!(left, right);
         assert_eq!(left.clock.weather, Weather::Cloudy);
+    }
+
+    #[test]
+    fn conditional_scheduled_event_waits_until_conditions_pass() {
+        let mut world = WorldState::bootstrap_demo();
+
+        world
+            .apply_command(EngineCommand::ScheduleEvent {
+                event: ScheduledEvent {
+                    id: "trust_dialogue".to_string(),
+                    due: ScheduledTime::new(1, 8, 10),
+                    conditions: vec![DialogueCondition::RelationshipAffinityAtLeast {
+                        source_character_id: "player".to_string(),
+                        target_character_id: "demo_heroine".to_string(),
+                        value: 7,
+                    }],
+                    kind: ScheduledEventKind::StartDialogue {
+                        scene_id: "demo_morning".to_string(),
+                    },
+                },
+            })
+            .unwrap();
+        world
+            .apply_command(EngineCommand::AdvanceTime { minutes: 10 })
+            .unwrap();
+
+        assert_eq!(world.active_dialogue_scene_id, None);
+        assert!(world
+            .scheduled_events
+            .iter()
+            .any(|event| event.id == "trust_dialogue"));
+
+        world
+            .apply_command(EngineCommand::AdjustRelationship {
+                source_character_id: "player".to_string(),
+                target_character_id: "demo_heroine".to_string(),
+                affinity_delta: 2,
+                trust_delta: 0,
+            })
+            .unwrap();
+        world
+            .apply_command(EngineCommand::AdvanceTime { minutes: 1 })
+            .unwrap();
+
+        assert_eq!(
+            world.active_dialogue_scene_id,
+            Some("demo_morning".to_string())
+        );
+        assert!(!world
+            .scheduled_events
+            .iter()
+            .any(|event| event.id == "trust_dialogue"));
     }
 }
