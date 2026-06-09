@@ -23,6 +23,8 @@ Generated files:
 - `character-inventory.csv`
 - `dialogue-inventory.json`
 - `dialogue-inventory.csv`
+- `resource-reference-report.json`
+- `resource-reference-report.csv`
 - `summary.md`
 
 The audit treats old ERB and CSV as read-only reference material. It records legacy runtime binaries and saves as excluded artifacts.

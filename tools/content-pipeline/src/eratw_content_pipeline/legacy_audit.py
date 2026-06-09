@@ -98,6 +98,14 @@ class DialogueInventoryItem:
 
 
 @dataclass
+class ResourceReferenceItem:
+    reference: str
+    count: int
+    matched_asset_paths: list[str] = field(default_factory=list)
+    status: str = "missing"
+
+
+@dataclass
 class AuditIssue:
     severity: str
     code: str
@@ -115,6 +123,7 @@ class LegacyAuditReport:
     assets: list[AssetManifestItem]
     characters: list[CharacterInventoryItem]
     dialogues: list[DialogueInventoryItem]
+    resource_references: list[ResourceReferenceItem]
     issues: list[AuditIssue]
     resource_reference_summary: dict[str, int]
 
@@ -175,10 +184,18 @@ def audit_legacy_source(options: AuditOptions) -> LegacyAuditReport:
     summary_counter = Counter(record.category for record in records)
     characters = build_character_inventory(records)
     dialogues = build_dialogue_inventory(records)
+    resource_references = build_resource_reference_report(assets, referenced_resources)
     summary_counter["total_files"] = len(records)
     summary_counter["total_size_bytes"] = sum(record.size_bytes for record in records)
     summary_counter["characters"] = len(characters)
     summary_counter["dialogue_files"] = len(dialogues)
+    summary_counter["resource_refs"] = len(resource_references)
+    summary_counter["resource_refs_matched"] = sum(
+        1 for reference in resource_references if reference.status == "matched"
+    )
+    summary_counter["resource_refs_missing"] = sum(
+        1 for reference in resource_references if reference.status == "missing"
+    )
 
     return LegacyAuditReport(
         schema_version="legacy-audit/v0",
@@ -189,6 +206,7 @@ def audit_legacy_source(options: AuditOptions) -> LegacyAuditReport:
         assets=assets,
         characters=characters,
         dialogues=dialogues,
+        resource_references=resource_references,
         issues=issues[: options.max_issues],
         resource_reference_summary=dict(sorted(referenced_resources.items())),
     )
@@ -305,6 +323,44 @@ def write_audit_outputs(report: LegacyAuditReport, out_dir: Path) -> list[Path]:
             writer.writerow(asdict(dialogue))
     written.append(dialogue_csv)
 
+    resource_reference_json = out_dir / "resource-reference-report.json"
+    resource_reference_json.write_text(
+        json.dumps(
+            {
+                "schemaVersion": "resource-reference-report/v0",
+                "sourceRoot": report.source_root,
+                "references": [asdict(reference) for reference in report.resource_references],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    written.append(resource_reference_json)
+
+    resource_reference_csv = out_dir / "resource-reference-report.csv"
+    with resource_reference_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "reference",
+                "count",
+                "status",
+                "matched_asset_paths",
+            ],
+        )
+        writer.writeheader()
+        for reference in report.resource_references:
+            writer.writerow(
+                {
+                    "reference": reference.reference,
+                    "count": reference.count,
+                    "status": reference.status,
+                    "matched_asset_paths": ";".join(reference.matched_asset_paths),
+                }
+            )
+    written.append(resource_reference_csv)
+
     csv_path = out_dir / "legacy-file-inventory.csv"
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
@@ -378,6 +434,9 @@ def render_markdown_summary(report: LegacyAuditReport) -> str:
             "## Resource References",
             "",
             f"- Unique referenced resource names: {len(report.resource_reference_summary)}",
+            f"- Matched resource references: {report.summary.get('resource_refs_matched', 0)}",
+            f"- Missing resource references: {report.summary.get('resource_refs_missing', 0)}",
+            "- Resource reference report: `resource-reference-report.csv`",
             "- Draft asset manifest: `asset-manifest.draft.json`",
         ]
     )
@@ -480,6 +539,29 @@ def build_dialogue_inventory(records: list[FileRecord]) -> list[DialogueInventor
         )
 
     return sorted(dialogues, key=lambda item: item.path)
+
+
+def build_resource_reference_report(
+    assets: list[AssetManifestItem],
+    referenced_resources: Counter[str],
+) -> list[ResourceReferenceItem]:
+    assets_by_name: dict[str, list[str]] = {}
+    for asset in assets:
+        assets_by_name.setdefault(Path(asset.source_path).name.lower(), []).append(asset.source_path)
+
+    references: list[ResourceReferenceItem] = []
+    for reference, count in sorted(referenced_resources.items(), key=lambda item: item[0].lower()):
+        matched_paths = sorted(assets_by_name.get(reference.lower(), []))
+        references.append(
+            ResourceReferenceItem(
+                reference=reference,
+                count=count,
+                matched_asset_paths=matched_paths,
+                status="matched" if matched_paths else "missing",
+            )
+        )
+
+    return references
 
 
 def parse_character_csv_identity(record: FileRecord) -> tuple[str | None, str | None]:

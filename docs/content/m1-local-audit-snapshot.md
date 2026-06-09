@@ -20,6 +20,8 @@
 - Referenced resource names sampled from text: 566
 - Characters: 162
 - Dialogue/reference ERB files: 2284
+- Matched resource references: 480
+- Missing resource references: 86
 
 ## 风险信号
 

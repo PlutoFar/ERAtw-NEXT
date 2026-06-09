@@ -35,7 +35,12 @@ def test_audit_legacy_source_classifies_files(tmp_path: Path) -> None:
     assert report.summary["legacy_runtime"] == 1
     assert report.summary["characters"] == 1
     assert report.summary["dialogue_files"] == 1
+    assert report.summary["resource_refs"] == 1
+    assert report.summary["resource_refs_matched"] == 1
+    assert report.summary["resource_refs_missing"] == 0
     assert report.resource_reference_summary["image.webp"] == 1
+    assert report.resource_references[0].status == "matched"
+    assert report.resource_references[0].matched_asset_paths == ["resources/image.webp"]
     assert report.characters[0].name == "博麗 霊夢"
     assert report.characters[0].call_name == "霊夢"
     assert report.characters[0].data_erb_paths == ["ERB/キャラデータ/Chara_data_1_霊夢.ERB"]
@@ -59,12 +64,15 @@ def test_audit_legacy_cli_writes_reports(tmp_path: Path) -> None:
     manifest = json.loads((out / "asset-manifest.draft.json").read_text(encoding="utf-8"))
     characters = json.loads((out / "character-inventory.json").read_text(encoding="utf-8"))
     dialogues = json.loads((out / "dialogue-inventory.json").read_text(encoding="utf-8"))
+    resource_refs = json.loads((out / "resource-reference-report.json").read_text(encoding="utf-8"))
     assert report["schema_version"] == "legacy-audit/v0"
     assert report["files"][0]["path"] == "ERB/demo.ERB"
     assert manifest["schemaVersion"] == "asset-manifest/v0"
     assert characters["schemaVersion"] == "character-inventory/v0"
     assert dialogues["schemaVersion"] == "dialogue-inventory/v0"
+    assert resource_refs["schemaVersion"] == "resource-reference-report/v0"
     assert (out / "character-inventory.csv").exists()
     assert (out / "dialogue-inventory.csv").exists()
+    assert (out / "resource-reference-report.csv").exists()
     assert (out / "legacy-file-inventory.csv").exists()
     assert (out / "summary.md").exists()
