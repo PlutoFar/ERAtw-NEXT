@@ -17,6 +17,9 @@ import type {
   ModUninstallPlanReport,
   ModUninstallReport,
   ResourceAsset,
+  ResourcePreflightIssue,
+  ResourcePreflightReport,
+  ResourceResolution,
   ResourceResolutionReport,
   SaveEnvelope,
   SavePreflightReport,
@@ -37,6 +40,7 @@ export interface EngineClient {
   ): Promise<ContentInstallPreflightReport>;
   planResources(root: string): Promise<ResourceResolutionReport>;
   inspectResources(root: string): Promise<ResourceResolutionReport>;
+  preflightResources(root: string): Promise<ResourcePreflightReport>;
   discoverMods(
     root: string,
     engineVersion?: string | null,
@@ -107,6 +111,8 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<ResourceResolutionReport>("engine_plan_resources", { root }),
   inspectResources: (root) =>
     invoke<ResourceResolutionReport>("engine_inspect_resources", { root }),
+  preflightResources: (root) =>
+    invoke<ResourcePreflightReport>("engine_preflight_resources", { root }),
   discoverMods: (root, engineVersion = null, authorizedUnsafeCapabilities = []) =>
     invoke<ModDiscoveryReport>("engine_discover_mods", {
       root,
@@ -317,6 +323,34 @@ const planResourcesForBrowserWorld = (world: WorldState, root: string) => ({
     };
   }),
 });
+
+const isUnsafeResourceResolution = (
+  entry: ResourceResolution,
+): entry is ResourceResolution & { status: "unsafe_path" } =>
+  entry.status === "unsafe_path";
+
+const preflightResourcesForBrowserWorld = (
+  world: WorldState,
+  root: string,
+): ResourcePreflightReport => {
+  const resolution = planResourcesForBrowserWorld(world, root);
+  const issues: ResourcePreflightIssue[] = resolution.entries
+    .filter(isUnsafeResourceResolution)
+    .map((entry) => ({
+      code: "unsafe_path",
+      resource_id: entry.resource_id,
+      source_path: entry.source_path,
+      message: `resource path is unsafe: ${entry.resource_id} -> ${entry.source_path}`,
+      fallback: entry.fallback,
+    }));
+
+  return {
+    root,
+    ready: issues.length === 0,
+    resolution,
+    issues,
+  };
+};
 
 const sampleBrowserModManifest = (): ModManifest => ({
   namespace: "example.minimal_character",
@@ -1165,6 +1199,9 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     },
     async inspectResources(root) {
       return structuredClone(planResourcesForBrowserWorld(world, root));
+    },
+    async preflightResources(root) {
+      return structuredClone(preflightResourcesForBrowserWorld(world, root));
     },
     async discoverMods(root, engineVersion = null, authorizedUnsafeCapabilities = []) {
       return structuredClone(

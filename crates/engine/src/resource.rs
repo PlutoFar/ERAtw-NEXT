@@ -14,6 +14,32 @@ pub struct ResourceResolutionReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourcePreflightReport {
+    pub root: String,
+    pub ready: bool,
+    pub resolution: ResourceResolutionReport,
+    pub issues: Vec<ResourcePreflightIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourcePreflightIssue {
+    pub code: ResourcePreflightIssueCode,
+    pub resource_id: String,
+    pub source_path: String,
+    pub message: String,
+    pub fallback: ResourceFallback,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourcePreflightIssueCode {
+    Missing,
+    UnsafePath,
+    HashMismatch,
+    IoError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceResolution {
     pub resource_id: String,
     pub source_path: String,
@@ -57,6 +83,25 @@ pub fn inspect_resource_files(
     root: impl AsRef<Path>,
 ) -> ResourceResolutionReport {
     resolve_resources(resources, root, true)
+}
+
+pub fn preflight_resource_loads(
+    resources: &[ResourceAsset],
+    root: impl AsRef<Path>,
+) -> ResourcePreflightReport {
+    let resolution = inspect_resource_files(resources, root);
+    let issues = resolution
+        .entries
+        .iter()
+        .filter_map(preflight_issue_from_resolution)
+        .collect::<Vec<_>>();
+
+    ResourcePreflightReport {
+        root: resolution.root.clone(),
+        ready: issues.is_empty(),
+        resolution,
+        issues,
+    }
 }
 
 pub fn is_safe_resource_source_path(source_path: &str) -> bool {
@@ -161,6 +206,58 @@ fn resolve_resource(
         fallback,
         expected_sha256: resource.sha256.clone(),
         actual_sha256,
+    }
+}
+
+fn preflight_issue_from_resolution(entry: &ResourceResolution) -> Option<ResourcePreflightIssue> {
+    let code = match entry.status {
+        ResourceResolutionStatus::Planned | ResourceResolutionStatus::Ready => return None,
+        ResourceResolutionStatus::Missing => ResourcePreflightIssueCode::Missing,
+        ResourceResolutionStatus::UnsafePath => ResourcePreflightIssueCode::UnsafePath,
+        ResourceResolutionStatus::HashMismatch => ResourcePreflightIssueCode::HashMismatch,
+        ResourceResolutionStatus::IoError => ResourcePreflightIssueCode::IoError,
+    };
+
+    Some(ResourcePreflightIssue {
+        code,
+        resource_id: entry.resource_id.clone(),
+        source_path: entry.source_path.clone(),
+        message: preflight_issue_message(entry),
+        fallback: entry.fallback.clone(),
+    })
+}
+
+fn preflight_issue_message(entry: &ResourceResolution) -> String {
+    match entry.status {
+        ResourceResolutionStatus::Missing => format!(
+            "resource file is missing: {} -> {}",
+            entry.resource_id,
+            entry
+                .resolved_path
+                .as_deref()
+                .unwrap_or(entry.source_path.as_str())
+        ),
+        ResourceResolutionStatus::UnsafePath => format!(
+            "resource path is unsafe: {} -> {}",
+            entry.resource_id, entry.source_path
+        ),
+        ResourceResolutionStatus::HashMismatch => format!(
+            "resource hash mismatch: {} expected {} found {}",
+            entry.resource_id,
+            entry.expected_sha256.as_deref().unwrap_or("<none>"),
+            entry.actual_sha256.as_deref().unwrap_or("<unavailable>")
+        ),
+        ResourceResolutionStatus::IoError => format!(
+            "resource file could not be inspected: {} -> {}",
+            entry.resource_id,
+            entry
+                .resolved_path
+                .as_deref()
+                .unwrap_or(entry.source_path.as_str())
+        ),
+        ResourceResolutionStatus::Planned | ResourceResolutionStatus::Ready => {
+            format!("resource is ready: {}", entry.resource_id)
+        }
     }
 }
 
@@ -322,6 +419,76 @@ mod tests {
             ResourceResolutionStatus::UnsafePath
         );
         assert_eq!(report.entries[3].resolved_path, None);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn preflight_resource_loads_reports_ready_resources() {
+        let dir = temp_resource_dir("resource_preflight_ready");
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::write(dir.join("assets/ready.txt"), b"ready").unwrap();
+        let ready_hash = sha256_file(&dir.join("assets/ready.txt")).unwrap();
+
+        let report = preflight_resource_loads(
+            &[resource(
+                "ready",
+                "assets/ready.txt",
+                ResourceMediaType::Image,
+                Some(ready_hash),
+            )],
+            &dir,
+        );
+
+        assert!(report.ready);
+        assert!(report.issues.is_empty());
+        assert_eq!(
+            report.resolution.entries[0].status,
+            ResourceResolutionStatus::Ready
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn preflight_resource_loads_reports_blocking_issues() {
+        let dir = temp_resource_dir("resource_preflight_blocked");
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::write(dir.join("assets/mismatch.txt"), b"mismatch").unwrap();
+
+        let report = preflight_resource_loads(
+            &[
+                resource(
+                    "missing",
+                    "assets/missing.txt",
+                    ResourceMediaType::Audio,
+                    None,
+                ),
+                resource(
+                    "mismatch",
+                    "assets/mismatch.txt",
+                    ResourceMediaType::Font,
+                    Some("0000".to_string()),
+                ),
+                resource("unsafe", "../outside.txt", ResourceMediaType::Image, None),
+            ],
+            &dir,
+        );
+
+        assert!(!report.ready);
+        assert_eq!(
+            report
+                .issues
+                .iter()
+                .map(|issue| &issue.code)
+                .collect::<Vec<_>>(),
+            vec![
+                &ResourcePreflightIssueCode::Missing,
+                &ResourcePreflightIssueCode::HashMismatch,
+                &ResourcePreflightIssueCode::UnsafePath
+            ]
+        );
+        assert_eq!(report.issues[0].fallback, ResourceFallback::SilentAudio);
 
         let _ = fs::remove_dir_all(dir);
     }

@@ -638,6 +638,20 @@ describe("demo engine adapter", () => {
     });
   });
 
+  it("preflights browser resource loads", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.preflightResources("mods/sample");
+
+    expect(report.ready).toBe(true);
+    expect(report.issues).toEqual([]);
+    expect(report.resolution.entries[0]).toMatchObject({
+      resource_id: "core.demo.heroine.neutral",
+      status: "planned",
+      fallback: "placeholder_image",
+    });
+  });
+
   it("discovers browser mod manifests through the engine client", async () => {
     const client = createBrowserMockEngineClient();
 

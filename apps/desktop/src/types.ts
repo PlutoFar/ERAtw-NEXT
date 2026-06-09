@@ -78,6 +78,27 @@ export interface ResourceResolutionReport {
   entries: ResourceResolution[];
 }
 
+export type ResourcePreflightIssueCode =
+  | "missing"
+  | "unsafe_path"
+  | "hash_mismatch"
+  | "io_error";
+
+export interface ResourcePreflightIssue {
+  code: ResourcePreflightIssueCode;
+  resource_id: string;
+  source_path: string;
+  message: string;
+  fallback: ResourceFallback;
+}
+
+export interface ResourcePreflightReport {
+  root: string;
+  ready: boolean;
+  resolution: ResourceResolutionReport;
+  issues: ResourcePreflightIssue[];
+}
+
 export type ModCapability =
   | "content"
   | "theme"

@@ -3,7 +3,10 @@ use eratw_content::{
     ContentInstallPreflightReport, ContentPackage,
 };
 use eratw_engine::{
-    resource::{inspect_resource_files, plan_resource_loads, ResourceResolutionReport},
+    resource::{
+        inspect_resource_files, plan_resource_loads, preflight_resource_loads,
+        ResourcePreflightReport, ResourceResolutionReport,
+    },
     save::{
         preflight_save_against_registry, read_save, write_save_atomic, SaveEnvelope,
         SaveModDependency, SaveReadReport, SaveValidationReport,
@@ -262,6 +265,15 @@ fn engine_inspect_resources(
 ) -> ResourceResolutionReport {
     let world = state.lock().expect("engine state lock poisoned");
     inspect_resource_files(&world.resources, root)
+}
+
+#[tauri::command]
+fn engine_preflight_resources(
+    root: String,
+    state: tauri::State<'_, Mutex<WorldState>>,
+) -> ResourcePreflightReport {
+    let world = state.lock().expect("engine state lock poisoned");
+    preflight_resource_loads(&world.resources, root)
 }
 
 #[tauri::command]
@@ -1296,6 +1308,7 @@ pub fn run() {
             engine_preflight_content_package_install,
             engine_plan_resources,
             engine_inspect_resources,
+            engine_preflight_resources,
             engine_discover_mods,
             engine_plan_mod_install,
             engine_install_mod,
