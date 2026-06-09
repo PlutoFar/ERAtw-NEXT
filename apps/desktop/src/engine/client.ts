@@ -811,6 +811,8 @@ const modDependenciesForWorld = (world: WorldState) =>
       required: true,
     }));
 
+const browserSaveBackupLimit = 10;
+
 const modRegistryFromEnabledPlan = (
   enabledPlan: ModEnablementPlanReport,
 ): SavePreflightReport["registry"] => ({
@@ -1297,6 +1299,9 @@ export const createBrowserMockEngineClient = (): EngineClient => {
       if (existing) {
         const backups = saveBackups.get(slotId) ?? [];
         backups.push(structuredClone(existing));
+        if (backups.length > browserSaveBackupLimit) {
+          backups.splice(0, backups.length - browserSaveBackupLimit);
+        }
         saveBackups.set(slotId, backups);
       }
 
@@ -1333,7 +1338,7 @@ export const createBrowserMockEngineClient = (): EngineClient => {
         path: `browser-memory://${slotId}.json`,
         recovered_from: `browser-memory://${slotId}.json.backup-${backups.length}`,
         failed_primary_backup_path: failedPrimary
-          ? `browser-memory://${slotId}.json.${recoveredAtUnixMs}.bak`
+          ? `browser-memory://${slotId}.json.failed.${recoveredAtUnixMs}.bak`
           : null,
         save: latest,
       });

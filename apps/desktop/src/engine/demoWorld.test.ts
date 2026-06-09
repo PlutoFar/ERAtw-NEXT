@@ -502,10 +502,27 @@ describe("demo engine adapter", () => {
 
     expect(recovered.path).toBe("browser-memory://slot_1.json");
     expect(recovered.failed_primary_backup_path).toBe(
-      "browser-memory://slot_1.json.300.bak",
+      "browser-memory://slot_1.json.failed.300.bak",
     );
     expect(recovered.save.saved_at_unix_ms).toBe(100);
     expect(loaded.clock.minute).toBe(0);
+  });
+
+  it("rotates browser save backups to the latest ten entries", async () => {
+    const client = createBrowserMockEngineClient();
+
+    for (let savedAt = 0; savedAt < 12; savedAt += 1) {
+      await client.saveSlot("slot_1", savedAt);
+      await client.dispatch({
+        type: "advance_time",
+        minutes: 1,
+      });
+    }
+
+    const recovered = await client.recoverSlot("slot_1", 20);
+
+    expect(recovered.recovered_from).toBe("browser-memory://slot_1.json.backup-10");
+    expect(recovered.save.saved_at_unix_ms).toBe(10);
   });
 
   it("rejects browser content packages with missing dependencies or conflicts", async () => {

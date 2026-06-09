@@ -8,6 +8,8 @@ use std::{
 use thiserror::Error;
 
 pub const SAVE_SCHEMA_VERSION: u32 = 1;
+pub const DEFAULT_SAVE_BACKUP_LIMIT: usize = 10;
+pub const DEFAULT_FAILED_SAVE_BACKUP_LIMIT: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SaveEnvelope {
@@ -215,6 +217,15 @@ pub fn write_save_atomic(
     save: &SaveEnvelope,
     timestamp_unix_ms: u64,
 ) -> Result<SaveWriteReport, SaveError> {
+    write_save_atomic_with_backup_limit(path, save, timestamp_unix_ms, DEFAULT_SAVE_BACKUP_LIMIT)
+}
+
+pub fn write_save_atomic_with_backup_limit(
+    path: impl AsRef<Path>,
+    save: &SaveEnvelope,
+    timestamp_unix_ms: u64,
+    backup_limit: usize,
+) -> Result<SaveWriteReport, SaveError> {
     save.validate(&[])?;
 
     let path = path.as_ref();
@@ -241,6 +252,7 @@ pub fn write_save_atomic(
             Err(error)
         }
     })?;
+    prune_backup_files(path, BackupFileKind::Normal, backup_limit)?;
 
     Ok(SaveWriteReport {
         path: path.to_path_buf(),
@@ -283,10 +295,10 @@ pub fn recover_save_from_latest_backup(
     timestamp_unix_ms: u64,
 ) -> Result<SaveRecoveryReport, SaveError> {
     let path = path.as_ref();
-    let recovered_from =
-        latest_backup_path_for(path)?.ok_or(SaveError::MissingRecoverableBackup)?;
+    let recovered_from = latest_recoverable_backup_path_for(path, enabled_mods)?
+        .ok_or(SaveError::MissingRecoverableBackup)?;
     let failed_primary_backup_path = if path.exists() {
-        let backup_path = backup_path_for(path, timestamp_unix_ms);
+        let backup_path = failed_primary_backup_path_for(path, timestamp_unix_ms);
         fs::copy(path, &backup_path)?;
         Some(backup_path)
     } else {
@@ -294,6 +306,11 @@ pub fn recover_save_from_latest_backup(
     };
 
     fs::copy(&recovered_from, path)?;
+    prune_backup_files(
+        path,
+        BackupFileKind::FailedPrimary,
+        DEFAULT_FAILED_SAVE_BACKUP_LIMIT,
+    )?;
     let save = read_save(path, enabled_mods)?;
 
     Ok(SaveRecoveryReport {
@@ -329,6 +346,20 @@ fn backup_path_for(path: &Path, timestamp_unix_ms: u64) -> PathBuf {
     backup
 }
 
+fn failed_primary_backup_path_for(path: &Path, timestamp_unix_ms: u64) -> PathBuf {
+    let mut backup = PathBuf::from(path);
+    let extension = path
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_string());
+    backup.set_extension(match extension {
+        Some(extension) if !extension.is_empty() => {
+            format!("{extension}.failed.{timestamp_unix_ms}.bak")
+        }
+        _ => format!("failed.{timestamp_unix_ms}.bak"),
+    });
+    backup
+}
+
 fn temp_path_for(path: &Path, timestamp_unix_ms: u64) -> PathBuf {
     let mut temp = PathBuf::from(path);
     let extension = path
@@ -341,16 +372,56 @@ fn temp_path_for(path: &Path, timestamp_unix_ms: u64) -> PathBuf {
     temp
 }
 
-fn latest_backup_path_for(path: &Path) -> Result<Option<PathBuf>, SaveError> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackupFileKind {
+    Normal,
+    FailedPrimary,
+}
+
+fn latest_recoverable_backup_path_for(
+    path: &Path,
+    enabled_mods: &[SaveModDependency],
+) -> Result<Option<PathBuf>, SaveError> {
+    for (_, _, candidate) in backup_file_candidates(path, BackupFileKind::Normal)?
+        .into_iter()
+        .rev()
+    {
+        if read_save(&candidate, enabled_mods).is_ok() {
+            return Ok(Some(candidate));
+        }
+    }
+
+    Ok(None)
+}
+
+fn prune_backup_files(
+    path: &Path,
+    kind: BackupFileKind,
+    backup_limit: usize,
+) -> Result<(), SaveError> {
+    let candidates = backup_file_candidates(path, kind)?;
+    let prune_count = candidates.len().saturating_sub(backup_limit);
+    for (_, _, backup_path) in candidates.into_iter().take(prune_count) {
+        fs::remove_file(backup_path)?;
+    }
+
+    Ok(())
+}
+
+fn backup_file_candidates(
+    path: &Path,
+    kind: BackupFileKind,
+) -> Result<Vec<(SystemTime, String, PathBuf)>, SaveError> {
     let parent = path.parent().ok_or(SaveError::MissingParentDirectory)?;
     if !parent.exists() {
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
     let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
     let backup_prefix = format!("{file_name}.");
+    let failed_prefix = format!("{file_name}.failed.");
 
     let mut candidates = Vec::<(SystemTime, String, PathBuf)>::new();
     for entry in fs::read_dir(parent)? {
@@ -362,7 +433,7 @@ fn latest_backup_path_for(path: &Path) -> Result<Option<PathBuf>, SaveError> {
         let Some(entry_name) = entry_path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if !entry_name.starts_with(&backup_prefix) || !entry_name.ends_with(".bak") {
+        if !backup_file_name_matches(entry_name, &backup_prefix, &failed_prefix, kind) {
             continue;
         }
         let modified = entry
@@ -378,7 +449,25 @@ fn latest_backup_path_for(path: &Path) -> Result<Option<PathBuf>, SaveError> {
             .then_with(|| left.1.cmp(&right.1))
             .then_with(|| left.2.cmp(&right.2))
     });
-    Ok(candidates.pop().map(|(_, _, path)| path))
+    Ok(candidates)
+}
+
+fn backup_file_name_matches(
+    entry_name: &str,
+    backup_prefix: &str,
+    failed_prefix: &str,
+    kind: BackupFileKind,
+) -> bool {
+    match kind {
+        BackupFileKind::Normal => {
+            entry_name.starts_with(backup_prefix)
+                && !entry_name.starts_with(failed_prefix)
+                && entry_name.ends_with(".bak")
+        }
+        BackupFileKind::FailedPrimary => {
+            entry_name.starts_with(failed_prefix) && entry_name.ends_with(".bak")
+        }
+    }
 }
 
 #[cfg(test)]
@@ -556,6 +645,30 @@ mod tests {
     }
 
     #[test]
+    fn save_file_prunes_old_backups_after_overwrite() {
+        let dir = temp_save_dir("backup_prune");
+        let path = dir.join("slot-1.json");
+
+        for saved_at in 100..105 {
+            let save = SaveEnvelope::new("slot-1", WorldState::bootstrap_demo(), saved_at);
+            write_save_atomic_with_backup_limit(&path, &save, saved_at, 2).unwrap();
+        }
+
+        let backup_names = backup_file_candidates(&path, BackupFileKind::Normal)
+            .unwrap()
+            .into_iter()
+            .map(|(_, name, _)| name)
+            .collect::<Vec<_>>();
+
+        assert_eq!(backup_names.len(), 2);
+        assert!(backup_names.iter().any(|name| name.contains(".103.bak")));
+        assert!(backup_names.iter().any(|name| name.contains(".104.bak")));
+        assert!(!backup_names.iter().any(|name| name.contains(".102.bak")));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn recover_save_restores_latest_backup_and_preserves_failed_primary() {
         let dir = temp_save_dir("recover_latest");
         let path = dir.join("slot-1.json");
@@ -580,10 +693,47 @@ mod tests {
             .to_string_lossy()
             .contains(".200.bak"));
         let failed_primary_backup_path = report.failed_primary_backup_path.unwrap();
+        assert!(failed_primary_backup_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(".failed.300.bak"));
         assert_eq!(
             fs::read_to_string(failed_primary_backup_path).unwrap(),
             "{broken"
         );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn recover_save_skips_invalid_and_failed_primary_backups() {
+        let dir = temp_save_dir("recover_skips_bad_backups");
+        let path = dir.join("slot-1.json");
+        let first = SaveEnvelope::new("slot-1", WorldState::bootstrap_demo(), 100);
+        let mut second_world = WorldState::bootstrap_demo();
+        second_world.clock.minute = 30;
+        let second = SaveEnvelope::new("slot-1", second_world, 200);
+
+        write_save_atomic(&path, &first, 100).unwrap();
+        write_save_atomic(&path, &second, 200).unwrap();
+        fs::write(backup_path_for(&path, 300), b"{broken backup").unwrap();
+        fs::write(
+            failed_primary_backup_path_for(&path, 400),
+            b"{failed primary",
+        )
+        .unwrap();
+        fs::write(&path, b"{broken primary").unwrap();
+
+        let report = recover_save_from_latest_backup(&path, &[], 500).unwrap();
+
+        assert_eq!(report.save.saved_at_unix_ms, 100);
+        assert!(report
+            .recovered_from
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(".200.bak"));
 
         let _ = fs::remove_dir_all(dir);
     }
