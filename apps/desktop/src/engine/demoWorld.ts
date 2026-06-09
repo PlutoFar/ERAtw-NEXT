@@ -102,6 +102,7 @@ const createDemoDialogueScenes = (): DialogueScene[] => [
         id: "demo_morning_001",
         speaker_id: "demo_heroine",
         text: "早上好。今天先从一个干净的新世界开始。",
+        resource_refs: ["core.demo.heroine.neutral"],
         choices: [
           {
             id: "ask_about_engine",
@@ -164,18 +165,21 @@ const createDemoDialogueScenes = (): DialogueScene[] => [
         id: "demo_morning_002",
         speaker_id: "system",
         text: "该对话来自版本化 DialogueScene，不执行旧 ERB。",
+        resource_refs: [],
         choices: [],
       },
       {
         id: "demo_morning_003",
         speaker_id: "demo_heroine",
         text: "嗯。先把能稳定重放的小循环做好。",
+        resource_refs: [],
         choices: [],
       },
       {
         id: "demo_morning_004",
         speaker_id: "demo_heroine",
         text: "信任会一点点积累。先从可验证的承诺开始。",
+        resource_refs: [],
         choices: [],
       },
     ],
@@ -220,6 +224,19 @@ export const createDemoWorld = (): WorldState => ({
         energy: 80,
         mood: 10,
       },
+    },
+  ],
+  resources: [
+    {
+      resource_id: "core.demo.heroine.neutral",
+      source_path: "assets/demo/heroine-neutral.webp",
+      media_type: "image",
+      license: "project-demo",
+      author: "ERAtw-NEXT",
+      usage: ["portrait"],
+      character_bindings: ["demo_heroine"],
+      tags: ["neutral"],
+      sha256: null,
     },
   ],
   relationships: [

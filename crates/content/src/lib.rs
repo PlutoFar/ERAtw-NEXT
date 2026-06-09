@@ -1,5 +1,5 @@
 use eratw_engine::{
-    DialogueCondition, DialogueScene, ScheduledEvent, ScheduledEventKind, WorldState,
+    DialogueCondition, DialogueScene, ResourceAsset, ScheduledEvent, ScheduledEventKind, WorldState,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
@@ -32,6 +32,8 @@ impl ContentPackageManifest {
 pub struct ContentPackage {
     pub manifest: ContentPackageManifest,
     #[serde(default)]
+    pub resources: Vec<ResourceAsset>,
+    #[serde(default)]
     pub dialogue_scenes: Vec<DialogueScene>,
     #[serde(default)]
     pub scheduled_events: Vec<ScheduledEvent>,
@@ -42,6 +44,7 @@ impl ContentPackage {
         let mut report = ContentValidationReport::default();
 
         validate_manifest(&self.manifest, &mut report)?;
+        validate_resources(&self.resources, &mut report);
         validate_dialogue_scenes(&self.dialogue_scenes, &mut report);
         validate_scheduled_events(&self.scheduled_events, &mut report);
 
@@ -57,6 +60,8 @@ impl ContentPackage {
             return Err(ContentInstallError::ValidationFailed(report));
         }
 
+        merge_resources(&mut world, self.resources.clone())?;
+        ensure_dialogue_resource_refs_exist(&world, &self.dialogue_scenes)?;
         merge_dialogue_scenes(&mut world, self.dialogue_scenes.clone())?;
         merge_scheduled_events(&mut world, self.scheduled_events.clone())?;
         world.event_log.push(format!(
@@ -96,11 +101,17 @@ pub struct ContentIssue {
 pub enum ContentIssueCode {
     EmptyPackageId,
     EmptyNamespace,
+    EmptyResourceId,
+    DuplicateResourceId,
+    EmptyResourcePath,
+    EmptyResourceLicense,
+    EmptyResourceAuthor,
     DuplicateDialogueSceneId,
     DuplicateDialogueNodeId,
     EmptyDialogueSceneId,
     EmptyDialogueNodeId,
     EmptyDialogueText,
+    EmptyDialogueResourceRef,
     MissingEntryNode,
     MissingChoiceNextNode,
     EmptyConditionReference,
@@ -129,6 +140,13 @@ pub enum ContentInstallError {
     DuplicateDialogueScene(String),
     #[error("scheduled event already exists: {0}")]
     DuplicateScheduledEvent(String),
+    #[error("resource already exists: {0}")]
+    DuplicateResource(String),
+    #[error("dialogue resource is missing: {node_id} -> {resource_id}")]
+    MissingDialogueResource {
+        node_id: String,
+        resource_id: String,
+    },
     #[error("scheduled event dialogue scene is missing: {event_id} -> {scene_id}")]
     MissingScheduledEventScene { event_id: String, scene_id: String },
 }
@@ -158,6 +176,36 @@ fn validate_manifest(
     }
 
     Ok(())
+}
+
+fn validate_resources(resources: &[ResourceAsset], report: &mut ContentValidationReport) {
+    let mut resource_ids = BTreeSet::new();
+
+    for resource in resources {
+        let target = if resource.resource_id.trim().is_empty() {
+            "resource".to_string()
+        } else {
+            resource.resource_id.clone()
+        };
+
+        if resource.resource_id.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyResourceId, "resource");
+        } else if !resource_ids.insert(resource.resource_id.as_str()) {
+            report.push(ContentIssueCode::DuplicateResourceId, &resource.resource_id);
+        }
+
+        if resource.source_path.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyResourcePath, &target);
+        }
+
+        if resource.license.trim().is_empty() || resource.license.trim() == "unknown" {
+            report.push(ContentIssueCode::EmptyResourceLicense, &target);
+        }
+
+        if resource.author.trim().is_empty() || resource.author.trim() == "unknown" {
+            report.push(ContentIssueCode::EmptyResourceAuthor, &target);
+        }
+    }
 }
 
 fn validate_dialogue_scenes(scenes: &[DialogueScene], report: &mut ContentValidationReport) {
@@ -194,6 +242,15 @@ fn validate_dialogue_scene(scene: &DialogueScene, report: &mut ContentValidation
                 ContentIssueCode::EmptyDialogueText,
                 format!("{}:{}", scene.id, node.id),
             );
+        }
+
+        for resource_ref in &node.resource_refs {
+            if resource_ref.trim().is_empty() {
+                report.push(
+                    ContentIssueCode::EmptyDialogueResourceRef,
+                    format!("{}:{}", scene.id, node.id),
+                );
+            }
         }
 
         for choice in &node.choices {
@@ -301,6 +358,55 @@ fn unreachable_dialogue_nodes(scene: &DialogueScene) -> Vec<String> {
         .filter(|node| !reachable.contains(node.id.as_str()))
         .map(|node| node.id.clone())
         .collect()
+}
+
+fn ensure_dialogue_resource_refs_exist(
+    world: &WorldState,
+    scenes: &[DialogueScene],
+) -> Result<(), ContentInstallError> {
+    let resource_ids: BTreeSet<&str> = world
+        .resources
+        .iter()
+        .map(|resource| resource.resource_id.as_str())
+        .collect();
+
+    for scene in scenes {
+        for node in &scene.nodes {
+            for resource_id in &node.resource_refs {
+                if !resource_ids.contains(resource_id.as_str()) {
+                    return Err(ContentInstallError::MissingDialogueResource {
+                        node_id: format!("{}:{}", scene.id, node.id),
+                        resource_id: resource_id.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn merge_resources(
+    world: &mut WorldState,
+    resources: Vec<ResourceAsset>,
+) -> Result<(), ContentInstallError> {
+    for resource in &resources {
+        if world
+            .resources
+            .iter()
+            .any(|existing| existing.resource_id == resource.resource_id)
+        {
+            return Err(ContentInstallError::DuplicateResource(
+                resource.resource_id.clone(),
+            ));
+        }
+    }
+
+    world.resources.extend(resources);
+    world
+        .resources
+        .sort_by(|left, right| left.resource_id.cmp(&right.resource_id));
+    Ok(())
 }
 
 fn validate_scheduled_events(events: &[ScheduledEvent], report: &mut ContentValidationReport) {
@@ -518,6 +624,7 @@ mod tests {
     fn manifest_validation_reports_empty_ids() {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("", ""),
+            resources: Vec::new(),
             dialogue_scenes: Vec::new(),
             scheduled_events: Vec::new(),
         };
@@ -648,8 +755,47 @@ mod tests {
 
         let package: ContentPackage = serde_json::from_value(value).unwrap();
 
+        assert!(package.resources.is_empty());
         assert!(package.dialogue_scenes.is_empty());
         assert!(package.scheduled_events.is_empty());
+    }
+
+    #[test]
+    fn resource_validation_reports_invalid_assets_and_refs() {
+        let mut node = node_with_choice("entry", None);
+        node.resource_refs = vec!["".to_string()];
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.assets"),
+            resources: vec![
+                ResourceAsset {
+                    resource_id: "portrait".to_string(),
+                    source_path: "".to_string(),
+                    media_type: eratw_engine::ResourceMediaType::Image,
+                    license: "unknown".to_string(),
+                    author: "".to_string(),
+                    usage: Vec::new(),
+                    character_bindings: Vec::new(),
+                    tags: Vec::new(),
+                    sha256: None,
+                },
+                resource_asset("portrait"),
+            ],
+            dialogue_scenes: vec![scene_with_nodes(vec![node])],
+            scheduled_events: Vec::new(),
+        };
+
+        let report = package.validate().unwrap();
+
+        assert_eq!(
+            issue_codes(&report),
+            vec![
+                ContentIssueCode::EmptyResourcePath,
+                ContentIssueCode::EmptyResourceLicense,
+                ContentIssueCode::EmptyResourceAuthor,
+                ContentIssueCode::DuplicateResourceId,
+                ContentIssueCode::EmptyDialogueResourceRef,
+            ]
+        );
     }
 
     #[test]
@@ -740,6 +886,90 @@ mod tests {
     }
 
     #[test]
+    fn clean_package_installs_resources_and_dialogue_resource_refs() {
+        let mut node = node_with_choice("entry", None);
+        node.resource_refs = vec!["core.assets.heroine.smile".to_string()];
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.assets"),
+            resources: vec![resource_asset("core.assets.heroine.smile")],
+            dialogue_scenes: vec![DialogueScene {
+                id: "scene.asset".to_string(),
+                entry_node_id: "entry".to_string(),
+                nodes: vec![node],
+            }],
+            scheduled_events: Vec::new(),
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let installed = package.install_into_world(world).unwrap();
+
+        assert!(installed
+            .resources
+            .iter()
+            .any(|resource| resource.resource_id == "core.assets.heroine.smile"));
+        let scene = installed
+            .dialogue_scenes
+            .iter()
+            .find(|scene| scene.id == "scene.asset")
+            .unwrap();
+        assert_eq!(
+            scene.nodes[0].resource_refs,
+            vec!["core.assets.heroine.smile".to_string()]
+        );
+    }
+
+    #[test]
+    fn install_rejects_missing_dialogue_resource_ref_transactionally() {
+        let mut node = node_with_choice("entry", None);
+        node.resource_refs = vec!["missing.resource".to_string()];
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.missing-asset"),
+            resources: Vec::new(),
+            dialogue_scenes: vec![DialogueScene {
+                id: "scene.asset".to_string(),
+                entry_node_id: "entry".to_string(),
+                nodes: vec![node],
+            }],
+            scheduled_events: Vec::new(),
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let result = package.install_into_world(world.clone());
+
+        assert_eq!(
+            result,
+            Err(ContentInstallError::MissingDialogueResource {
+                node_id: "scene.asset:entry".to_string(),
+                resource_id: "missing.resource".to_string(),
+            })
+        );
+        assert_eq!(
+            world.resources.len(),
+            WorldState::bootstrap_demo().resources.len()
+        );
+    }
+
+    #[test]
+    fn install_rejects_existing_resource_id() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.duplicate-asset"),
+            resources: vec![resource_asset("core.demo.heroine.neutral")],
+            dialogue_scenes: Vec::new(),
+            scheduled_events: Vec::new(),
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let result = package.install_into_world(world);
+
+        assert_eq!(
+            result,
+            Err(ContentInstallError::DuplicateResource(
+                "core.demo.heroine.neutral".to_string()
+            ))
+        );
+    }
+
+    #[test]
     fn install_rejects_existing_scheduled_event_id() {
         let package = package_with(
             "core.duplicate-event",
@@ -794,6 +1024,7 @@ mod tests {
     ) -> ContentPackage {
         ContentPackage {
             manifest: ContentPackageManifest::new("core", package_id),
+            resources: Vec::new(),
             dialogue_scenes,
             scheduled_events,
         }
@@ -812,6 +1043,7 @@ mod tests {
             id: id.to_string(),
             speaker_id: "demo_heroine".to_string(),
             text: "测试文本。".to_string(),
+            resource_refs: Vec::new(),
             choices: next_node_id
                 .map(|next_node_id| {
                     vec![DialogueChoice {
@@ -853,5 +1085,19 @@ mod tests {
             .iter()
             .map(|issue| issue.code.clone())
             .collect()
+    }
+
+    fn resource_asset(resource_id: &str) -> ResourceAsset {
+        ResourceAsset {
+            resource_id: resource_id.to_string(),
+            source_path: "assets/demo/heroine-smile.webp".to_string(),
+            media_type: eratw_engine::ResourceMediaType::Image,
+            license: "project-demo".to_string(),
+            author: "ERAtw-NEXT".to_string(),
+            usage: vec!["portrait".to_string()],
+            character_bindings: vec!["demo_heroine".to_string()],
+            tags: vec!["smile".to_string()],
+            sha256: None,
+        }
     }
 }

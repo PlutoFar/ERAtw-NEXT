@@ -69,6 +69,14 @@ const isValidScheduledEvent = (event: ContentPackage["scheduled_events"][number]
   (event.repeat === null ||
     (event.repeat.every_minutes > 0 && event.repeat.remaining_runs !== 0));
 
+const isValidResource = (resource: ContentPackage["resources"][number]) =>
+  resource.resource_id.trim() &&
+  resource.source_path.trim() &&
+  resource.license.trim() &&
+  resource.license.trim() !== "unknown" &&
+  resource.author.trim() &&
+  resource.author.trim() !== "unknown";
+
 const installPackageIntoBrowserWorld = (
   world: WorldState,
   packageData: ContentPackage,
@@ -82,9 +90,23 @@ const installPackageIntoBrowserWorld = (
   }
 
   const sceneIds = new Set(world.dialogue_scenes.map((scene) => scene.id));
+  const resourceIds = new Set(world.resources.map((resource) => resource.resource_id));
+
+  for (const resource of packageData.resources) {
+    if (!isValidResource(resource) || resourceIds.has(resource.resource_id)) {
+      return world;
+    }
+    resourceIds.add(resource.resource_id);
+  }
+
   for (const scene of packageData.dialogue_scenes) {
     if (!scene.id.trim() || sceneIds.has(scene.id)) {
       return world;
+    }
+    for (const node of scene.nodes) {
+      if (node.resource_refs.some((resourceId) => !resourceIds.has(resourceId))) {
+        return world;
+      }
     }
     sceneIds.add(scene.id);
   }
@@ -102,6 +124,9 @@ const installPackageIntoBrowserWorld = (
 
   return {
     ...world,
+    resources: [...world.resources, ...structuredClone(packageData.resources)].sort(
+      (left, right) => left.resource_id.localeCompare(right.resource_id),
+    ),
     dialogue_scenes: [
       ...world.dialogue_scenes,
       ...structuredClone(packageData.dialogue_scenes),

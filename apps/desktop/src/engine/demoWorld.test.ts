@@ -400,6 +400,11 @@ describe("demo engine adapter", () => {
     expect(
       installed.dialogue_scenes.some((scene) => scene.id === "sample_event_dialogue"),
     ).toBe(true);
+    expect(
+      installed.resources.some(
+        (resource) => resource.resource_id === "sample.event_pack.heroine.smile",
+      ),
+    ).toBe(true);
     expect(installed.scheduled_events[0].id).toBe("sample_content_dialogue_at_0820");
     expect(advanced.active_dialogue_scene_id).toBe("sample_event_dialogue");
     expect(advanced.active_dialogue[0].text).toContain("内容包安装进来的事件对话");

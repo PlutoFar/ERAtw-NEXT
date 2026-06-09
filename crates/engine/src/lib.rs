@@ -155,7 +155,35 @@ pub struct DialogueNode {
     pub id: String,
     pub speaker_id: String,
     pub text: String,
+    #[serde(default)]
+    pub resource_refs: Vec<String>,
     pub choices: Vec<DialogueChoice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceMediaType {
+    Image,
+    Audio,
+    Font,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceAsset {
+    pub resource_id: String,
+    pub source_path: String,
+    pub media_type: ResourceMediaType,
+    pub license: String,
+    pub author: String,
+    #[serde(default)]
+    pub usage: Vec<String>,
+    #[serde(default)]
+    pub character_bindings: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,6 +297,8 @@ pub struct WorldState {
     pub clock: WorldClock,
     pub locations: Vec<Location>,
     pub characters: Vec<Character>,
+    #[serde(default)]
+    pub resources: Vec<ResourceAsset>,
     #[serde(default)]
     pub relationships: Vec<Relationship>,
     pub dialogue_scenes: Vec<DialogueScene>,
@@ -393,6 +423,17 @@ impl WorldState {
                     energy: 80,
                     mood: 10,
                 },
+            }],
+            resources: vec![ResourceAsset {
+                resource_id: "core.demo.heroine.neutral".to_string(),
+                source_path: "assets/demo/heroine-neutral.webp".to_string(),
+                media_type: ResourceMediaType::Image,
+                license: "project-demo".to_string(),
+                author: "ERAtw-NEXT".to_string(),
+                usage: vec!["portrait".to_string()],
+                character_bindings: vec!["demo_heroine".to_string()],
+                tags: vec!["neutral".to_string()],
+                sha256: None,
             }],
             relationships: vec![Relationship {
                 source_character_id: "player".to_string(),
@@ -1024,6 +1065,7 @@ fn demo_dialogue_scenes() -> Vec<DialogueScene> {
                 id: "demo_morning_001".to_string(),
                 speaker_id: "demo_heroine".to_string(),
                 text: "早上好。今天先从一个干净的新世界开始。".to_string(),
+                resource_refs: vec!["core.demo.heroine.neutral".to_string()],
                 choices: vec![
                     DialogueChoice {
                         id: "ask_about_engine".to_string(),
@@ -1075,18 +1117,21 @@ fn demo_dialogue_scenes() -> Vec<DialogueScene> {
                 id: "demo_morning_002".to_string(),
                 speaker_id: "system".to_string(),
                 text: "该对话来自版本化 DialogueScene，不执行旧 ERB。".to_string(),
+                resource_refs: Vec::new(),
                 choices: Vec::new(),
             },
             DialogueNode {
                 id: "demo_morning_003".to_string(),
                 speaker_id: "demo_heroine".to_string(),
                 text: "嗯。先把能稳定重放的小循环做好。".to_string(),
+                resource_refs: Vec::new(),
                 choices: Vec::new(),
             },
             DialogueNode {
                 id: "demo_morning_004".to_string(),
                 speaker_id: "demo_heroine".to_string(),
                 text: "信任会一点点积累。先从可验证的承诺开始。".to_string(),
+                resource_refs: Vec::new(),
                 choices: Vec::new(),
             },
         ],
@@ -1405,6 +1450,40 @@ mod tests {
         let decoded: WorldState = serde_json::from_value(value).unwrap();
 
         assert!(decoded.relationships.is_empty());
+    }
+
+    #[test]
+    fn missing_resources_deserializes_as_empty_list() {
+        let mut value = serde_json::to_value(WorldState::bootstrap_demo()).unwrap();
+        value.as_object_mut().unwrap().remove("resources");
+
+        let decoded: WorldState = serde_json::from_value(value).unwrap();
+
+        assert!(decoded.resources.is_empty());
+    }
+
+    #[test]
+    fn missing_dialogue_resource_refs_deserializes_as_empty_list() {
+        let mut value = serde_json::to_value(WorldState::bootstrap_demo()).unwrap();
+        let scenes = value
+            .get_mut("dialogue_scenes")
+            .unwrap()
+            .as_array_mut()
+            .unwrap();
+        for scene in scenes {
+            let nodes = scene.get_mut("nodes").unwrap().as_array_mut().unwrap();
+            for node in nodes {
+                node.as_object_mut().unwrap().remove("resource_refs");
+            }
+        }
+
+        let decoded: WorldState = serde_json::from_value(value).unwrap();
+
+        assert!(decoded
+            .dialogue_scenes
+            .iter()
+            .flat_map(|scene| &scene.nodes)
+            .all(|node| node.resource_refs.is_empty()));
     }
 
     #[test]

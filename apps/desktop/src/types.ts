@@ -34,6 +34,20 @@ export interface Character {
   state: CharacterState;
 }
 
+export type ResourceMediaType = "image" | "audio" | "font" | "other";
+
+export interface ResourceAsset {
+  resource_id: string;
+  source_path: string;
+  media_type: ResourceMediaType;
+  license: string;
+  author: string;
+  usage: string[];
+  character_bindings: string[];
+  tags: string[];
+  sha256: string | null;
+}
+
 export interface Relationship {
   source_character_id: string;
   target_character_id: string;
@@ -50,6 +64,7 @@ export interface DialogueNode {
   id: string;
   speaker_id: string;
   text: string;
+  resource_refs: string[];
   choices: DialogueChoice[];
 }
 
@@ -140,6 +155,7 @@ export interface WorldState {
   clock: WorldClock;
   locations: Location[];
   characters: Character[];
+  resources: ResourceAsset[];
   relationships: Relationship[];
   dialogue_scenes: DialogueScene[];
   active_dialogue_scene_id: string | null;
@@ -180,6 +196,7 @@ export interface ContentPackageManifest {
 
 export interface ContentPackage {
   manifest: ContentPackageManifest;
+  resources: ResourceAsset[];
   dialogue_scenes: DialogueScene[];
   scheduled_events: ScheduledEvent[];
 }
