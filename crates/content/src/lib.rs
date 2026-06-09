@@ -1,4 +1,4 @@
-use eratw_engine::DialogueScene;
+use eratw_engine::{DialogueScene, WorldState};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
 use thiserror::Error;
@@ -40,6 +40,23 @@ impl ContentPackage {
         validate_dialogue_scenes(&self.dialogue_scenes, &mut report);
 
         Ok(report)
+    }
+
+    pub fn install_into_world(
+        &self,
+        mut world: WorldState,
+    ) -> Result<WorldState, ContentInstallError> {
+        let report = self.validate()?;
+        if !report.is_clean() {
+            return Err(ContentInstallError::ValidationFailed(report));
+        }
+
+        merge_dialogue_scenes(&mut world, self.dialogue_scenes.clone())?;
+        world.event_log.push(format!(
+            "内容包 {}:{} 已加载。",
+            self.manifest.namespace, self.manifest.package_id
+        ));
+        Ok(world)
     }
 }
 
@@ -86,6 +103,22 @@ pub enum ContentIssueCode {
 pub enum ContentValidationError {
     #[error("unsupported content schema: {0}")]
     UnsupportedSchema(String),
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ContentInstallError {
+    #[error(transparent)]
+    Validation(#[from] ContentValidationError),
+    #[error("content validation failed with {0} issue(s)")]
+    ValidationFailed(ContentValidationReport),
+    #[error("dialogue scene already exists: {0}")]
+    DuplicateDialogueScene(String),
+}
+
+impl std::fmt::Display for ContentValidationReport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{} issue(s)", self.issues.len())
+    }
 }
 
 fn validate_manifest(
@@ -207,6 +240,26 @@ fn unreachable_dialogue_nodes(scene: &DialogueScene) -> Vec<String> {
         .collect()
 }
 
+fn merge_dialogue_scenes(
+    world: &mut WorldState,
+    scenes: Vec<DialogueScene>,
+) -> Result<(), ContentInstallError> {
+    for scene in &scenes {
+        if world
+            .dialogue_scenes
+            .iter()
+            .any(|existing| existing.id == scene.id)
+        {
+            return Err(ContentInstallError::DuplicateDialogueScene(
+                scene.id.clone(),
+            ));
+        }
+    }
+
+    world.dialogue_scenes.extend(scenes);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +353,72 @@ mod tests {
                 ContentIssueCode::EmptyNamespace,
                 ContentIssueCode::EmptyPackageId,
             ]
+        );
+    }
+
+    #[test]
+    fn clean_package_installs_dialogue_scenes_into_world() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.extra"),
+            dialogue_scenes: vec![DialogueScene {
+                id: "scene.extra".to_string(),
+                entry_node_id: "entry".to_string(),
+                nodes: vec![node_with_choice("entry", None)],
+            }],
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let installed = package.install_into_world(world).unwrap();
+
+        assert!(installed
+            .dialogue_scenes
+            .iter()
+            .any(|scene| scene.id == "scene.extra"));
+        assert!(installed
+            .event_log
+            .iter()
+            .any(|entry| entry.contains("内容包 core:core.extra 已加载")));
+    }
+
+    #[test]
+    fn invalid_package_does_not_install() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.invalid"),
+            dialogue_scenes: vec![scene_with_nodes(vec![
+                node_with_choice("entry", None),
+                node_with_choice("orphan", None),
+            ])],
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let result = package.install_into_world(world);
+
+        assert!(matches!(
+            result,
+            Err(ContentInstallError::ValidationFailed(report))
+                if issue_codes(&report) == vec![ContentIssueCode::UnreachableDialogueNode]
+        ));
+    }
+
+    #[test]
+    fn install_rejects_existing_dialogue_scene_id() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.duplicate"),
+            dialogue_scenes: vec![DialogueScene {
+                id: "demo_morning".to_string(),
+                entry_node_id: "entry".to_string(),
+                nodes: vec![node_with_choice("entry", None)],
+            }],
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let result = package.install_into_world(world);
+
+        assert_eq!(
+            result,
+            Err(ContentInstallError::DuplicateDialogueScene(
+                "demo_morning".to_string()
+            ))
         );
     }
 

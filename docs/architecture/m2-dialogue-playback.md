@@ -13,6 +13,7 @@
 - `EngineCommand::ChooseDialogue`：前端只提交选择命令，状态由 engine 结算。
 - `eratw_content::ContentPackage`：封装 manifest 与 DialogueScene 列表。
 - `ContentPackage::validate`：在运行前报告入口缺失、死链、重复 ID、不可达节点等问题。
+- `ContentPackage::install_into_world`：只安装校验干净且不与现有场景 ID 冲突的 DialogueScene。
 
 ## 规则
 
@@ -22,9 +23,10 @@
 - 选择效果可更新角色状态和关系，但所有效果失败时整条选择命令回滚。
 - Dialogue 数据不执行旧 ERB，不直接引用文件路径。
 - 内容包校验返回结构化 issue code 和 target，供 CLI、编辑器和运行前检查复用。
+- 内容包安装失败时返回错误，不修改输入 `WorldState`。
 
 ## 后续
 
 - 增加条件判断、资源引用、占位符和变量类型校验。
-- 将已校验内容包加载进 `WorldState.dialogue_scenes`。
-- 为节点可达性和死链增加内容测试。
+- 将内容包安装入口暴露给桌面端开发工具和预览器。
+- 为条件、资源引用和占位符增加内容测试。
