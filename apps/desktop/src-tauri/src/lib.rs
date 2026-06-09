@@ -4,10 +4,11 @@ use eratw_content::{
 };
 use eratw_engine::{
     resource::{
-        cache_resource_loads_with_options, clean_resource_cache_with_options,
-        inspect_resource_files_with_options, plan_resource_loads_with_options,
-        preflight_resource_loads_with_options, ResourceCacheCleanReport, ResourceCacheReport,
-        ResourcePlanningOptions, ResourcePreflightReport, ResourceResolutionReport,
+        audit_resource_publication_with_options, cache_resource_loads_with_options,
+        clean_resource_cache_with_options, inspect_resource_files_with_options,
+        plan_resource_loads_with_options, preflight_resource_loads_with_options,
+        ResourceCacheCleanReport, ResourceCacheReport, ResourcePlanningOptions,
+        ResourcePreflightReport, ResourcePublishReport, ResourceResolutionReport,
     },
     save::{
         preflight_save_against_registry, read_save, recover_save_from_latest_backup,
@@ -300,6 +301,22 @@ fn engine_preflight_resources(
 ) -> ResourcePreflightReport {
     let world = state.lock().expect("engine state lock poisoned");
     preflight_resource_loads_with_options(
+        &world.resources,
+        root,
+        ResourcePlanningOptions {
+            low_spec: low_spec.unwrap_or_default(),
+        },
+    )
+}
+
+#[tauri::command]
+fn engine_audit_resource_publication(
+    root: String,
+    low_spec: Option<bool>,
+    state: tauri::State<'_, Mutex<WorldState>>,
+) -> ResourcePublishReport {
+    let world = state.lock().expect("engine state lock poisoned");
+    audit_resource_publication_with_options(
         &world.resources,
         root,
         ResourcePlanningOptions {
@@ -1401,6 +1418,7 @@ pub fn run() {
             engine_plan_resources,
             engine_inspect_resources,
             engine_preflight_resources,
+            engine_audit_resource_publication,
             engine_cache_resources,
             engine_clean_resource_cache,
             engine_discover_mods,

@@ -6,6 +6,8 @@
 - `eratw_engine::resource::plan_resource_loads`：只做路径规划，不访问文件系统，用于 UI/编辑器预览加载计划。
 - `eratw_engine::resource::inspect_resource_files`：在给定内容根目录下检查文件存在性和 sha256，返回结构化资源状态。
 - `eratw_engine::resource::preflight_resource_loads`：复用文件检查结果生成 `ready` 和阻断 issue，用于安装前、发布前和运行前资源完整性门禁。
+- `eratw_engine::resource::audit_resource_publication`：发布前资源审计入口，复用文件检查结果并额外检查许可、作者和 sha256 元数据；缺失/unsafe/hash mismatch/IO、空或 unknown 许可/作者为 error，缺 sha256 为 warning。
+- `ResourcePublishReport`：输出 ready、error/warning 计数、完整 resolution 和逐项发布审计 issue。
 - `ResourceResolutionStatus`：当前覆盖 `planned`、`ready`、`missing`、`unsafe_path`、`hash_mismatch` 和 `io_error`。
 - `ResourceFallback`：按资源类型提供 `placeholder_image`、`silent_audio`、`default_font` 或 `missing_resource`。
 - `ResourcePlanningOptions.low_spec`：为低配模式生成同一份可预检计划；图片标记为 `thumbnail_only`，音频和 `other` 标记为 `deferred`，字体保持 `eager`。
@@ -15,6 +17,7 @@
 - `eratw_engine::resource::clean_resource_cache`：基于当前资源计划清理 `.eratw-cache/resources` 和 `.eratw-cache/thumbnails` 中不再被引用的文件，保留当前缓存项、移除过期缓存项、跳过子目录并报告失败项。
 - `ResourceCacheCleanReport`：输出 cache root、kept/removed/skipped/failed 计数、移除字节数、原始 resolution 和逐项清理状态。
 - Tauri `engine_plan_resources` / `engine_inspect_resources` / `engine_preflight_resources`：前端通过 engine command 获取资源计划、检查报告和安装/运行前预检报告。
+- Tauri `engine_audit_resource_publication`：前端和后续 Mod 发布检查可触发资源发布审计；browser mock 返回同形状的模拟审计报告。
 - Tauri `engine_cache_resources`：前端可触发真实文件缓存执行；browser mock 返回同形状的模拟缓存报告。
 - Tauri `engine_clean_resource_cache`：前端可触发真实缓存清理；browser mock 返回同形状的模拟清理报告。
 
@@ -25,6 +28,7 @@
 - 剧情和事件只引用 `resourceId`；文件路径只存在于 ResourceAsset 元数据。
 - 文件缺失、hash 不匹配或 IO 错误不应让 UI 崩溃，前端按 fallback 降级展示。
 - 资源预检把缺失文件、不安全路径、hash 不匹配和 IO 错误视为 blocking issue；报告同时保留完整 resolution entries，方便 UI 展示降级方案。
+- 资源发布审计在预检基础上要求许可和作者不为空且不为 `unknown`；缺 sha256 暂为 warning，用于提示作者补齐可复现校验信息。
 - 低配模式只改变加载策略和派生缓存/缩略图计划，不降低路径安全、存在性和 hash 检查要求。
 - 缓存执行只信任 `inspect_resource_files` 后的 `ready` 资源；任何未通过检查的条目不会被复制到 `.eratw-cache`。
 - 缓存写入会确认目标目录仍在内容根目录内，拒绝目录或符号链接形式的缓存目标。
@@ -33,5 +37,5 @@
 ## 后续
 
 - 接入后台缩略图生成任务。
-- 为缺失资源恢复 UI、资源许可检查和发布前资源完整性报告提供入口。
+- 为缺失资源恢复 UI 提供入口。
 - 将资源根目录绑定到 Mod/package registry，而不是由调用方手工传入。

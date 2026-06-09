@@ -107,6 +107,38 @@ export interface ResourcePreflightReport {
   issues: ResourcePreflightIssue[];
 }
 
+export type ResourcePublishIssueSeverity = "error" | "warning";
+
+export type ResourcePublishIssueCode =
+  | "missing"
+  | "unsafe_path"
+  | "hash_mismatch"
+  | "io_error"
+  | "empty_license"
+  | "unknown_license"
+  | "empty_author"
+  | "unknown_author"
+  | "missing_sha256";
+
+export interface ResourcePublishIssue {
+  severity: ResourcePublishIssueSeverity;
+  code: ResourcePublishIssueCode;
+  resource_id: string;
+  source_path: string;
+  message: string;
+  fallback: ResourceFallback;
+}
+
+export interface ResourcePublishReport {
+  root: string;
+  low_spec: boolean;
+  ready: boolean;
+  error_count: number;
+  warning_count: number;
+  resolution: ResourceResolutionReport;
+  issues: ResourcePublishIssue[];
+}
+
 export type ResourceCacheStatus = "cached" | "skipped" | "failed";
 
 export interface ResourceCacheEntry {

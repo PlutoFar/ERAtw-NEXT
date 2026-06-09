@@ -22,6 +22,8 @@ import type {
   ResourceCacheReport,
   ResourcePreflightIssue,
   ResourcePreflightReport,
+  ResourcePublishIssue,
+  ResourcePublishReport,
   ResourceResolution,
   ResourceResolutionReport,
   SaveEnvelope,
@@ -45,6 +47,10 @@ export interface EngineClient {
   planResources(root: string, lowSpec?: boolean): Promise<ResourceResolutionReport>;
   inspectResources(root: string, lowSpec?: boolean): Promise<ResourceResolutionReport>;
   preflightResources(root: string, lowSpec?: boolean): Promise<ResourcePreflightReport>;
+  auditResourcePublication(
+    root: string,
+    lowSpec?: boolean,
+  ): Promise<ResourcePublishReport>;
   cacheResources(root: string, lowSpec?: boolean): Promise<ResourceCacheReport>;
   cleanResourceCache(
     root: string,
@@ -123,6 +129,11 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<ResourceResolutionReport>("engine_inspect_resources", { root, lowSpec }),
   preflightResources: (root, lowSpec = false) =>
     invoke<ResourcePreflightReport>("engine_preflight_resources", { root, lowSpec }),
+  auditResourcePublication: (root, lowSpec = false) =>
+    invoke<ResourcePublishReport>("engine_audit_resource_publication", {
+      root,
+      lowSpec,
+    }),
   cacheResources: (root, lowSpec = false) =>
     invoke<ResourceCacheReport>("engine_cache_resources", { root, lowSpec }),
   cleanResourceCache: (root, lowSpec = false) =>
@@ -590,6 +601,115 @@ const preflightResourcesForBrowserWorld = (
     root,
     low_spec: lowSpec,
     ready: issues.length === 0,
+    resolution,
+    issues,
+  };
+};
+
+const publishFileIssueFromResolution = (
+  entry: ResourceResolution,
+): ResourcePublishIssue | null => {
+  if (entry.status === "planned" || entry.status === "ready") {
+    return null;
+  }
+
+  return {
+    severity: "error",
+    code: entry.status,
+    resource_id: entry.resource_id,
+    source_path: entry.source_path,
+    message: `resource is not publishable: ${entry.resource_id} -> ${entry.status}`,
+    fallback: entry.fallback,
+  };
+};
+
+const collectBrowserPublishMetadataIssues = (
+  resource: ResourceAsset,
+  entry: ResourceResolution,
+): ResourcePublishIssue[] => {
+  const issues: ResourcePublishIssue[] = [];
+  const license = resource.license.trim();
+  const author = resource.author.trim();
+
+  if (!license) {
+    issues.push({
+      severity: "error",
+      code: "empty_license",
+      resource_id: resource.resource_id,
+      source_path: resource.source_path,
+      message: `resource license is empty: ${resource.resource_id}`,
+      fallback: entry.fallback,
+    });
+  } else if (license.toLowerCase() === "unknown") {
+    issues.push({
+      severity: "error",
+      code: "unknown_license",
+      resource_id: resource.resource_id,
+      source_path: resource.source_path,
+      message: `resource license is unknown: ${resource.resource_id}`,
+      fallback: entry.fallback,
+    });
+  }
+
+  if (!author) {
+    issues.push({
+      severity: "error",
+      code: "empty_author",
+      resource_id: resource.resource_id,
+      source_path: resource.source_path,
+      message: `resource author is empty: ${resource.resource_id}`,
+      fallback: entry.fallback,
+    });
+  } else if (author.toLowerCase() === "unknown") {
+    issues.push({
+      severity: "error",
+      code: "unknown_author",
+      resource_id: resource.resource_id,
+      source_path: resource.source_path,
+      message: `resource author is unknown: ${resource.resource_id}`,
+      fallback: entry.fallback,
+    });
+  }
+
+  if (!resource.sha256?.trim()) {
+    issues.push({
+      severity: "warning",
+      code: "missing_sha256",
+      resource_id: resource.resource_id,
+      source_path: resource.source_path,
+      message: `resource sha256 is missing: ${resource.resource_id}`,
+      fallback: entry.fallback,
+    });
+  }
+
+  return issues;
+};
+
+const auditResourcePublicationForBrowserWorld = (
+  world: WorldState,
+  root: string,
+  lowSpec = false,
+): ResourcePublishReport => {
+  const resolution = planResourcesForBrowserWorld(world, root, lowSpec);
+  const issues = world.resources.flatMap((resource, index) => {
+    const entry = resolution.entries[index];
+    const fileIssue = publishFileIssueFromResolution(entry);
+    return [
+      ...(fileIssue ? [fileIssue] : []),
+      ...collectBrowserPublishMetadataIssues(resource, entry),
+    ];
+  });
+  const errorCount = issues.filter((issue) => issue.severity === "error").length;
+  const warningCount = issues.filter(
+    (issue) => issue.severity === "warning",
+  ).length;
+
+  return {
+    root,
+    low_spec: lowSpec,
+    ready: errorCount === 0,
+    error_count: errorCount,
+    warning_count: warningCount,
     resolution,
     issues,
   };
@@ -1630,6 +1750,11 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     async preflightResources(root, lowSpec = false) {
       return structuredClone(
         preflightResourcesForBrowserWorld(world, root, lowSpec),
+      );
+    },
+    async auditResourcePublication(root, lowSpec = false) {
+      return structuredClone(
+        auditResourcePublicationForBrowserWorld(world, root, lowSpec),
       );
     },
     async cacheResources(root, lowSpec = false) {

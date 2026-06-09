@@ -878,6 +878,27 @@ describe("demo engine adapter", () => {
     expect(report.resolution.entries[0].thumbnail_path).toMatch(/\.webp$/);
   });
 
+  it("audits browser resources before publication", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.auditResourcePublication("mods/sample", true);
+
+    expect(report.ready).toBe(true);
+    expect(report.low_spec).toBe(true);
+    expect(report.error_count).toBe(0);
+    expect(report.warning_count).toBe(1);
+    expect(report.issues).toEqual([
+      {
+        severity: "warning",
+        code: "missing_sha256",
+        resource_id: "core.demo.heroine.neutral",
+        source_path: "assets/demo/heroine-neutral.webp",
+        message: "resource sha256 is missing: core.demo.heroine.neutral",
+        fallback: "placeholder_image",
+      },
+    ]);
+  });
+
   it("simulates browser resource cache reports", async () => {
     const client = createBrowserMockEngineClient();
 

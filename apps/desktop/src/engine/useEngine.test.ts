@@ -89,6 +89,15 @@ const createMockClient = (
       resolution: { root: "", low_spec: false, entries: [] },
       issues: [],
     })),
+    auditResourcePublication: vi.fn(async () => ({
+      root: "",
+      low_spec: false,
+      ready: true,
+      error_count: 0,
+      warning_count: 0,
+      resolution: { root: "", low_spec: false, entries: [] },
+      issues: [],
+    })),
     cacheResources: vi.fn(async () => ({
       root: "",
       low_spec: false,

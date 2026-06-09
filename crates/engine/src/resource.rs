@@ -39,6 +39,18 @@ pub struct ResourcePreflightReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourcePublishReport {
+    pub root: String,
+    #[serde(default)]
+    pub low_spec: bool,
+    pub ready: bool,
+    pub error_count: usize,
+    pub warning_count: usize,
+    pub resolution: ResourceResolutionReport,
+    pub issues: Vec<ResourcePublishIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceCacheReport {
     pub root: String,
     #[serde(default)]
@@ -109,6 +121,37 @@ pub struct ResourcePreflightIssue {
     pub source_path: String,
     pub message: String,
     pub fallback: ResourceFallback,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourcePublishIssue {
+    pub severity: ResourcePublishIssueSeverity,
+    pub code: ResourcePublishIssueCode,
+    pub resource_id: String,
+    pub source_path: String,
+    pub message: String,
+    pub fallback: ResourceFallback,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourcePublishIssueSeverity {
+    Error,
+    Warning,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourcePublishIssueCode {
+    Missing,
+    UnsafePath,
+    HashMismatch,
+    IoError,
+    EmptyLicense,
+    UnknownLicense,
+    EmptyAuthor,
+    UnknownAuthor,
+    MissingSha256,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,6 +265,48 @@ pub fn preflight_resource_loads_with_options(
         root: resolution.root.clone(),
         low_spec: resolution.low_spec,
         ready: issues.is_empty(),
+        resolution,
+        issues,
+    }
+}
+
+pub fn audit_resource_publication(
+    resources: &[ResourceAsset],
+    root: impl AsRef<Path>,
+) -> ResourcePublishReport {
+    audit_resource_publication_with_options(resources, root, ResourcePlanningOptions::default())
+}
+
+pub fn audit_resource_publication_with_options(
+    resources: &[ResourceAsset],
+    root: impl AsRef<Path>,
+    options: ResourcePlanningOptions,
+) -> ResourcePublishReport {
+    let resolution = inspect_resource_files_with_options(resources, root, options);
+    let mut issues = Vec::new();
+
+    for (resource, entry) in resources.iter().zip(&resolution.entries) {
+        if let Some(issue) = publish_issue_from_resolution(entry) {
+            issues.push(issue);
+        }
+        collect_publish_metadata_issues(resource, entry, &mut issues);
+    }
+
+    let error_count = issues
+        .iter()
+        .filter(|issue| issue.severity == ResourcePublishIssueSeverity::Error)
+        .count();
+    let warning_count = issues
+        .iter()
+        .filter(|issue| issue.severity == ResourcePublishIssueSeverity::Warning)
+        .count();
+
+    ResourcePublishReport {
+        root: resolution.root.clone(),
+        low_spec: resolution.low_spec,
+        ready: error_count == 0,
+        error_count,
+        warning_count,
         resolution,
         issues,
     }
@@ -484,6 +569,101 @@ fn preflight_issue_from_resolution(entry: &ResourceResolution) -> Option<Resourc
         message: preflight_issue_message(entry),
         fallback: entry.fallback.clone(),
     })
+}
+
+fn publish_issue_from_resolution(entry: &ResourceResolution) -> Option<ResourcePublishIssue> {
+    let code = match entry.status {
+        ResourceResolutionStatus::Planned | ResourceResolutionStatus::Ready => return None,
+        ResourceResolutionStatus::Missing => ResourcePublishIssueCode::Missing,
+        ResourceResolutionStatus::UnsafePath => ResourcePublishIssueCode::UnsafePath,
+        ResourceResolutionStatus::HashMismatch => ResourcePublishIssueCode::HashMismatch,
+        ResourceResolutionStatus::IoError => ResourcePublishIssueCode::IoError,
+    };
+
+    Some(ResourcePublishIssue {
+        severity: ResourcePublishIssueSeverity::Error,
+        code,
+        resource_id: entry.resource_id.clone(),
+        source_path: entry.source_path.clone(),
+        message: preflight_issue_message(entry),
+        fallback: entry.fallback.clone(),
+    })
+}
+
+fn collect_publish_metadata_issues(
+    resource: &ResourceAsset,
+    entry: &ResourceResolution,
+    issues: &mut Vec<ResourcePublishIssue>,
+) {
+    let license = resource.license.trim();
+    if license.is_empty() {
+        issues.push(publish_metadata_issue(
+            ResourcePublishIssueSeverity::Error,
+            ResourcePublishIssueCode::EmptyLicense,
+            resource,
+            entry,
+            format!("resource license is empty: {}", resource.resource_id),
+        ));
+    } else if license.eq_ignore_ascii_case("unknown") {
+        issues.push(publish_metadata_issue(
+            ResourcePublishIssueSeverity::Error,
+            ResourcePublishIssueCode::UnknownLicense,
+            resource,
+            entry,
+            format!("resource license is unknown: {}", resource.resource_id),
+        ));
+    }
+
+    let author = resource.author.trim();
+    if author.is_empty() {
+        issues.push(publish_metadata_issue(
+            ResourcePublishIssueSeverity::Error,
+            ResourcePublishIssueCode::EmptyAuthor,
+            resource,
+            entry,
+            format!("resource author is empty: {}", resource.resource_id),
+        ));
+    } else if author.eq_ignore_ascii_case("unknown") {
+        issues.push(publish_metadata_issue(
+            ResourcePublishIssueSeverity::Error,
+            ResourcePublishIssueCode::UnknownAuthor,
+            resource,
+            entry,
+            format!("resource author is unknown: {}", resource.resource_id),
+        ));
+    }
+
+    if resource
+        .sha256
+        .as_ref()
+        .map(|sha256| sha256.trim().is_empty())
+        .unwrap_or(true)
+    {
+        issues.push(publish_metadata_issue(
+            ResourcePublishIssueSeverity::Warning,
+            ResourcePublishIssueCode::MissingSha256,
+            resource,
+            entry,
+            format!("resource sha256 is missing: {}", resource.resource_id),
+        ));
+    }
+}
+
+fn publish_metadata_issue(
+    severity: ResourcePublishIssueSeverity,
+    code: ResourcePublishIssueCode,
+    resource: &ResourceAsset,
+    entry: &ResourceResolution,
+    message: String,
+) -> ResourcePublishIssue {
+    ResourcePublishIssue {
+        severity,
+        code,
+        resource_id: resource.resource_id.clone(),
+        source_path: resource.source_path.clone(),
+        message,
+        fallback: entry.fallback.clone(),
+    }
 }
 
 fn cache_resource_entry(root: &Path, entry: &ResourceResolution) -> ResourceCacheEntry {
@@ -1219,6 +1399,89 @@ mod tests {
             ]
         );
         assert_eq!(report.issues[0].fallback, ResourceFallback::SilentAudio);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn audit_resource_publication_allows_ready_resources_with_sha_warnings() {
+        let dir = temp_resource_dir("resource_publish_ready");
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::write(dir.join("assets/ready.txt"), b"ready").unwrap();
+
+        let report = audit_resource_publication(
+            &[resource(
+                "ready",
+                "assets/ready.txt",
+                ResourceMediaType::Other,
+                None,
+            )],
+            &dir,
+        );
+
+        assert!(report.ready);
+        assert_eq!(report.error_count, 0);
+        assert_eq!(report.warning_count, 1);
+        assert_eq!(
+            report.issues[0].severity,
+            ResourcePublishIssueSeverity::Warning
+        );
+        assert_eq!(
+            report.issues[0].code,
+            ResourcePublishIssueCode::MissingSha256
+        );
+        assert_eq!(
+            report.resolution.entries[0].status,
+            ResourceResolutionStatus::Ready
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn audit_resource_publication_blocks_file_and_metadata_errors() {
+        let dir = temp_resource_dir("resource_publish_blocked");
+        fs::create_dir_all(dir.join("assets")).unwrap();
+        fs::write(dir.join("assets/mismatch.txt"), b"mismatch").unwrap();
+        let mut unknown = resource(
+            "unknown",
+            "assets/missing.txt",
+            ResourceMediaType::Audio,
+            None,
+        );
+        unknown.license = "unknown".to_string();
+        unknown.author = "".to_string();
+
+        let report = audit_resource_publication(
+            &[
+                unknown,
+                resource(
+                    "mismatch",
+                    "assets/mismatch.txt",
+                    ResourceMediaType::Image,
+                    Some("0000".to_string()),
+                ),
+            ],
+            &dir,
+        );
+
+        assert!(!report.ready);
+        assert_eq!(report.error_count, 4);
+        assert_eq!(report.warning_count, 1);
+        assert_eq!(
+            report
+                .issues
+                .iter()
+                .map(|issue| &issue.code)
+                .collect::<Vec<_>>(),
+            vec![
+                &ResourcePublishIssueCode::Missing,
+                &ResourcePublishIssueCode::UnknownLicense,
+                &ResourcePublishIssueCode::EmptyAuthor,
+                &ResourcePublishIssueCode::MissingSha256,
+                &ResourcePublishIssueCode::HashMismatch,
+            ]
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
