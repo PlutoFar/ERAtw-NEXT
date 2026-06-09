@@ -72,12 +72,16 @@ pub struct WorldState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EngineCommand {
-    AdvanceTime { minutes: u16 },
+    AdvanceTime {
+        minutes: u16,
+    },
     MoveCharacter {
         character_id: String,
         location_id: String,
     },
-    StartDialogue { scene_id: String },
+    StartDialogue {
+        scene_id: String,
+    },
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -159,12 +163,12 @@ impl WorldState {
         self.event_log.push(format!("时间推进 {} 分钟。", minutes));
     }
 
-    fn move_character(
-        &mut self,
-        character_id: &str,
-        location_id: &str,
-    ) -> Result<(), EngineError> {
-        if !self.locations.iter().any(|location| location.id == location_id) {
+    fn move_character(&mut self, character_id: &str, location_id: &str) -> Result<(), EngineError> {
+        if !self
+            .locations
+            .iter()
+            .any(|location| location.id == location_id)
+        {
             return Err(EngineError::LocationNotFound(location_id.to_string()));
         }
 
@@ -175,8 +179,10 @@ impl WorldState {
             .ok_or_else(|| EngineError::CharacterNotFound(character_id.to_string()))?;
 
         character.location_id = location_id.to_string();
-        self.event_log
-            .push(format!("{} 移动到 {}。", character.display_name, location_id));
+        self.event_log.push(format!(
+            "{} 移动到 {}。",
+            character.display_name, location_id
+        ));
         Ok(())
     }
 
@@ -236,6 +242,9 @@ mod tests {
             location_id: "missing".to_string(),
         });
 
-        assert_eq!(result, Err(EngineError::LocationNotFound("missing".to_string())));
+        assert_eq!(
+            result,
+            Err(EngineError::LocationNotFound("missing".to_string()))
+        );
     }
 }

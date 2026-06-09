@@ -12,7 +12,9 @@ fn engine_dispatch(
     state: tauri::State<'_, Mutex<WorldState>>,
 ) -> Result<WorldState, String> {
     let mut world = state.lock().expect("engine state lock poisoned");
-    world.apply_command(command).map_err(|error| error.to_string())?;
+    world
+        .apply_command(command)
+        .map_err(|error| error.to_string())?;
     Ok(world.clone())
 }
 

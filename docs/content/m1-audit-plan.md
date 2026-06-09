@@ -13,6 +13,8 @@ python -m eratw_content_pipeline.cli audit-legacy --source D:\AICODE\ERAtw --out
 - `legacy-audit-report.json`：完整机器可读报告。
 - `legacy-file-inventory.csv`：文件清单，便于人工筛选。
 - `asset-manifest.draft.json`：资产 manifest 草案。
+- `character-inventory.json/csv`：从 `CSV/Chara`、`ERB/キャラデータ` 和个人口上目录归并出的角色清单。
+- `dialogue-inventory.json/csv`：口上与事件文本 ERB 的结构清单，不包含旧正文。
 - `summary.md`：阶段摘要。
 
 ## 审计维度
@@ -20,6 +22,8 @@ python -m eratw_content_pipeline.cli audit-legacy --source D:\AICODE\ERAtw --out
 - ERB：文件数、行数、函数标签、资源引用、编码、语言、疑似乱码。
 - CSV：文件数、行数、编码、语言、疑似乱码。
 - resources、sound、font：路径、大小、sha256、类型、资源标签启发。
+- 角色：旧 ID、名称、呼名、角色 CSV、角色数据 ERB、个人口上文件路径。
+- 口上：文件路径、类型、归属角色、行数、函数/标签数量、资源引用数量、语言和乱码风险。
 - sav、exe、dll：记录为排除项，不进入新运行时。
 
 ## 验收口径

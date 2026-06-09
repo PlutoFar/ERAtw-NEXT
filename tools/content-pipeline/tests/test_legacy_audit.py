@@ -15,19 +15,33 @@ def write_bytes(path: Path, data: bytes) -> None:
 def test_audit_legacy_source_classifies_files(tmp_path: Path) -> None:
     source = tmp_path / "legacy"
     write_bytes(source / "ERB" / "demo.ERB", "@EVENT\nPRINTFORML 你好 image.webp\n".encode("utf-8"))
-    write_bytes(source / "CSV" / "Chara.csv", "id,name\n1,示例\n".encode("utf-8"))
+    write_bytes(source / "CSV" / "Chara" / "Chara1 霊夢.csv", "番号,1,\n名前,博麗 霊夢,\n呼び名,霊夢,\n".encode("utf-8"))
+    write_bytes(source / "CSV" / "Train.csv", "id,name\n1,示例\n".encode("utf-8"))
+    write_bytes(source / "ERB" / "キャラデータ" / "Chara_data_1_霊夢.ERB", "@DATA\n".encode("utf-8"))
+    write_bytes(
+        source / "ERB" / "口上・メッセージ関連" / "個人口上" / "001 Reimu [霊夢]" / "talk.ERB",
+        "@TALK\n$HELLO\nPRINTFORML 你好\n".encode("utf-8"),
+    )
     write_bytes(source / "resources" / "image.webp", b"fake-webp")
     write_bytes(source / "sound" / "theme.mp3", b"fake-mp3")
     write_bytes(source / "sav" / "old.sav", b"legacy-save")
 
     report = audit_legacy_source(AuditOptions(source=source, out=tmp_path / "out"))
 
-    assert report.summary["erb"] == 1
-    assert report.summary["csv"] == 1
+    assert report.summary["erb"] == 3
+    assert report.summary["csv"] == 2
     assert report.summary["image"] == 1
     assert report.summary["audio"] == 1
     assert report.summary["legacy_runtime"] == 1
+    assert report.summary["characters"] == 1
+    assert report.summary["dialogue_files"] == 1
     assert report.resource_reference_summary["image.webp"] == 1
+    assert report.characters[0].name == "博麗 霊夢"
+    assert report.characters[0].call_name == "霊夢"
+    assert report.characters[0].data_erb_paths == ["ERB/キャラデータ/Chara_data_1_霊夢.ERB"]
+    assert report.characters[0].dialogue_paths == ["ERB/口上・メッセージ関連/個人口上/001 Reimu [霊夢]/talk.ERB"]
+    assert report.dialogues[0].owner_legacy_id == 1
+    assert report.dialogues[0].kind == "personal_dialogue"
     assert any(asset.resource_id == "legacy.resources.image" for asset in report.assets)
     assert any(issue.code == "excluded_runtime_artifact" for issue in report.issues)
 
@@ -43,8 +57,14 @@ def test_audit_legacy_cli_writes_reports(tmp_path: Path) -> None:
     assert exit_code == 0
     report = json.loads((out / "legacy-audit-report.json").read_text(encoding="utf-8"))
     manifest = json.loads((out / "asset-manifest.draft.json").read_text(encoding="utf-8"))
+    characters = json.loads((out / "character-inventory.json").read_text(encoding="utf-8"))
+    dialogues = json.loads((out / "dialogue-inventory.json").read_text(encoding="utf-8"))
     assert report["schema_version"] == "legacy-audit/v0"
     assert report["files"][0]["path"] == "ERB/demo.ERB"
     assert manifest["schemaVersion"] == "asset-manifest/v0"
+    assert characters["schemaVersion"] == "character-inventory/v0"
+    assert dialogues["schemaVersion"] == "dialogue-inventory/v0"
+    assert (out / "character-inventory.csv").exists()
+    assert (out / "dialogue-inventory.csv").exists()
     assert (out / "legacy-file-inventory.csv").exists()
     assert (out / "summary.md").exists()

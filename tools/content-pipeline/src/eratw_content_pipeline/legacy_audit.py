@@ -27,6 +27,9 @@ RESOURCE_REF_RE = re.compile(
 )
 ERB_FUNCTION_RE = re.compile(r"^\s*@(?P<name>[A-Za-z0-9_\-\u3040-\u30ff\u3400-\u9fff]+)", re.MULTILINE)
 ERB_LABEL_RE = re.compile(r"^\s*\$(?P<name>[A-Za-z0-9_\-\u3040-\u30ff\u3400-\u9fff]+)", re.MULTILINE)
+CHARA_CSV_RE = re.compile(r"^Chara(?P<number>\d+)(?:\s+(?P<name>.+))?\.csv$", re.IGNORECASE)
+CHARA_DATA_ERB_RE = re.compile(r"^Chara_data_(?P<number>\d+)_(?P<name>.+)\.erb$", re.IGNORECASE)
+PERSONAL_DIALOGUE_DIR_RE = re.compile(r"^(?P<number>\d{3})\s+(?P<latin>.+?)\s+\[(?P<name>.+)]$")
 
 
 @dataclass(frozen=True)
@@ -67,6 +70,34 @@ class AssetManifestItem:
 
 
 @dataclass
+class CharacterInventoryItem:
+    legacy_id: int
+    name: str
+    call_name: str | None
+    csv_path: str
+    data_erb_paths: list[str] = field(default_factory=list)
+    dialogue_paths: list[str] = field(default_factory=list)
+    language_hint: str | None = None
+    issue_flags: list[str] = field(default_factory=list)
+
+
+@dataclass
+class DialogueInventoryItem:
+    path: str
+    kind: str
+    owner_legacy_id: int | None
+    owner_name: str | None
+    size_bytes: int
+    line_count: int | None
+    encoding: str | None
+    language_hint: str | None
+    function_count: int
+    label_count: int
+    resource_ref_count: int
+    issue_flags: list[str] = field(default_factory=list)
+
+
+@dataclass
 class AuditIssue:
     severity: str
     code: str
@@ -82,6 +113,8 @@ class LegacyAuditReport:
     summary: dict[str, int]
     files: list[FileRecord]
     assets: list[AssetManifestItem]
+    characters: list[CharacterInventoryItem]
+    dialogues: list[DialogueInventoryItem]
     issues: list[AuditIssue]
     resource_reference_summary: dict[str, int]
 
@@ -107,6 +140,7 @@ def audit_legacy_source(options: AuditOptions) -> LegacyAuditReport:
             size_bytes=stat.st_size,
             sha256=digest,
         )
+        setattr(record, "_source_path", str(path))
 
         if category in {"erb", "csv", "text"}:
             inspect_text_file(path, record, options.sample_text_bytes)
@@ -139,8 +173,12 @@ def audit_legacy_source(options: AuditOptions) -> LegacyAuditReport:
         records.append(record)
 
     summary_counter = Counter(record.category for record in records)
+    characters = build_character_inventory(records)
+    dialogues = build_dialogue_inventory(records)
     summary_counter["total_files"] = len(records)
     summary_counter["total_size_bytes"] = sum(record.size_bytes for record in records)
+    summary_counter["characters"] = len(characters)
+    summary_counter["dialogue_files"] = len(dialogues)
 
     return LegacyAuditReport(
         schema_version="legacy-audit/v0",
@@ -149,6 +187,8 @@ def audit_legacy_source(options: AuditOptions) -> LegacyAuditReport:
         summary=dict(sorted(summary_counter.items())),
         files=records,
         assets=assets,
+        characters=characters,
+        dialogues=dialogues,
         issues=issues[: options.max_issues],
         resource_reference_summary=dict(sorted(referenced_resources.items())),
     )
@@ -179,6 +219,91 @@ def write_audit_outputs(report: LegacyAuditReport, out_dir: Path) -> list[Path]:
         encoding="utf-8",
     )
     written.append(asset_manifest)
+
+    character_json = out_dir / "character-inventory.json"
+    character_json.write_text(
+        json.dumps(
+            {
+                "schemaVersion": "character-inventory/v0",
+                "sourceRoot": report.source_root,
+                "characters": [asdict(character) for character in report.characters],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    written.append(character_json)
+
+    character_csv = out_dir / "character-inventory.csv"
+    with character_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "legacy_id",
+                "name",
+                "call_name",
+                "csv_path",
+                "data_erb_paths",
+                "dialogue_paths",
+                "language_hint",
+                "issue_flags",
+            ],
+        )
+        writer.writeheader()
+        for character in report.characters:
+            writer.writerow(
+                {
+                    "legacy_id": character.legacy_id,
+                    "name": character.name,
+                    "call_name": character.call_name,
+                    "csv_path": character.csv_path,
+                    "data_erb_paths": ";".join(character.data_erb_paths),
+                    "dialogue_paths": ";".join(character.dialogue_paths),
+                    "language_hint": character.language_hint,
+                    "issue_flags": ";".join(character.issue_flags),
+                }
+            )
+    written.append(character_csv)
+
+    dialogue_json = out_dir / "dialogue-inventory.json"
+    dialogue_json.write_text(
+        json.dumps(
+            {
+                "schemaVersion": "dialogue-inventory/v0",
+                "sourceRoot": report.source_root,
+                "dialogues": [asdict(dialogue) for dialogue in report.dialogues],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    written.append(dialogue_json)
+
+    dialogue_csv = out_dir / "dialogue-inventory.csv"
+    with dialogue_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "path",
+                "kind",
+                "owner_legacy_id",
+                "owner_name",
+                "size_bytes",
+                "line_count",
+                "encoding",
+                "language_hint",
+                "function_count",
+                "label_count",
+                "resource_ref_count",
+                "issue_flags",
+            ],
+        )
+        writer.writeheader()
+        for dialogue in report.dialogues:
+            writer.writerow(asdict(dialogue))
+    written.append(dialogue_csv)
 
     csv_path = out_dir / "legacy-file-inventory.csv"
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
@@ -243,6 +368,13 @@ def render_markdown_summary(report: LegacyAuditReport) -> str:
     lines.extend(
         [
             "",
+            "## Content Inventories",
+            "",
+            f"- Characters: {len(report.characters)}",
+            f"- Dialogue/reference ERB files: {len(report.dialogues)}",
+            "- Character inventory: `character-inventory.csv`",
+            "- Dialogue inventory: `dialogue-inventory.csv`",
+            "",
             "## Resource References",
             "",
             f"- Unique referenced resource names: {len(report.resource_reference_summary)}",
@@ -277,6 +409,145 @@ def categorize_file(path: Path) -> str:
     if suffix in TEXT_SUFFIXES:
         return "text"
     return "other"
+
+
+def build_character_inventory(records: list[FileRecord]) -> list[CharacterInventoryItem]:
+    csv_records: dict[int, FileRecord] = {}
+    data_erb_by_id: dict[int, list[str]] = {}
+    dialogue_by_id: dict[int, list[str]] = {}
+
+    for record in records:
+        path = Path(record.path)
+        if record.category == "csv" and len(path.parts) >= 2 and path.parts[-2].lower() == "chara":
+            match = CHARA_CSV_RE.match(path.name)
+            if match:
+                csv_records[int(match.group("number"))] = record
+            continue
+
+        if record.category != "erb":
+            continue
+
+        data_match = CHARA_DATA_ERB_RE.match(path.name)
+        if data_match:
+            data_erb_by_id.setdefault(int(data_match.group("number")), []).append(record.path)
+
+        owner = infer_personal_dialogue_owner(path)
+        if owner:
+            legacy_id, _owner_name = owner
+            dialogue_by_id.setdefault(legacy_id, []).append(record.path)
+
+    characters: list[CharacterInventoryItem] = []
+    for legacy_id, record in sorted(csv_records.items()):
+        name, call_name = parse_character_csv_identity(record)
+        characters.append(
+            CharacterInventoryItem(
+                legacy_id=legacy_id,
+                name=name or infer_name_from_chara_csv_path(record.path) or f"legacy:{legacy_id}",
+                call_name=call_name,
+                csv_path=record.path,
+                data_erb_paths=sorted(data_erb_by_id.get(legacy_id, [])),
+                dialogue_paths=sorted(dialogue_by_id.get(legacy_id, [])),
+                language_hint=record.language_hint,
+                issue_flags=record.issue_flags.copy(),
+            )
+        )
+
+    return characters
+
+
+def build_dialogue_inventory(records: list[FileRecord]) -> list[DialogueInventoryItem]:
+    dialogues: list[DialogueInventoryItem] = []
+    for record in records:
+        if record.category != "erb" or not is_dialogue_candidate(record.path):
+            continue
+
+        owner = infer_personal_dialogue_owner(Path(record.path))
+        dialogues.append(
+            DialogueInventoryItem(
+                path=record.path,
+                kind=classify_dialogue_kind(record.path),
+                owner_legacy_id=owner[0] if owner else None,
+                owner_name=owner[1] if owner else None,
+                size_bytes=record.size_bytes,
+                line_count=record.line_count,
+                encoding=record.encoding,
+                language_hint=record.language_hint,
+                function_count=len(record.erb_functions),
+                label_count=len(record.erb_labels),
+                resource_ref_count=len(record.resource_refs),
+                issue_flags=record.issue_flags.copy(),
+            )
+        )
+
+    return sorted(dialogues, key=lambda item: item.path)
+
+
+def parse_character_csv_identity(record: FileRecord) -> tuple[str | None, str | None]:
+    source_path = getattr(record, "_source_path", None)
+    if not source_path:
+        return infer_name_from_chara_csv_path(record.path), None
+
+    raw = Path(source_path).read_bytes()
+    text, _encoding, _had_error = decode_sample(raw)
+    name: str | None = None
+    call_name: str | None = None
+    for row in csv.reader(text.splitlines()):
+        if len(row) < 2:
+            continue
+        key = row[0].strip()
+        value = row[1].strip()
+        if key == "名前":
+            name = value
+        elif key == "呼び名":
+            call_name = value
+        if name and call_name:
+            break
+
+    return name or infer_name_from_chara_csv_path(record.path), call_name
+
+
+def infer_name_from_chara_csv_path(path: str) -> str | None:
+    match = CHARA_CSV_RE.match(Path(path).name)
+    if not match:
+        return None
+    return match.group("name")
+
+
+def is_dialogue_candidate(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    markers = (
+        "口上・メッセージ関連",
+        "個人口上",
+        "EVENT_MESSAGE",
+        "ANOTHER_TALK",
+        "EVENT",
+        "TALK",
+        "TRAIN",
+    )
+    return any(marker in normalized for marker in markers)
+
+
+def classify_dialogue_kind(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    if "個人口上" in normalized:
+        return "personal_dialogue"
+    if "EVENT_MESSAGE" in normalized or "EVENT" in normalized:
+        return "event_message"
+    if "ANOTHER_TALK" in normalized or "TALK" in normalized:
+        return "talk_system"
+    if "TRAIN" in normalized:
+        return "command_or_training"
+    return "dialogue_reference"
+
+
+def infer_personal_dialogue_owner(path: Path) -> tuple[int, str] | None:
+    parts = path.parts
+    for index, part in enumerate(parts):
+        if part == "個人口上" and index + 1 < len(parts):
+            match = PERSONAL_DIALOGUE_DIR_RE.match(parts[index + 1])
+            if match:
+                return int(match.group("number")), match.group("name")
+    return None
 
 
 def inspect_text_file(path: Path, record: FileRecord, sample_bytes: int) -> None:

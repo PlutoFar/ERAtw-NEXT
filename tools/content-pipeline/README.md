@@ -19,6 +19,10 @@ Generated files:
 - `legacy-audit-report.json`
 - `legacy-file-inventory.csv`
 - `asset-manifest.draft.json`
+- `character-inventory.json`
+- `character-inventory.csv`
+- `dialogue-inventory.json`
+- `dialogue-inventory.csv`
 - `summary.md`
 
 The audit treats old ERB and CSV as read-only reference material. It records legacy runtime binaries and saves as excluded artifacts.

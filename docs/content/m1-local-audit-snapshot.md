@@ -18,6 +18,8 @@
 - Fonts: 5
 - Legacy runtime or saves excluded: 13
 - Referenced resource names sampled from text: 566
+- Characters: 162
+- Dialogue/reference ERB files: 2284
 
 ## 风险信号
 
