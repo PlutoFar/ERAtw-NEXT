@@ -3,6 +3,8 @@ import { applyDemoCommand, createDemoWorld } from "./demoWorld";
 import type {
   ContentPackage,
   EngineCommand,
+  ResourceAsset,
+  ResourceResolutionReport,
   SaveEnvelope,
   SaveSlotReport,
   WorldState,
@@ -12,6 +14,8 @@ export interface EngineClient {
   snapshot(): Promise<WorldState>;
   dispatch(command: EngineCommand): Promise<WorldState>;
   installContentPackage(packageData: ContentPackage): Promise<WorldState>;
+  planResources(root: string): Promise<ResourceResolutionReport>;
+  inspectResources(root: string): Promise<ResourceResolutionReport>;
   savePreview(slotId: string, savedAtUnixMs: number): Promise<SaveEnvelope>;
   saveSlot(slotId: string, savedAtUnixMs: number): Promise<SaveSlotReport>;
   loadSlot(slotId: string): Promise<WorldState>;
@@ -27,6 +31,10 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<WorldState>("engine_install_content_package", {
       package: packageData,
     }),
+  planResources: (root) =>
+    invoke<ResourceResolutionReport>("engine_plan_resources", { root }),
+  inspectResources: (root) =>
+    invoke<ResourceResolutionReport>("engine_inspect_resources", { root }),
   savePreview: (slotId, savedAtUnixMs) =>
     invoke<SaveEnvelope>("engine_save_preview", {
       slotId,
@@ -72,6 +80,7 @@ const isValidScheduledEvent = (event: ContentPackage["scheduled_events"][number]
 const isValidResource = (resource: ContentPackage["resources"][number]) =>
   resource.resource_id.trim() &&
   resource.source_path.trim() &&
+  isSafeResourceSourcePath(resource.source_path) &&
   resource.license.trim() &&
   resource.license.trim() !== "unknown" &&
   resource.author.trim() &&
@@ -91,6 +100,62 @@ const installedPackageKey = (namespace: string, packageId: string) =>
 
 const installedPackageById = (world: WorldState, packageId: string) =>
   world.installed_content_packages.find((packageInfo) => packageInfo.package_id === packageId);
+
+const isSafeResourceSourcePath = (sourcePath: string) => {
+  const normalized = sourcePath.replaceAll("\\", "/");
+  return (
+    normalized.trim().length > 0 &&
+    !normalized.startsWith("/") &&
+    !/^[A-Za-z]:\//.test(normalized) &&
+    normalized
+      .split("/")
+      .filter((part) => part.length > 0 && part !== ".")
+      .every((part) => part !== "..")
+  );
+};
+
+const fallbackForMediaType = (mediaType: ResourceAsset["media_type"]) => {
+  if (mediaType === "image") {
+    return "placeholder_image" as const;
+  }
+  if (mediaType === "audio") {
+    return "silent_audio" as const;
+  }
+  if (mediaType === "font") {
+    return "default_font" as const;
+  }
+  return "missing_resource" as const;
+};
+
+const normalizeResourcePath = (sourcePath: string) =>
+  sourcePath
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter((part) => part.length > 0 && part !== ".")
+    .join("/");
+
+const joinResourcePath = (root: string, sourcePath: string) => {
+  const normalizedRoot = root.replaceAll("\\", "/").replace(/\/+$/, "");
+  const normalizedSource = normalizeResourcePath(sourcePath);
+  return normalizedRoot ? `${normalizedRoot}/${normalizedSource}` : normalizedSource;
+};
+
+const planResourcesForBrowserWorld = (world: WorldState, root: string) => ({
+  root,
+  entries: world.resources.map((resource) => {
+    const safe = isSafeResourceSourcePath(resource.source_path);
+    return {
+      resource_id: resource.resource_id,
+      source_path: resource.source_path,
+      resolved_path: safe ? joinResourcePath(root, resource.source_path) : null,
+      media_type: resource.media_type,
+      status: safe ? ("planned" as const) : ("unsafe_path" as const),
+      fallback: fallbackForMediaType(resource.media_type),
+      expected_sha256: resource.sha256,
+      actual_sha256: null,
+    };
+  }),
+});
 
 const normalizeContentPackageDependency = (
   dependency: ContentPackage["manifest"]["dependencies"][number],
@@ -414,6 +479,12 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     async installContentPackage(packageData) {
       world = installPackageIntoBrowserWorld(world, packageData);
       return structuredClone(world);
+    },
+    async planResources(root) {
+      return structuredClone(planResourcesForBrowserWorld(world, root));
+    },
+    async inspectResources(root) {
+      return structuredClone(planResourcesForBrowserWorld(world, root));
     },
     async savePreview(slotId, savedAtUnixMs) {
       return {

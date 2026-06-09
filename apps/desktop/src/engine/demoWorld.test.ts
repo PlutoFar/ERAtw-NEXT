@@ -508,4 +508,32 @@ describe("demo engine adapter", () => {
       },
     ]);
   });
+
+  it("plans browser resource loads with safe paths and fallbacks", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.planResources("mods/sample");
+
+    expect(report.entries[0]).toMatchObject({
+      resource_id: "core.demo.heroine.neutral",
+      source_path: "assets/demo/heroine-neutral.webp",
+      resolved_path: "mods/sample/assets/demo/heroine-neutral.webp",
+      media_type: "image",
+      status: "planned",
+      fallback: "placeholder_image",
+      expected_sha256: null,
+      actual_sha256: null,
+    });
+  });
+
+  it("rejects browser content packages with unsafe resource paths", async () => {
+    const client = createBrowserMockEngineClient();
+    const packageData = createSampleContentPackage();
+    packageData.resources[0].source_path = "../outside.webp";
+
+    const unchanged = await client.installContentPackage(packageData);
+
+    expect(unchanged.resources).toHaveLength(1);
+    expect(unchanged.installed_content_packages).toEqual([]);
+  });
 });

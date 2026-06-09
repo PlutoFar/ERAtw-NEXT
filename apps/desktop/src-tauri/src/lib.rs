@@ -1,5 +1,6 @@
 use eratw_content::ContentPackage;
 use eratw_engine::{
+    resource::{inspect_resource_files, plan_resource_loads, ResourceResolutionReport},
     save::{read_save, write_save_atomic, SaveEnvelope},
     EngineCommand, WorldState,
 };
@@ -42,6 +43,24 @@ fn engine_install_content_package(
         .map_err(|error| error.to_string())?;
     *world = installed;
     Ok(world.clone())
+}
+
+#[tauri::command]
+fn engine_plan_resources(
+    root: String,
+    state: tauri::State<'_, Mutex<WorldState>>,
+) -> ResourceResolutionReport {
+    let world = state.lock().expect("engine state lock poisoned");
+    plan_resource_loads(&world.resources, root)
+}
+
+#[tauri::command]
+fn engine_inspect_resources(
+    root: String,
+    state: tauri::State<'_, Mutex<WorldState>>,
+) -> ResourceResolutionReport {
+    let world = state.lock().expect("engine state lock poisoned");
+    inspect_resource_files(&world.resources, root)
 }
 
 #[tauri::command]
@@ -122,6 +141,8 @@ pub fn run() {
             engine_snapshot,
             engine_dispatch,
             engine_install_content_package,
+            engine_plan_resources,
+            engine_inspect_resources,
             engine_save_preview,
             engine_save_slot,
             engine_load_slot

@@ -48,6 +48,36 @@ export interface ResourceAsset {
   sha256: string | null;
 }
 
+export type ResourceResolutionStatus =
+  | "planned"
+  | "ready"
+  | "missing"
+  | "unsafe_path"
+  | "hash_mismatch"
+  | "io_error";
+
+export type ResourceFallback =
+  | "placeholder_image"
+  | "silent_audio"
+  | "default_font"
+  | "missing_resource";
+
+export interface ResourceResolution {
+  resource_id: string;
+  source_path: string;
+  resolved_path: string | null;
+  media_type: ResourceMediaType;
+  status: ResourceResolutionStatus;
+  fallback: ResourceFallback;
+  expected_sha256: string | null;
+  actual_sha256: string | null;
+}
+
+export interface ResourceResolutionReport {
+  root: string;
+  entries: ResourceResolution[];
+}
+
 export interface InstalledContentPackage {
   namespace: string;
   package_id: string;

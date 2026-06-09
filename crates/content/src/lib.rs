@@ -1,7 +1,7 @@
 use eratw_engine::{
-    Character, ContentPackageDependency, DialogueCondition, DialogueEffect, DialogueScene,
-    InstalledContentPackage, Location, Relationship, ResourceAsset, ScheduledEvent,
-    ScheduledEventKind, WorldState,
+    resource::is_safe_resource_source_path, Character, ContentPackageDependency, DialogueCondition,
+    DialogueEffect, DialogueScene, InstalledContentPackage, Location, Relationship, ResourceAsset,
+    ScheduledEvent, ScheduledEventKind, WorldState,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
@@ -146,6 +146,7 @@ pub enum ContentIssueCode {
     EmptyResourceId,
     DuplicateResourceId,
     EmptyResourcePath,
+    UnsafeResourcePath,
     EmptyResourceLicense,
     EmptyResourceAuthor,
     DuplicateDialogueSceneId,
@@ -408,6 +409,8 @@ fn validate_resources(resources: &[ResourceAsset], report: &mut ContentValidatio
 
         if resource.source_path.trim().is_empty() {
             report.push(ContentIssueCode::EmptyResourcePath, &target);
+        } else if !is_safe_resource_source_path(&resource.source_path) {
+            report.push(ContentIssueCode::UnsafeResourcePath, &target);
         }
 
         if resource.license.trim().is_empty() || resource.license.trim() == "unknown" {
@@ -1259,6 +1262,36 @@ mod tests {
                 ContentIssueCode::SelfConflict,
                 ContentIssueCode::DuplicateConflictPackageId,
             ]
+        );
+    }
+
+    #[test]
+    fn resource_validation_reports_unsafe_resource_paths() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.assets"),
+            locations: Vec::new(),
+            characters: Vec::new(),
+            relationships: Vec::new(),
+            resources: vec![ResourceAsset {
+                resource_id: "unsafe_path".to_string(),
+                source_path: "../outside.webp".to_string(),
+                media_type: eratw_engine::ResourceMediaType::Image,
+                license: "project-demo".to_string(),
+                author: "ERAtw-NEXT".to_string(),
+                usage: Vec::new(),
+                character_bindings: Vec::new(),
+                tags: Vec::new(),
+                sha256: None,
+            }],
+            dialogue_scenes: Vec::new(),
+            scheduled_events: Vec::new(),
+        };
+
+        let report = package.validate().unwrap();
+
+        assert_eq!(
+            issue_codes(&report),
+            vec![ContentIssueCode::UnsafeResourcePath]
         );
     }
 

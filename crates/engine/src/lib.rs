@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod resource;
 pub mod save;
 
 pub const ENGINE_VERSION: &str = "0.1.0-m0";
