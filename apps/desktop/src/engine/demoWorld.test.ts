@@ -526,6 +526,41 @@ describe("demo engine adapter", () => {
     });
   });
 
+  it("discovers browser mod manifests through the engine client", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.discoverMods("examples/mods", "0.1.0-m0");
+
+    expect(report.discovered).toHaveLength(1);
+    expect(report.discovered[0]).toMatchObject({
+      root_path: "examples/mods/minimal-character",
+      manifest_path: "examples/mods/minimal-character/manifest.json",
+      manifest: {
+        namespace: "example.minimal_character",
+        name: "最小角色 Mod",
+        version: "0.1.0",
+        engine_version: "0.1.0-m0",
+        load_order: 0,
+        dependencies: [],
+        conflicts: [],
+        capabilities: ["content"],
+      },
+    });
+    expect(report.errors).toEqual([]);
+  });
+
+  it("reports browser mod discovery compatibility errors", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.discoverMods("examples/mods", "9.9.9");
+
+    expect(report.discovered).toEqual([]);
+    expect(report.errors[0]).toMatchObject({
+      path: "examples/mods/minimal-character/manifest.json",
+      kind: "incompatible_engine_version",
+    });
+  });
+
   it("rejects browser content packages with unsafe resource paths", async () => {
     const client = createBrowserMockEngineClient();
     const packageData = createSampleContentPackage();

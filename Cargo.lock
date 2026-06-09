@@ -725,6 +725,7 @@ version = "0.1.0"
 dependencies = [
  "eratw_content",
  "eratw_engine",
+ "eratw_mod_runtime",
  "serde",
  "serde_json",
  "tauri",

@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 eratw_content = { path = "../../../crates/content" }
 eratw_engine = { path = "../../../crates/engine" }
+eratw_mod_runtime = { path = "../../../crates/mod_runtime" }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }

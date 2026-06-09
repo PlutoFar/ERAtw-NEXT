@@ -19,6 +19,7 @@ M0 proves the new project can stand alone:
 - Resource load planning reports safe paths, missing assets, hash mismatches, and fallback modes
 - Mod manifest validation with dependency, conflict, unsafe capability, and load-order checks
 - Mod manifest discovery reports good and broken local Mod directories independently
+- Desktop engine API exposes Mod discovery reports to the frontend contract
 
 ## Development
 

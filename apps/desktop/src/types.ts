@@ -78,6 +78,61 @@ export interface ResourceResolutionReport {
   entries: ResourceResolution[];
 }
 
+export type ModCapability =
+  | "content"
+  | "theme"
+  | "rules_extension"
+  | "local_file_access"
+  | "network_access"
+  | "system_command";
+
+export interface ModDependency {
+  namespace: string;
+  version: string | null;
+  required: boolean;
+}
+
+export interface ModManifest {
+  namespace: string;
+  name: string;
+  version: string;
+  engine_version: string;
+  load_order: number;
+  dependencies: ModDependency[];
+  conflicts: string[];
+  capabilities: ModCapability[];
+}
+
+export interface DiscoveredModReport {
+  root_path: string;
+  manifest_path: string;
+  manifest: ModManifest;
+}
+
+export type ModDiscoveryIssueKind =
+  | "io"
+  | "json"
+  | "missing_namespace"
+  | "missing_name"
+  | "missing_version"
+  | "missing_engine_version"
+  | "incompatible_engine_version"
+  | "duplicate_dependency"
+  | "duplicate_conflict"
+  | "unsafe_capability";
+
+export interface ModDiscoveryIssueReport {
+  path: string;
+  kind: ModDiscoveryIssueKind;
+  message: string;
+}
+
+export interface ModDiscoveryReport {
+  root_path: string;
+  discovered: DiscoveredModReport[];
+  errors: ModDiscoveryIssueReport[];
+}
+
 export interface InstalledContentPackage {
   namespace: string;
   package_id: string;

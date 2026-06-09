@@ -3,6 +3,8 @@ import { applyDemoCommand, createDemoWorld } from "./demoWorld";
 import type {
   ContentPackage,
   EngineCommand,
+  ModDiscoveryReport,
+  ModManifest,
   ResourceAsset,
   ResourceResolutionReport,
   SaveEnvelope,
@@ -16,6 +18,7 @@ export interface EngineClient {
   installContentPackage(packageData: ContentPackage): Promise<WorldState>;
   planResources(root: string): Promise<ResourceResolutionReport>;
   inspectResources(root: string): Promise<ResourceResolutionReport>;
+  discoverMods(root: string, engineVersion?: string | null): Promise<ModDiscoveryReport>;
   savePreview(slotId: string, savedAtUnixMs: number): Promise<SaveEnvelope>;
   saveSlot(slotId: string, savedAtUnixMs: number): Promise<SaveSlotReport>;
   loadSlot(slotId: string): Promise<WorldState>;
@@ -35,6 +38,11 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<ResourceResolutionReport>("engine_plan_resources", { root }),
   inspectResources: (root) =>
     invoke<ResourceResolutionReport>("engine_inspect_resources", { root }),
+  discoverMods: (root, engineVersion = null) =>
+    invoke<ModDiscoveryReport>("engine_discover_mods", {
+      root,
+      engineVersion,
+    }),
   savePreview: (slotId, savedAtUnixMs) =>
     invoke<SaveEnvelope>("engine_save_preview", {
       slotId,
@@ -156,6 +164,57 @@ const planResourcesForBrowserWorld = (world: WorldState, root: string) => ({
     };
   }),
 });
+
+const sampleBrowserModManifest = (): ModManifest => ({
+  namespace: "example.minimal_character",
+  name: "最小角色 Mod",
+  version: "0.1.0",
+  engine_version: "0.1.0-m0",
+  load_order: 0,
+  dependencies: [],
+  conflicts: [],
+  capabilities: ["content"],
+});
+
+const joinModPath = (root: string, sourcePath: string) => {
+  const normalizedRoot = root.replaceAll("\\", "/").replace(/\/+$/, "");
+  return normalizedRoot ? `${normalizedRoot}/${sourcePath}` : sourcePath;
+};
+
+const discoverBrowserMods = (
+  root: string,
+  engineVersion: string | null | undefined,
+): ModDiscoveryReport => {
+  const manifest = sampleBrowserModManifest();
+  const modRoot = joinModPath(root, "minimal-character");
+  const manifestPath = joinModPath(root, "minimal-character/manifest.json");
+
+  if (engineVersion && manifest.engine_version !== engineVersion) {
+    return {
+      root_path: root,
+      discovered: [],
+      errors: [
+        {
+          path: manifestPath,
+          kind: "incompatible_engine_version",
+          message: `mod engine version is incompatible: ${manifest.namespace} expected ${manifest.engine_version} found ${engineVersion}`,
+        },
+      ],
+    };
+  }
+
+  return {
+    root_path: root,
+    discovered: [
+      {
+        root_path: modRoot,
+        manifest_path: manifestPath,
+        manifest,
+      },
+    ],
+    errors: [],
+  };
+};
 
 const normalizeContentPackageDependency = (
   dependency: ContentPackage["manifest"]["dependencies"][number],
@@ -485,6 +544,9 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     },
     async inspectResources(root) {
       return structuredClone(planResourcesForBrowserWorld(world, root));
+    },
+    async discoverMods(root, engineVersion = null) {
+      return structuredClone(discoverBrowserMods(root, engineVersion));
     },
     async savePreview(slotId, savedAtUnixMs) {
       return {
