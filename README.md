@@ -14,6 +14,8 @@ M0 proves the new project can stand alone:
 - M1 legacy content audit CLI and draft asset manifest output
 - M2 save envelope foundation in the Rust engine
 - M2 deterministic event scheduler with command replay tests
+- Content packages can add locations, characters, relationships, resources, dialogue, and scheduled events
+- Mod manifest validation with dependency, conflict, unsafe capability, and load-order checks
 
 ## Development
 
