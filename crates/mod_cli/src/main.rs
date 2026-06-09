@@ -1,9 +1,17 @@
 use eratw_mod_runtime::{
-    package_mod_project_for_engine, validate_mod_project_for_engine, ModDiscoveryError,
+    package_mod_project_for_engine, scaffold_mod_template, validate_mod_project_for_engine,
+    ModDiscoveryError, ModTemplateOptions,
 };
 use std::{env, path::PathBuf, process::ExitCode};
 
 enum Command {
+    New {
+        root: PathBuf,
+        namespace: String,
+        name: Option<String>,
+        version: String,
+        engine_version: String,
+    },
     Validate {
         root: PathBuf,
         engine_version: Option<String>,
@@ -33,6 +41,35 @@ fn main() -> ExitCode {
 
 fn run(args: Vec<String>) -> Result<String, String> {
     match parse_command(args)? {
+        Command::New {
+            root,
+            namespace,
+            name,
+            version,
+            engine_version,
+        } => scaffold_mod_template(
+            &root,
+            ModTemplateOptions {
+                namespace,
+                name: name.unwrap_or_else(|| {
+                    root.file_name()
+                        .and_then(|file_name| file_name.to_str())
+                        .unwrap_or("ERAtw-NEXT Mod")
+                        .to_string()
+                }),
+                version,
+                engine_version,
+            },
+        )
+        .map(|report| {
+            format!(
+                "created mod template {} {} at {}",
+                report.manifest.namespace,
+                report.manifest.version,
+                report.root_path.display()
+            )
+        })
+        .map_err(format_mod_error),
         Command::Validate {
             root,
             engine_version,
@@ -70,11 +107,32 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
     };
 
     match command {
+        "new" => {
+            if includes_help_option(&args[1..]) {
+                return Ok(Command::Help);
+            }
+            let (positionals, options) = parse_options(&args[1..])?;
+            if positionals.len() != 1 {
+                return Err(format!("{}\n\nnew expects exactly one root path", usage()));
+            }
+            let Some(namespace) = options.namespace else {
+                return Err(format!("{}\n\nnew requires --namespace", usage()));
+            };
+            Ok(Command::New {
+                root: PathBuf::from(&positionals[0]),
+                namespace,
+                name: options.name,
+                version: options.version.unwrap_or_else(|| "0.1.0".to_string()),
+                engine_version: options
+                    .engine_version
+                    .unwrap_or_else(|| "0.1.0-m0".to_string()),
+            })
+        }
         "validate" => {
             if includes_help_option(&args[1..]) {
                 return Ok(Command::Help);
             }
-            let (positionals, engine_version) = parse_options(&args[1..])?;
+            let (positionals, options) = parse_options(&args[1..])?;
             if positionals.len() != 1 {
                 return Err(format!(
                     "{}\n\nvalidate expects exactly one root path",
@@ -83,14 +141,14 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
             }
             Ok(Command::Validate {
                 root: PathBuf::from(&positionals[0]),
-                engine_version,
+                engine_version: options.engine_version,
             })
         }
         "pack" => {
             if includes_help_option(&args[1..]) {
                 return Ok(Command::Help);
             }
-            let (positionals, engine_version) = parse_options(&args[1..])?;
+            let (positionals, options) = parse_options(&args[1..])?;
             if positionals.len() != 2 {
                 return Err(format!(
                     "{}\n\npack expects source root and output root paths",
@@ -100,7 +158,7 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
             Ok(Command::Pack {
                 source_root: PathBuf::from(&positionals[0]),
                 output_root: PathBuf::from(&positionals[1]),
-                engine_version,
+                engine_version: options.engine_version,
             })
         }
         "-h" | "--help" | "help" => Ok(Command::Help),
@@ -108,18 +166,47 @@ fn parse_command(args: Vec<String>) -> Result<Command, String> {
     }
 }
 
-fn parse_options(args: &[String]) -> Result<(Vec<String>, Option<String>), String> {
+#[derive(Default)]
+struct ParsedOptions {
+    namespace: Option<String>,
+    name: Option<String>,
+    version: Option<String>,
+    engine_version: Option<String>,
+}
+
+fn parse_options(args: &[String]) -> Result<(Vec<String>, ParsedOptions), String> {
     let mut positionals = Vec::new();
-    let mut engine_version = None;
+    let mut options = ParsedOptions::default();
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--namespace" => {
+                index += 1;
+                let Some(namespace) = args.get(index) else {
+                    return Err("--namespace requires a value".to_string());
+                };
+                options.namespace = Some(namespace.clone());
+            }
+            "--name" => {
+                index += 1;
+                let Some(name) = args.get(index) else {
+                    return Err("--name requires a value".to_string());
+                };
+                options.name = Some(name.clone());
+            }
+            "--version" => {
+                index += 1;
+                let Some(version) = args.get(index) else {
+                    return Err("--version requires a value".to_string());
+                };
+                options.version = Some(version.clone());
+            }
             "--engine-version" => {
                 index += 1;
                 let Some(version) = args.get(index) else {
                     return Err("--engine-version requires a value".to_string());
                 };
-                engine_version = Some(version.clone());
+                options.engine_version = Some(version.clone());
             }
             option if option.starts_with('-') => {
                 return Err(format!("unknown option: {option}"));
@@ -129,7 +216,7 @@ fn parse_options(args: &[String]) -> Result<(Vec<String>, Option<String>), Strin
         index += 1;
     }
 
-    Ok((positionals, engine_version))
+    Ok((positionals, options))
 }
 
 fn includes_help_option(args: &[String]) -> bool {
@@ -146,6 +233,7 @@ fn usage() -> String {
         "ERAtw-NEXT Mod CLI",
         "",
         "Usage:",
+        "  eratw-mod new <mod-root> --namespace <namespace> [--name <name>] [--version <version>] [--engine-version <version>]",
         "  eratw-mod validate <mod-root> [--engine-version <version>]",
         "  eratw-mod pack <mod-root> <output-root> [--engine-version <version>]",
     ]
@@ -159,6 +247,46 @@ mod tests {
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn new_command_creates_valid_project() {
+        let root = temp_dir("new_command");
+
+        let output = run(vec![
+            "new".to_string(),
+            root.to_string_lossy().to_string(),
+            "--namespace".to_string(),
+            "example.new_cli".to_string(),
+            "--name".to_string(),
+            "CLI 模板".to_string(),
+        ])
+        .unwrap();
+
+        assert!(output.contains("created mod template example.new_cli 0.1.0"));
+        assert!(root.join("manifest.json").exists());
+        assert!(root.join("content/character.json").exists());
+
+        let validate_output = run(vec![
+            "validate".to_string(),
+            root.to_string_lossy().to_string(),
+            "--engine-version".to_string(),
+            "0.1.0-m0".to_string(),
+        ])
+        .unwrap();
+        assert!(validate_output.contains("valid mod example.new_cli 0.1.0"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn new_command_requires_namespace() {
+        let root = temp_dir("new_command_missing_namespace");
+
+        let error = run(vec!["new".to_string(), root.to_string_lossy().to_string()]).unwrap_err();
+
+        assert!(error.contains("new requires --namespace"));
+        assert!(!root.exists());
+    }
 
     #[test]
     fn validate_command_reports_valid_project() {

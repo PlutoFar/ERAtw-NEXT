@@ -114,6 +114,7 @@ export type ModDiscoveryIssueKind =
   | "json"
   | "unsafe_install_namespace"
   | "unsafe_package_version"
+  | "template_target_not_empty"
   | "install_target_exists"
   | "install_target_missing"
   | "install_target_not_directory"

@@ -44,6 +44,7 @@ npm run dev
 ## Mod CLI
 
 ```powershell
+cargo run -p eratw_mod_cli -- new D:\tmp\my-first-mod --namespace example.my_first_mod --name "我的第一个 Mod"
 cargo run -p eratw_mod_cli -- validate examples/mods/minimal-character --engine-version 0.1.0-m0
 cargo run -p eratw_mod_cli -- pack examples/mods/minimal-character D:\tmp\eratw-mod-packages --engine-version 0.1.0-m0
 ```
