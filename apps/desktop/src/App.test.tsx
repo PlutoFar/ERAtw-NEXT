@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 import { createBrowserMockEngineClient } from "./engine/client";
@@ -15,6 +15,7 @@ describe("App", () => {
       lastLoadPreflight: null,
       lastRecovery: null,
       lastModPackagePreflight: null,
+      lastModInstall: null,
     });
   });
 
@@ -162,6 +163,28 @@ describe("App", () => {
       expect(
         screen.getByText(
           "packages/example.minimal_character-0.1.0/content/assets/readme.txt",
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("installs a preflighted mod package", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Mod 预检/ }));
+    const installButton = await screen.findByRole("button", {
+      name: "安装 Mod 包",
+    });
+    fireEvent.click(installButton);
+
+    await waitFor(() => {
+      const installResult = screen.getByLabelText("mod install result");
+      expect(
+        within(installResult).getByText(/已安装 Mod：example\.minimal_character/),
+      ).toBeInTheDocument();
+      expect(
+        within(installResult).getByText(
+          /目标：mods\/installed\/example\.minimal_character/,
         ),
       ).toBeInTheDocument();
     });

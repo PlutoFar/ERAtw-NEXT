@@ -1081,6 +1081,42 @@ describe("demo engine adapter", () => {
     });
   });
 
+  it("simulates browser mod package install execution report", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const report = await client.installModPackage(
+      "packages/example.minimal_character-0.1.0",
+      "mods/installed",
+      "0.1.0-m0",
+    );
+
+    expect(report).toMatchObject({
+      target_root: "mods/installed/example.minimal_character",
+      manifest: {
+        namespace: "example.minimal_character",
+      },
+    });
+    expect(report.actions.map((action) => action.kind)).toEqual([
+      "create_directory",
+      "copy_directory",
+      "move_directory",
+    ]);
+  });
+
+  it("rejects browser mod package install when preflight is blocked", async () => {
+    const client = createBrowserMockEngineClient();
+
+    await expect(
+      client.installModPackage(
+        "packages/example.minimal_character-0.1.0",
+        "mods/installed",
+        "9.9.9",
+      ),
+    ).rejects.toMatchObject({
+      kind: "incompatible_engine_version",
+    });
+  });
+
   it("reports browser mod install compatibility errors", async () => {
     const client = createBrowserMockEngineClient();
 

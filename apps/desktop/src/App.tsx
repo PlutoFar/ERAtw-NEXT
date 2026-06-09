@@ -74,12 +74,14 @@ export const App = () => {
     lastLoadPreflight,
     lastRecovery,
     lastSave,
+    lastModInstall,
     load,
     loadSlot,
     loading,
     lastModPackagePreflight,
     preflightLoadSlot,
     preflightModPackageInstall,
+    installModPackage,
     recoverSlot,
     saveSlot,
     world,
@@ -381,7 +383,29 @@ export const App = () => {
               ) : (
                 <p className="empty-text">没有预检问题。</p>
               )}
+              {lastModPackagePreflight.ready ? (
+                <button
+                  type="button"
+                  className="mod-install-button"
+                  onClick={() =>
+                    installModPackage(
+                      lastModPackagePreflight.source_root,
+                      lastModPackagePreflight.install_root,
+                    )
+                  }
+                  disabled={loading}
+                >
+                  安装 Mod 包
+                </button>
+              ) : null}
             </section>
+          ) : null}
+          {lastModInstall ? (
+            <p className="mod-install-text" aria-label="mod install result">
+              已安装 Mod：{lastModInstall.manifest.namespace}
+              <br />
+              目标：{lastModInstall.target_root}
+            </p>
           ) : null}
           {lastRecovery ? (
             <p className="recovery-text">

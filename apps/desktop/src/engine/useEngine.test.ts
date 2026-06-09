@@ -135,6 +135,9 @@ const createMockClient = (
     preflightModPackageInstall: vi.fn(async () => {
       throw new Error("not used");
     }),
+    installModPackage: vi.fn(async () => {
+      throw new Error("not used");
+    }),
     planModUninstall: vi.fn(async () => {
       throw new Error("not used");
     }),
@@ -164,6 +167,7 @@ describe("useEngine", () => {
       lastLoadPreflight: null,
       lastRecovery: null,
       lastModPackagePreflight: null,
+      lastModInstall: null,
     });
   });
 
@@ -275,5 +279,63 @@ describe("useEngine", () => {
       [],
     );
     expect(useEngine.getState().lastModPackagePreflight?.ready).toBe(true);
+  });
+
+  it("installs a mod package after a ready preflight", async () => {
+    const world = createDemoWorld();
+    const calls = {
+      preflightRegistries: [] as ModRegistry[],
+      installRegistries: [] as ModRegistry[],
+    };
+    const client = createMockClient(world, calls);
+    vi.mocked(client.preflightModPackageInstall).mockResolvedValue({
+      source_root: "packages/example.minimal_character-0.1.0",
+      content_root: "packages/example.minimal_character-0.1.0/content",
+      install_root: "mods/installed",
+      target_root: "mods/installed/example.minimal_character",
+      staging_root: "mods/installed/.installing-example.minimal_character",
+      manifest: null,
+      ready: true,
+      issues: [],
+    });
+    vi.mocked(client.installModPackage).mockResolvedValue({
+      target_root: "mods/installed/example.minimal_character",
+      manifest: {
+        namespace: "example.minimal_character",
+        name: "example.minimal_character",
+        version: "0.1.0",
+        engine_version: "0.1.0-m0",
+        load_order: 0,
+        dependencies: [],
+        conflicts: [],
+        capabilities: ["content"],
+        resources: [],
+      },
+      actions: [],
+    });
+    useEngine.setState({ client, world });
+
+    await useEngine
+      .getState()
+      .installModPackage(
+        "packages/example.minimal_character-0.1.0",
+        "mods/installed",
+      );
+
+    expect(client.preflightModPackageInstall).toHaveBeenCalledWith(
+      "packages/example.minimal_character-0.1.0",
+      "mods/installed",
+      "0.1.0-m0",
+      [],
+    );
+    expect(client.installModPackage).toHaveBeenCalledWith(
+      "packages/example.minimal_character-0.1.0",
+      "mods/installed",
+      "0.1.0-m0",
+      [],
+    );
+    expect(useEngine.getState().lastModInstall?.target_root).toBe(
+      "mods/installed/example.minimal_character",
+    );
   });
 });

@@ -4,6 +4,7 @@ import type {
   ContentPackage,
   EngineCommand,
   ModInstallPreflightReport,
+  ModInstallReport,
   ModRegistry,
   SavePreflightReport,
   SaveRecoveryReport,
@@ -20,6 +21,7 @@ interface EngineStore {
   lastLoadPreflight: SavePreflightReport | null;
   lastRecovery: SaveRecoveryReport | null;
   lastModPackagePreflight: ModInstallPreflightReport | null;
+  lastModInstall: ModInstallReport | null;
   load: () => Promise<void>;
   dispatch: (command: EngineCommand) => Promise<void>;
   installContentPackage: (packageData: ContentPackage) => Promise<void>;
@@ -27,6 +29,7 @@ interface EngineStore {
     packageRoot: string,
     installRoot: string,
   ) => Promise<void>;
+  installModPackage: (packageRoot: string, installRoot: string) => Promise<void>;
   saveSlot: (slotId: string) => Promise<void>;
   preflightLoadSlot: (slotId: string) => Promise<void>;
   loadSlot: (slotId: string) => Promise<void>;
@@ -59,6 +62,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
   lastLoadPreflight: null,
   lastRecovery: null,
   lastModPackagePreflight: null,
+  lastModInstall: null,
   async load() {
     set({ loading: true, error: null });
     try {
@@ -104,9 +108,39 @@ export const useEngine = create<EngineStore>((set, get) => ({
         get().world?.engine_version,
         [],
       );
-      set({ lastModPackagePreflight, loading: false });
+      set({ lastModPackagePreflight, lastModInstall: null, loading: false });
     } catch (error) {
       set({ error: String(error), lastModPackagePreflight: null, loading: false });
+    }
+  },
+  async installModPackage(packageRoot, installRoot) {
+    set({ loading: true, error: null });
+    try {
+      const existingPreflight = get().lastModPackagePreflight;
+      const preflight =
+        existingPreflight?.source_root === packageRoot &&
+        existingPreflight.install_root === installRoot
+          ? existingPreflight
+          : await get().client.preflightModPackageInstall(
+              packageRoot,
+              installRoot,
+              get().world?.engine_version,
+              [],
+            );
+
+      if (!preflight.ready) {
+        throw new Error(preflight.issues.map((issue) => issue.message).join("; "));
+      }
+
+      const lastModInstall = await get().client.installModPackage(
+        packageRoot,
+        installRoot,
+        get().world?.engine_version,
+        [],
+      );
+      set({ lastModPackagePreflight: preflight, lastModInstall, loading: false });
+    } catch (error) {
+      set({ error: String(error), lastModInstall: null, loading: false });
     }
   },
   async saveSlot(slotId) {

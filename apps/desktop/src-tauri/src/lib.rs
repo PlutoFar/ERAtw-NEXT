@@ -18,7 +18,8 @@ use eratw_engine::{
     EngineCommand, WorldState,
 };
 use eratw_mod_runtime::{
-    discover_mods_for_engine_with_policy, install_mod_for_engine_with_policy, parse_mod_capability,
+    discover_mods_for_engine_with_policy, install_mod_for_engine_with_policy,
+    install_mod_package_for_engine_with_policy, parse_mod_capability,
     plan_enabled_mods_for_engine_with_policy, plan_mod_install_for_engine_with_policy,
     plan_mod_uninstall, preflight_mod_package_install_for_engine_with_policy, uninstall_mod,
     DisabledMod, DiscoveredMod, ModCapability, ModDiscoveryError, ModDiscoveryIssue,
@@ -418,6 +419,25 @@ fn engine_preflight_mod_package_install(
         &policy,
     )
     .into())
+}
+
+#[tauri::command]
+fn engine_install_mod_package(
+    request: ModInstallRequest,
+) -> Result<ModInstallReportDto, ModDiscoveryIssueReport> {
+    let policy = security_policy(&request.authorized_unsafe_capabilities)?;
+    install_mod_package_for_engine_with_policy(
+        request.source_root,
+        request.install_root,
+        request.engine_version.as_deref(),
+        &policy,
+    )
+    .map(Into::into)
+    .map_err(|error| ModDiscoveryIssueReport {
+        path: String::new(),
+        kind: mod_discovery_error_kind(&error).to_string(),
+        message: error.to_string(),
+    })
 }
 
 #[tauri::command]
@@ -1189,6 +1209,49 @@ mod tests {
     }
 
     #[test]
+    fn engine_install_mod_package_executes_checked_package() {
+        let package_root = temp_mod_root("install_package_command_source");
+        let content_root = package_root.join("content");
+        let install_root = temp_mod_root("install_package_command_target");
+        fs::create_dir_all(content_root.join("assets")).unwrap();
+        fs::write(
+            content_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+        fs::write(content_root.join("assets/readme.txt"), "installed").unwrap();
+        fs::write(
+            package_root.join("eratw-mod-package.json"),
+            serde_json::to_string_pretty(&eratw_mod_runtime::ModPackageManifest {
+                schema_version: "eratw-mod-package/v0".to_string(),
+                namespace: "example.package".to_string(),
+                version: "0.1.0".to_string(),
+                manifest_path: "content/manifest.json".to_string(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let report = engine_install_mod_package(ModInstallRequest {
+            source_root: package_root.to_string_lossy().to_string(),
+            install_root: install_root.to_string_lossy().to_string(),
+            engine_version: Some("0.1.0-m0".to_string()),
+            authorized_unsafe_capabilities: Vec::new(),
+        })
+        .unwrap();
+
+        assert_eq!(report.manifest.namespace, "example.package");
+        assert!(report.target_root.ends_with("example.package"));
+        assert_eq!(report.actions[2].kind, "move_directory");
+        assert!(install_root
+            .join("example.package/assets/readme.txt")
+            .exists());
+
+        let _ = fs::remove_dir_all(install_root);
+        let _ = fs::remove_dir_all(package_root);
+    }
+
+    #[test]
     fn engine_plan_mod_uninstall_returns_frontend_plan() {
         let install_root = temp_mod_root("uninstall_plan_command");
 
@@ -1428,6 +1491,7 @@ pub fn run() {
             engine_plan_mod_install,
             engine_install_mod,
             engine_preflight_mod_package_install,
+            engine_install_mod_package,
             engine_plan_mod_uninstall,
             engine_uninstall_mod,
             engine_plan_enabled_mods,

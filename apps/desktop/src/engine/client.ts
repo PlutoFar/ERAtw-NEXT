@@ -79,6 +79,12 @@ export interface EngineClient {
     engineVersion?: string | null,
     authorizedUnsafeCapabilities?: ModCapability[],
   ): Promise<ModInstallPreflightReport>;
+  installModPackage(
+    packageRoot: string,
+    installRoot: string,
+    engineVersion?: string | null,
+    authorizedUnsafeCapabilities?: ModCapability[],
+  ): Promise<ModInstallReport>;
   planModUninstall(
     installRoot: string,
     namespace: string,
@@ -179,6 +185,20 @@ export const createTauriEngineClient = (): EngineClient => ({
     authorizedUnsafeCapabilities = [],
   ) =>
     invoke<ModInstallPreflightReport>("engine_preflight_mod_package_install", {
+      request: {
+        sourceRoot: packageRoot,
+        installRoot,
+        engineVersion,
+        authorizedUnsafeCapabilities,
+      },
+    }),
+  installModPackage: (
+    packageRoot,
+    installRoot,
+    engineVersion = null,
+    authorizedUnsafeCapabilities = [],
+  ) =>
+    invoke<ModInstallReport>("engine_install_mod_package", {
       request: {
         sourceRoot: packageRoot,
         installRoot,
@@ -1046,6 +1066,39 @@ const preflightBrowserModPackageInstall = (
   }
 };
 
+const installBrowserModPackage = (
+  packageRoot: string,
+  installRoot: string,
+  engineVersion: string | null | undefined,
+  authorizedUnsafeCapabilities: ModCapability[] = [],
+): ModInstallReport => {
+  const preflight = preflightBrowserModPackageInstall(
+    packageRoot,
+    installRoot,
+    engineVersion,
+    authorizedUnsafeCapabilities,
+  );
+  const blockingIssue = preflight.issues.find((issue) => issue.severity === "error");
+  if (!preflight.ready || blockingIssue) {
+    throw {
+      path: blockingIssue?.path ?? packageRoot,
+      kind: blockingIssue?.kind ?? "io",
+      message: blockingIssue?.message ?? "mod package preflight failed",
+    };
+  }
+  const plan = planBrowserModInstall(
+    joinModPath(packageRoot, "content"),
+    installRoot,
+    engineVersion,
+    authorizedUnsafeCapabilities,
+  );
+  return {
+    target_root: plan.target_root,
+    manifest: plan.manifest,
+    actions: plan.actions,
+  };
+};
+
 const planBrowserModUninstall = (
   installRoot: string,
   namespace: string,
@@ -1845,6 +1898,21 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     ) {
       return structuredClone(
         preflightBrowserModPackageInstall(
+          packageRoot,
+          installRoot,
+          engineVersion,
+          authorizedUnsafeCapabilities,
+        ),
+      );
+    },
+    async installModPackage(
+      packageRoot,
+      installRoot,
+      engineVersion = null,
+      authorizedUnsafeCapabilities = [],
+    ) {
+      return structuredClone(
+        installBrowserModPackage(
           packageRoot,
           installRoot,
           engineVersion,
