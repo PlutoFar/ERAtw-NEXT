@@ -1103,6 +1103,65 @@ describe("demo engine adapter", () => {
     ]);
   });
 
+  it("discovers browser mods after package installation", async () => {
+    const client = createBrowserMockEngineClient();
+
+    expect(
+      (await client.discoverMods("mods/installed", "0.1.0-m0")).discovered,
+    ).toEqual([]);
+
+    await client.installModPackage(
+      "packages/example.minimal_character-0.1.0",
+      "mods/installed",
+      "0.1.0-m0",
+    );
+
+    const discovery = await client.discoverMods("mods/installed", "0.1.0-m0");
+
+    expect(discovery.discovered).toHaveLength(1);
+    expect(discovery.discovered[0]).toMatchObject({
+      root_path: "mods/installed/example.minimal_character",
+      manifest_path: "mods/installed/example.minimal_character/manifest.json",
+      manifest: {
+        namespace: "example.minimal_character",
+      },
+    });
+  });
+
+  it("blocks duplicate browser package installation after install", async () => {
+    const client = createBrowserMockEngineClient();
+
+    await client.installModPackage(
+      "packages/example.minimal_character-0.1.0",
+      "mods/installed",
+      "0.1.0-m0",
+    );
+
+    const preflight = await client.preflightModPackageInstall(
+      "packages/example.minimal_character-0.1.0",
+      "mods/installed",
+      "0.1.0-m0",
+    );
+
+    expect(preflight.ready).toBe(false);
+    expect(preflight.issues).toContainEqual(
+      expect.objectContaining({
+        severity: "error",
+        kind: "install_target_exists",
+        path: "mods/installed/example.minimal_character",
+      }),
+    );
+    await expect(
+      client.installModPackage(
+        "packages/example.minimal_character-0.1.0",
+        "mods/installed",
+        "0.1.0-m0",
+      ),
+    ).rejects.toMatchObject({
+      kind: "install_target_exists",
+    });
+  });
+
   it("rejects browser mod package install when preflight is blocked", async () => {
     const client = createBrowserMockEngineClient();
 

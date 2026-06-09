@@ -16,6 +16,7 @@ describe("App", () => {
       lastRecovery: null,
       lastModPackagePreflight: null,
       lastModInstall: null,
+      lastInstalledMods: null,
     });
   });
 
@@ -187,6 +188,23 @@ describe("App", () => {
           /目标：mods\/installed\/example\.minimal_character/,
         ),
       ).toBeInTheDocument();
+      expect(screen.getByLabelText("installed mods")).toBeInTheDocument();
+      expect(screen.getByText("最小角色 Mod")).toBeInTheDocument();
+      expect(
+        screen.getByText("example.minimal_character@0.1.0"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("refreshes the installed mod list", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /已装 Mod/ }));
+
+    await waitFor(() => {
+      const panel = screen.getByLabelText("installed mods");
+      expect(within(panel).getByText("根目录：mods/installed")).toBeInTheDocument();
+      expect(within(panel).getByText("未发现已安装 Mod。")).toBeInTheDocument();
     });
   });
 

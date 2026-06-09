@@ -284,16 +284,19 @@ button {
   gap: 10px;
 }
 
+.installed-mods-panel,
 .mod-preflight-panel {
   display: grid;
   gap: 10px;
 }
 
+.installed-mods-panel h2,
 .mod-preflight-panel h2 {
   font-size: 16px;
   margin: 0;
 }
 
+.installed-mods-list,
 .mod-preflight-issues {
   display: grid;
   gap: 8px;
@@ -302,6 +305,7 @@ button {
   padding: 0;
 }
 
+.installed-mods-list li,
 .mod-preflight-issues li {
   background: #1a2227;
   border: 1px solid #2d3940;
@@ -311,16 +315,20 @@ button {
   padding: 10px;
 }
 
+.installed-mods-list strong,
 .mod-preflight-issues strong {
   color: #f5c87a;
   font-size: 13px;
 }
 
+.installed-mods-list span,
+.installed-mods-list small,
 .mod-preflight-issues span,
 .mod-preflight-issues small {
   overflow-wrap: anywhere;
 }
 
+.installed-mods-list small,
 .mod-preflight-issues small {
   color: #8fa0aa;
 }

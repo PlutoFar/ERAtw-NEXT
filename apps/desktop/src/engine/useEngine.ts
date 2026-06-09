@@ -3,6 +3,7 @@ import { createEngineClient, type EngineClient } from "./client";
 import type {
   ContentPackage,
   EngineCommand,
+  ModDiscoveryReport,
   ModInstallPreflightReport,
   ModInstallReport,
   ModRegistry,
@@ -22,6 +23,7 @@ interface EngineStore {
   lastRecovery: SaveRecoveryReport | null;
   lastModPackagePreflight: ModInstallPreflightReport | null;
   lastModInstall: ModInstallReport | null;
+  lastInstalledMods: ModDiscoveryReport | null;
   load: () => Promise<void>;
   dispatch: (command: EngineCommand) => Promise<void>;
   installContentPackage: (packageData: ContentPackage) => Promise<void>;
@@ -30,6 +32,7 @@ interface EngineStore {
     installRoot: string,
   ) => Promise<void>;
   installModPackage: (packageRoot: string, installRoot: string) => Promise<void>;
+  refreshInstalledMods: (installRoot: string) => Promise<void>;
   saveSlot: (slotId: string) => Promise<void>;
   preflightLoadSlot: (slotId: string) => Promise<void>;
   loadSlot: (slotId: string) => Promise<void>;
@@ -52,6 +55,7 @@ const formatContentPreflightIssues = (
 ) => issues.map((issue) => issue.message).join("; ");
 
 const DEFAULT_MOD_ROOT = "examples/mods";
+export const DEFAULT_MOD_INSTALL_ROOT = "mods/installed";
 
 export const useEngine = create<EngineStore>((set, get) => ({
   client: createEngineClient(),
@@ -63,6 +67,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
   lastRecovery: null,
   lastModPackagePreflight: null,
   lastModInstall: null,
+  lastInstalledMods: null,
   async load() {
     set({ loading: true, error: null });
     try {
@@ -138,9 +143,32 @@ export const useEngine = create<EngineStore>((set, get) => ({
         get().world?.engine_version,
         [],
       );
-      set({ lastModPackagePreflight: preflight, lastModInstall, loading: false });
+      const lastInstalledMods = await get().client.discoverMods(
+        installRoot,
+        get().world?.engine_version,
+        [],
+      );
+      set({
+        lastModPackagePreflight: preflight,
+        lastModInstall,
+        lastInstalledMods,
+        loading: false,
+      });
     } catch (error) {
       set({ error: String(error), lastModInstall: null, loading: false });
+    }
+  },
+  async refreshInstalledMods(installRoot) {
+    set({ loading: true, error: null });
+    try {
+      const lastInstalledMods = await get().client.discoverMods(
+        installRoot,
+        get().world?.engine_version,
+        [],
+      );
+      set({ lastInstalledMods, loading: false });
+    } catch (error) {
+      set({ error: String(error), lastInstalledMods: null, loading: false });
     }
   },
   async saveSlot(slotId) {

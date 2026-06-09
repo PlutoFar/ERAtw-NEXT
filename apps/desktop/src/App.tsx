@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import {
+  Boxes,
   Clock3,
   CloudSun,
   Dices,
@@ -8,7 +9,7 @@ import {
   MoveRight,
   RotateCcw,
 } from "lucide-react";
-import { useEngine } from "./engine/useEngine";
+import { DEFAULT_MOD_INSTALL_ROOT, useEngine } from "./engine/useEngine";
 import { visibleChoices } from "./engine/demoWorld";
 import { createSampleContentPackage } from "./engine/sampleContentPackage";
 import { TraditionalView } from "./components/TraditionalView";
@@ -75,6 +76,7 @@ export const App = () => {
     lastRecovery,
     lastSave,
     lastModInstall,
+    lastInstalledMods,
     load,
     loadSlot,
     loading,
@@ -82,6 +84,7 @@ export const App = () => {
     preflightLoadSlot,
     preflightModPackageInstall,
     installModPackage,
+    refreshInstalledMods,
     recoverSlot,
     saveSlot,
     world,
@@ -250,12 +253,19 @@ export const App = () => {
               onClick={() =>
                 preflightModPackageInstall(
                   "packages/example.minimal_character-0.1.0",
-                  "mods/installed",
+                  DEFAULT_MOD_INSTALL_ROOT,
                 )
               }
               disabled={loading}
             >
               <MessageSquareText size={17} /> Mod 预检
+            </button>
+            <button
+              type="button"
+              onClick={() => refreshInstalledMods(DEFAULT_MOD_INSTALL_ROOT)}
+              disabled={loading}
+            >
+              <Boxes size={17} /> 已装 Mod
             </button>
             <div className="save-slot-panel" aria-label="save slots">
               {SAVE_SLOTS.map((slotId, index) => (
@@ -406,6 +416,38 @@ export const App = () => {
               <br />
               目标：{lastModInstall.target_root}
             </p>
+          ) : null}
+          {lastInstalledMods ? (
+            <section className="installed-mods-panel" aria-label="installed mods">
+              <h2>已安装 Mod</h2>
+              <p className="preflight-text">根目录：{lastInstalledMods.root_path}</p>
+              {lastInstalledMods.discovered.length > 0 ? (
+                <ul className="installed-mods-list">
+                  {lastInstalledMods.discovered.map((entry) => (
+                    <li key={entry.manifest.namespace}>
+                      <strong>{entry.manifest.name}</strong>
+                      <span>
+                        {entry.manifest.namespace}@{entry.manifest.version}
+                      </span>
+                      <small>{entry.root_path}</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-text">未发现已安装 Mod。</p>
+              )}
+              {lastInstalledMods.errors.length > 0 ? (
+                <ul className="mod-preflight-issues">
+                  {lastInstalledMods.errors.map((issue) => (
+                    <li key={`${issue.kind}:${issue.path}:${issue.message}`}>
+                      <strong>错误</strong>
+                      <span>{issue.message}</span>
+                      <small>{issue.path}</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
           ) : null}
           {lastRecovery ? (
             <p className="recovery-text">

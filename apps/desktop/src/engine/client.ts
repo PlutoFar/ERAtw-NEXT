@@ -863,40 +863,63 @@ const joinModPath = (root: string, sourcePath: string) => {
   return normalizedRoot ? `${normalizedRoot}/${sourcePath}` : sourcePath;
 };
 
+const isBrowserModUnderRoot = (modRoot: string, root: string) => {
+  const normalizedRoot = root.replaceAll("\\", "/").replace(/\/+$/, "");
+  const normalizedModRoot = modRoot.replaceAll("\\", "/").replace(/\/+$/, "");
+  return (
+    normalizedModRoot === normalizedRoot ||
+    normalizedModRoot.startsWith(`${normalizedRoot}/`)
+  );
+};
+
 const discoverBrowserMods = (
   root: string,
   engineVersion: string | null | undefined,
   authorizedUnsafeCapabilities: ModCapability[] = [],
+  installedRoots: Map<string, ModManifest> | null = null,
 ): ModDiscoveryReport => {
   const manifest = sampleBrowserModManifest();
-  const modRoot = joinModPath(root, "minimal-character");
-  const manifestPath = joinModPath(root, "minimal-character/manifest.json");
+  const discoveredMods =
+    installedRoots === null
+      ? new Map([[joinModPath(root, "minimal-character"), manifest]])
+      : new Map(
+          [...installedRoots.entries()].filter(([modRoot]) =>
+            isBrowserModUnderRoot(modRoot, root),
+          ),
+        );
 
-  try {
-    ensureAuthorizedCapabilities(manifest, authorizedUnsafeCapabilities);
-  } catch (error) {
-    const issue = error as ModDiscoveryReport["errors"][number];
-    return {
-      root_path: root,
-      discovered: [],
-      errors: [
-        {
-          ...issue,
-          path: manifestPath,
-        },
-      ],
-    };
+  for (const [modRoot, discoveredManifest] of discoveredMods.entries()) {
+    try {
+      ensureAuthorizedCapabilities(discoveredManifest, authorizedUnsafeCapabilities);
+    } catch (error) {
+      const issue = error as ModDiscoveryReport["errors"][number];
+      return {
+        root_path: root,
+        discovered: [],
+        errors: [
+          {
+            ...issue,
+            path: joinModPath(modRoot, "manifest.json"),
+          },
+        ],
+      };
+    }
   }
 
-  if (engineVersion && manifest.engine_version !== engineVersion) {
+  const incompatible = [...discoveredMods.entries()].find(
+    ([, discoveredManifest]) =>
+      engineVersion && discoveredManifest.engine_version !== engineVersion,
+  );
+  if (incompatible) {
+    const [modRoot, discoveredManifest] = incompatible;
     return {
       root_path: root,
       discovered: [],
       errors: [
         {
-          path: manifestPath,
+          path: joinModPath(modRoot, "manifest.json"),
           kind: "incompatible_engine_version",
-          message: `mod engine version is incompatible: ${manifest.namespace} expected ${manifest.engine_version} found ${engineVersion}`,
+          message: `mod engine version is incompatible: ${discoveredManifest.namespace} expected ${discoveredManifest.engine_version} found ${engineVersion}`,
         },
       ],
     };
@@ -904,13 +927,11 @@ const discoverBrowserMods = (
 
   return {
     root_path: root,
-    discovered: [
-      {
-        root_path: modRoot,
-        manifest_path: manifestPath,
-        manifest,
-      },
-    ],
+    discovered: [...discoveredMods.entries()].map(([modRoot, discoveredManifest]) => ({
+      root_path: modRoot,
+      manifest_path: joinModPath(modRoot, "manifest.json"),
+      manifest: discoveredManifest,
+    })),
     errors: [],
   };
 };
@@ -983,6 +1004,7 @@ const installBrowserMod = (
   installRoot: string,
   engineVersion: string | null | undefined,
   authorizedUnsafeCapabilities: ModCapability[] = [],
+  installedRoots: Map<string, ModManifest> | null = null,
 ): ModInstallReport => {
   const plan = planBrowserModInstall(
     sourceRoot,
@@ -990,6 +1012,13 @@ const installBrowserMod = (
     engineVersion,
     authorizedUnsafeCapabilities,
   );
+  if (installedRoots?.has(plan.target_root)) {
+    throw {
+      path: plan.target_root,
+      kind: "install_target_exists",
+      message: `mod install target already exists: ${plan.target_root}`,
+    };
+  }
   return {
     target_root: plan.target_root,
     manifest: plan.manifest,
@@ -1002,6 +1031,7 @@ const preflightBrowserModPackageInstall = (
   installRoot: string,
   engineVersion: string | null | undefined,
   authorizedUnsafeCapabilities: ModCapability[] = [],
+  installedRoots: Map<string, ModManifest> | null = null,
 ): ModInstallPreflightReport => {
   try {
     const plan = planBrowserModInstall(
@@ -1010,16 +1040,9 @@ const preflightBrowserModPackageInstall = (
       engineVersion,
       authorizedUnsafeCapabilities,
     );
-    return {
-      source_root: packageRoot,
-      content_root: plan.source_root,
-      install_root: plan.install_root,
-      target_root: plan.target_root,
-      staging_root: plan.staging_root,
-      manifest: plan.manifest,
-      ready: true,
-      issues: plan.manifest.resources.flatMap((resource) => {
-        const issues = collectBrowserPublishMetadataIssues(resource, {
+    const issues: ModInstallPreflightReport["issues"] =
+      plan.manifest.resources.flatMap((resource) => {
+        const resourceIssues = collectBrowserPublishMetadataIssues(resource, {
           resource_id: resource.resource_id,
           source_path: resource.source_path,
           resolved_path: joinModPath(plan.source_root, resource.source_path),
@@ -1033,7 +1056,7 @@ const preflightBrowserModPackageInstall = (
           expected_sha256: resource.sha256,
           actual_sha256: null,
         });
-        return issues.map((issue) => ({
+        return resourceIssues.map((issue) => ({
           severity: issue.severity,
           path: joinModPath(plan.source_root, issue.source_path),
           kind:
@@ -1042,7 +1065,24 @@ const preflightBrowserModPackageInstall = (
               : ("resource_publication_failed" as const),
           message: issue.message,
         }));
-      }),
+      });
+    if (installedRoots?.has(plan.target_root)) {
+      issues.push({
+        severity: "error",
+        path: plan.target_root,
+        kind: "install_target_exists",
+        message: `mod install target already exists: ${plan.target_root}`,
+      });
+    }
+    return {
+      source_root: packageRoot,
+      content_root: plan.source_root,
+      install_root: plan.install_root,
+      target_root: plan.target_root,
+      staging_root: plan.staging_root,
+      manifest: plan.manifest,
+      ready: !issues.some((issue) => issue.severity === "error"),
+      issues,
     };
   } catch (error) {
     const issue = error as ModDiscoveryReport["errors"][number];
@@ -1071,12 +1111,14 @@ const installBrowserModPackage = (
   installRoot: string,
   engineVersion: string | null | undefined,
   authorizedUnsafeCapabilities: ModCapability[] = [],
+  installedRoots: Map<string, ModManifest> | null = null,
 ): ModInstallReport => {
   const preflight = preflightBrowserModPackageInstall(
     packageRoot,
     installRoot,
     engineVersion,
     authorizedUnsafeCapabilities,
+    installedRoots,
   );
   const blockingIssue = preflight.issues.find((issue) => issue.severity === "error");
   if (!preflight.ready || blockingIssue) {
@@ -1813,6 +1855,8 @@ export const createBrowserMockEngineClient = (): EngineClient => {
   let world = createDemoWorld();
   const saves = new Map<string, SaveEnvelope>();
   const saveBackups = new Map<string, SaveEnvelope[]>();
+  const installedModRoots = new Map<string, ModManifest>();
+  const browserExampleModRoot = "examples/mods";
 
   return {
     async snapshot() {
@@ -1856,8 +1900,14 @@ export const createBrowserMockEngineClient = (): EngineClient => {
       );
     },
     async discoverMods(root, engineVersion = null, authorizedUnsafeCapabilities = []) {
+      const dynamicRoots = root === browserExampleModRoot ? null : installedModRoots;
       return structuredClone(
-        discoverBrowserMods(root, engineVersion, authorizedUnsafeCapabilities),
+        discoverBrowserMods(
+          root,
+          engineVersion,
+          authorizedUnsafeCapabilities,
+          dynamicRoots,
+        ),
       );
     },
     async planModInstall(
@@ -1881,14 +1931,15 @@ export const createBrowserMockEngineClient = (): EngineClient => {
       engineVersion = null,
       authorizedUnsafeCapabilities = [],
     ) {
-      return structuredClone(
-        installBrowserMod(
-          sourceRoot,
-          installRoot,
-          engineVersion,
-          authorizedUnsafeCapabilities,
-        ),
+      const report = installBrowserMod(
+        sourceRoot,
+        installRoot,
+        engineVersion,
+        authorizedUnsafeCapabilities,
+        installedModRoots,
       );
+      installedModRoots.set(report.target_root, report.manifest);
+      return structuredClone(report);
     },
     async preflightModPackageInstall(
       packageRoot,
@@ -1902,6 +1953,7 @@ export const createBrowserMockEngineClient = (): EngineClient => {
           installRoot,
           engineVersion,
           authorizedUnsafeCapabilities,
+          installedModRoots,
         ),
       );
     },
@@ -1911,20 +1963,23 @@ export const createBrowserMockEngineClient = (): EngineClient => {
       engineVersion = null,
       authorizedUnsafeCapabilities = [],
     ) {
-      return structuredClone(
-        installBrowserModPackage(
-          packageRoot,
-          installRoot,
-          engineVersion,
-          authorizedUnsafeCapabilities,
-        ),
+      const report = installBrowserModPackage(
+        packageRoot,
+        installRoot,
+        engineVersion,
+        authorizedUnsafeCapabilities,
+        installedModRoots,
       );
+      installedModRoots.set(report.target_root, report.manifest);
+      return structuredClone(report);
     },
     async planModUninstall(installRoot, namespace) {
       return structuredClone(planBrowserModUninstall(installRoot, namespace));
     },
     async uninstallMod(installRoot, namespace) {
-      return structuredClone(uninstallBrowserMod(installRoot, namespace));
+      const report = uninstallBrowserMod(installRoot, namespace);
+      installedModRoots.delete(report.target_root);
+      return structuredClone(report);
     },
     async planEnabledMods(
       manifests,
@@ -2005,6 +2060,7 @@ export const createBrowserMockEngineClient = (): EngineClient => {
         modRoot,
         engineVersion,
         authorizedUnsafeCapabilities,
+        modRoot === browserExampleModRoot ? null : installedModRoots,
       );
       const plan = planBrowserEnabledMods(
         discovery.discovered.map((entry) => entry.manifest),
