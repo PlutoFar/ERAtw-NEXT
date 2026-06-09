@@ -1,6 +1,7 @@
 # 内容 Schema 草案
 
-M1 schema 只定义边界和审计目标，不承诺运行时完整实现。
+M1 schema 定义边界和审计目标；其中 ContentPackage 的核心对象已经进入运行时
+MVP，其余内容仍按草案推进。
 
 ## ContentPackageManifest
 
@@ -76,7 +77,8 @@ M1 schema 只定义边界和审计目标，不承诺运行时完整实现。
 ## ContentPackage
 
 运行时内容包由 manifest 和若干已校验内容对象组成。当前 Rust `eratw_content`
-MVP 已接入 ResourceAsset、DialogueScene 与 ScheduledEvent，后续再扩展角色和地点。
+MVP 已接入 Location、Character、Relationship、ResourceAsset、DialogueScene 与
+ScheduledEvent。
 
 ```json
 {
@@ -87,6 +89,33 @@ MVP 已接入 ResourceAsset、DialogueScene 与 ScheduledEvent，后续再扩展
     "version": "0.1.0",
     "dependencies": []
   },
+  "locations": [
+    {
+      "id": "core.place.club_room",
+      "name": "社团室",
+      "ascii_symbol": "部",
+      "terrain": "interior"
+    }
+  ],
+  "characters": [
+    {
+      "id": "core.character.demo_heroine",
+      "display_name": "示例角色",
+      "location_id": "core.place.club_room",
+      "state": {
+        "energy": 80,
+        "mood": 10
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "source_character_id": "player",
+      "target_character_id": "core.character.demo_heroine",
+      "affinity": 5,
+      "trust": 0
+    }
+  ],
   "resources": [
     {
       "resource_id": "core.demo.heroine.neutral",
@@ -141,6 +170,9 @@ MVP 已接入 ResourceAsset、DialogueScene 与 ScheduledEvent，后续再扩展
 运行前检查复用。当前 issue code 覆盖：
 
 - manifest 空 namespace/package_id。
+- Location 空 ID、重复 ID、空名称、空地形。
+- Character 空 ID、重复 ID、空显示名、空位置。
+- Relationship 空双方引用、重复关系。
 - ResourceAsset 空 ID、重复 ID、空 source_path、空/unknown license、空/unknown author。
 - DialogueScene 空 ID、重复场景 ID。
 - DialogueNode 空 ID、重复节点 ID、空文本。
@@ -155,8 +187,11 @@ MVP 已接入 ResourceAsset、DialogueScene 与 ScheduledEvent，后续再扩展
 - ScheduledEvent 动作引用空角色/关系/场景 ID。
 
 `ContentPackage::install_into_world` 只接受校验干净的包，并拒绝与当前
+`WorldState.locations` / `WorldState.characters` / `WorldState.relationships` /
 `WorldState.resources` / `WorldState.dialogue_scenes` / `WorldState.scheduled_events`
-已有 ID 冲突的内容。DialogueNode 的 `resource_refs` 必须能在安装后的世界中找到；
+已有 ID 冲突的内容。Character 的位置、Relationship 的双方、DialogueNode 的说话人
+和 `resource_refs`、Choice 条件/效果引用、ScheduledEvent 条件/动作引用，都必须能在
+安装后的世界中找到；
 事件若启动对话，其 `scene_id` 必须能在安装后的世界中找到；失败时不修改输入世界。
 
 ## 规则

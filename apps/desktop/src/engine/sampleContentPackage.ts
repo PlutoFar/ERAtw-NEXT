@@ -8,15 +8,42 @@ export const createSampleContentPackage = (): ContentPackage => ({
     version: "0.1.0",
     dependencies: [],
   },
+  locations: [
+    {
+      id: "sample_studio",
+      name: "样例工房",
+      ascii_symbol: "样",
+      terrain: "interior",
+    },
+  ],
+  characters: [
+    {
+      id: "sample_guest",
+      display_name: "样例来客",
+      location_id: "sample_studio",
+      state: {
+        energy: 70,
+        mood: 8,
+      },
+    },
+  ],
+  relationships: [
+    {
+      source_character_id: "player",
+      target_character_id: "sample_guest",
+      affinity: 1,
+      trust: 0,
+    },
+  ],
   resources: [
     {
-      resource_id: "sample.event_pack.heroine.smile",
-      source_path: "assets/sample/heroine-smile.webp",
+      resource_id: "sample.event_pack.guest.smile",
+      source_path: "assets/sample/guest-smile.webp",
       media_type: "image",
       license: "project-demo",
       author: "ERAtw-NEXT",
       usage: ["portrait", "dialogue"],
-      character_bindings: ["demo_heroine"],
+      character_bindings: ["sample_guest"],
       tags: ["smile", "sample"],
       sha256: null,
     },
@@ -28,9 +55,9 @@ export const createSampleContentPackage = (): ContentPackage => ({
       nodes: [
         {
           id: "sample_event_entry",
-          speaker_id: "demo_heroine",
-          text: "这是从内容包安装进来的事件对话。它没有经过旧 ERB 执行。",
-          resource_refs: ["sample.event_pack.heroine.smile"],
+          speaker_id: "sample_guest",
+          text: "我是随内容包新增的角色。这段对话没有经过旧 ERB 执行。",
+          resource_refs: ["sample.event_pack.guest.smile"],
           choices: [
             {
               id: "acknowledge",
@@ -38,6 +65,13 @@ export const createSampleContentPackage = (): ContentPackage => ({
               next_node_id: null,
               conditions: [],
               effects: [
+                {
+                  type: "adjust_relationship",
+                  source_character_id: "player",
+                  target_character_id: "sample_guest",
+                  affinity_delta: 1,
+                  trust_delta: 1,
+                },
                 {
                   type: "add_log",
                   message: "内容包示例对话已确认。",

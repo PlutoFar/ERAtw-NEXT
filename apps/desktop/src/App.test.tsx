@@ -75,7 +75,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /休息/ }));
 
     await waitFor(() => {
-      expect(screen.getByText(/内容包安装进来的事件对话/)).toBeInTheDocument();
+      expect(screen.getByText(/随内容包新增的角色/)).toBeInTheDocument();
     });
   });
 

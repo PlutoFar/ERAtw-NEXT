@@ -77,6 +77,89 @@ const isValidResource = (resource: ContentPackage["resources"][number]) =>
   resource.author.trim() &&
   resource.author.trim() !== "unknown";
 
+const isBuiltInCharacter = (characterId: string) =>
+  characterId === "player" || characterId === "system";
+
+const hasCharacter = (characterIds: Set<string>, characterId: string) =>
+  isBuiltInCharacter(characterId) || characterIds.has(characterId);
+
+const relationshipKey = (sourceCharacterId: string, targetCharacterId: string) =>
+  `${sourceCharacterId}\u0000${targetCharacterId}`;
+
+const conditionRefsExist = (
+  condition: ContentPackage["dialogue_scenes"][number]["nodes"][number]["choices"][number]["conditions"][number],
+  characterIds: Set<string>,
+  locationIds: Set<string>,
+  relationshipIds: Set<string>,
+) => {
+  if (condition.type === "character_at_location") {
+    return (
+      hasCharacter(characterIds, condition.character_id) &&
+      locationIds.has(condition.location_id)
+    );
+  }
+
+  if (condition.type === "character_mood_at_least") {
+    return hasCharacter(characterIds, condition.character_id);
+  }
+
+  if (condition.type === "relationship_affinity_at_least") {
+    return (
+      hasCharacter(characterIds, condition.source_character_id) &&
+      hasCharacter(characterIds, condition.target_character_id) &&
+      relationshipIds.has(
+        relationshipKey(condition.source_character_id, condition.target_character_id),
+      )
+    );
+  }
+
+  return true;
+};
+
+const effectRefsExist = (
+  effect: ContentPackage["dialogue_scenes"][number]["nodes"][number]["choices"][number]["effects"][number],
+  characterIds: Set<string>,
+  relationshipIds: Set<string>,
+) => {
+  if (effect.type === "adjust_character_state") {
+    return hasCharacter(characterIds, effect.character_id);
+  }
+
+  if (effect.type === "adjust_relationship") {
+    return (
+      hasCharacter(characterIds, effect.source_character_id) &&
+      hasCharacter(characterIds, effect.target_character_id) &&
+      relationshipIds.has(
+        relationshipKey(effect.source_character_id, effect.target_character_id),
+      )
+    );
+  }
+
+  return true;
+};
+
+const scheduledKindRefsExist = (
+  event: ContentPackage["scheduled_events"][number],
+  characterIds: Set<string>,
+  relationshipIds: Set<string>,
+) => {
+  if (event.kind.type === "adjust_character_state") {
+    return hasCharacter(characterIds, event.kind.character_id);
+  }
+
+  if (event.kind.type === "adjust_relationship") {
+    return (
+      hasCharacter(characterIds, event.kind.source_character_id) &&
+      hasCharacter(characterIds, event.kind.target_character_id) &&
+      relationshipIds.has(
+        relationshipKey(event.kind.source_character_id, event.kind.target_character_id),
+      )
+    );
+  }
+
+  return true;
+};
+
 const installPackageIntoBrowserWorld = (
   world: WorldState,
   packageData: ContentPackage,
@@ -90,7 +173,59 @@ const installPackageIntoBrowserWorld = (
   }
 
   const sceneIds = new Set(world.dialogue_scenes.map((scene) => scene.id));
+  const locationIds = new Set(world.locations.map((location) => location.id));
+  const characterIds = new Set(world.characters.map((character) => character.id));
+  const relationshipIds = new Set(
+    world.relationships.map((relationship) =>
+      relationshipKey(
+        relationship.source_character_id,
+        relationship.target_character_id,
+      ),
+    ),
+  );
   const resourceIds = new Set(world.resources.map((resource) => resource.resource_id));
+
+  for (const location of packageData.locations) {
+    if (
+      !location.id.trim() ||
+      !location.name.trim() ||
+      !location.terrain.trim() ||
+      locationIds.has(location.id)
+    ) {
+      return world;
+    }
+    locationIds.add(location.id);
+  }
+
+  for (const character of packageData.characters) {
+    if (
+      !character.id.trim() ||
+      !character.display_name.trim() ||
+      !character.location_id.trim() ||
+      characterIds.has(character.id) ||
+      !locationIds.has(character.location_id)
+    ) {
+      return world;
+    }
+    characterIds.add(character.id);
+  }
+
+  for (const relationship of packageData.relationships) {
+    const key = relationshipKey(
+      relationship.source_character_id,
+      relationship.target_character_id,
+    );
+    if (
+      !relationship.source_character_id.trim() ||
+      !relationship.target_character_id.trim() ||
+      !hasCharacter(characterIds, relationship.source_character_id) ||
+      !hasCharacter(characterIds, relationship.target_character_id) ||
+      relationshipIds.has(key)
+    ) {
+      return world;
+    }
+    relationshipIds.add(key);
+  }
 
   for (const resource of packageData.resources) {
     if (!isValidResource(resource) || resourceIds.has(resource.resource_id)) {
@@ -104,8 +239,24 @@ const installPackageIntoBrowserWorld = (
       return world;
     }
     for (const node of scene.nodes) {
-      if (node.resource_refs.some((resourceId) => !resourceIds.has(resourceId))) {
+      if (
+        !hasCharacter(characterIds, node.speaker_id) ||
+        node.resource_refs.some((resourceId) => !resourceIds.has(resourceId))
+      ) {
         return world;
+      }
+      for (const choice of node.choices) {
+        if (
+          choice.conditions.some(
+            (condition) =>
+              !conditionRefsExist(condition, characterIds, locationIds, relationshipIds),
+          ) ||
+          choice.effects.some(
+            (effect) => !effectRefsExist(effect, characterIds, relationshipIds),
+          )
+        ) {
+          return world;
+        }
       }
     }
     sceneIds.add(scene.id);
@@ -116,7 +267,14 @@ const installPackageIntoBrowserWorld = (
     if (!isValidScheduledEvent(event) || eventIds.has(event.id)) {
       return world;
     }
-    if (event.kind.type === "start_dialogue" && !sceneIds.has(event.kind.scene_id)) {
+    if (
+      event.conditions.some(
+        (condition) =>
+          !conditionRefsExist(condition, characterIds, locationIds, relationshipIds),
+      ) ||
+      !scheduledKindRefsExist(event, characterIds, relationshipIds) ||
+      (event.kind.type === "start_dialogue" && !sceneIds.has(event.kind.scene_id))
+    ) {
       return world;
     }
     eventIds.add(event.id);
@@ -124,6 +282,12 @@ const installPackageIntoBrowserWorld = (
 
   return {
     ...world,
+    locations: [...world.locations, ...structuredClone(packageData.locations)],
+    characters: [...world.characters, ...structuredClone(packageData.characters)],
+    relationships: [
+      ...world.relationships,
+      ...structuredClone(packageData.relationships),
+    ],
     resources: [...world.resources, ...structuredClone(packageData.resources)].sort(
       (left, right) => left.resource_id.localeCompare(right.resource_id),
     ),

@@ -196,6 +196,9 @@ export interface ContentPackageManifest {
 
 export interface ContentPackage {
   manifest: ContentPackageManifest;
+  locations: Location[];
+  characters: Character[];
+  relationships: Relationship[];
   resources: ResourceAsset[];
   dialogue_scenes: DialogueScene[];
   scheduled_events: ScheduledEvent[];

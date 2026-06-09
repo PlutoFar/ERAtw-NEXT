@@ -1,5 +1,6 @@
 use eratw_engine::{
-    DialogueCondition, DialogueScene, ResourceAsset, ScheduledEvent, ScheduledEventKind, WorldState,
+    Character, DialogueCondition, DialogueEffect, DialogueScene, Location, Relationship,
+    ResourceAsset, ScheduledEvent, ScheduledEventKind, WorldState,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, VecDeque};
@@ -32,6 +33,12 @@ impl ContentPackageManifest {
 pub struct ContentPackage {
     pub manifest: ContentPackageManifest,
     #[serde(default)]
+    pub locations: Vec<Location>,
+    #[serde(default)]
+    pub characters: Vec<Character>,
+    #[serde(default)]
+    pub relationships: Vec<Relationship>,
+    #[serde(default)]
     pub resources: Vec<ResourceAsset>,
     #[serde(default)]
     pub dialogue_scenes: Vec<DialogueScene>,
@@ -44,6 +51,9 @@ impl ContentPackage {
         let mut report = ContentValidationReport::default();
 
         validate_manifest(&self.manifest, &mut report)?;
+        validate_locations(&self.locations, &mut report);
+        validate_characters(&self.characters, &mut report);
+        validate_relationships(&self.relationships, &mut report);
         validate_resources(&self.resources, &mut report);
         validate_dialogue_scenes(&self.dialogue_scenes, &mut report);
         validate_scheduled_events(&self.scheduled_events, &mut report);
@@ -60,8 +70,12 @@ impl ContentPackage {
             return Err(ContentInstallError::ValidationFailed(report));
         }
 
+        merge_locations(&mut world, self.locations.clone())?;
+        merge_characters(&mut world, self.characters.clone())?;
+        merge_relationships(&mut world, self.relationships.clone())?;
         merge_resources(&mut world, self.resources.clone())?;
-        ensure_dialogue_resource_refs_exist(&world, &self.dialogue_scenes)?;
+        ensure_world_references_exist(&world)?;
+        ensure_dialogue_references_exist(&world, &self.dialogue_scenes)?;
         merge_dialogue_scenes(&mut world, self.dialogue_scenes.clone())?;
         merge_scheduled_events(&mut world, self.scheduled_events.clone())?;
         world.event_log.push(format!(
@@ -101,6 +115,16 @@ pub struct ContentIssue {
 pub enum ContentIssueCode {
     EmptyPackageId,
     EmptyNamespace,
+    EmptyLocationId,
+    DuplicateLocationId,
+    EmptyLocationName,
+    EmptyLocationTerrain,
+    EmptyCharacterId,
+    DuplicateCharacterId,
+    EmptyCharacterName,
+    EmptyCharacterLocation,
+    EmptyRelationshipReference,
+    DuplicateRelationship,
     EmptyResourceId,
     DuplicateResourceId,
     EmptyResourcePath,
@@ -140,8 +164,30 @@ pub enum ContentInstallError {
     DuplicateDialogueScene(String),
     #[error("scheduled event already exists: {0}")]
     DuplicateScheduledEvent(String),
+    #[error("location already exists: {0}")]
+    DuplicateLocation(String),
+    #[error("character already exists: {0}")]
+    DuplicateCharacter(String),
+    #[error("relationship already exists: {source_character_id} -> {target_character_id}")]
+    DuplicateRelationship {
+        source_character_id: String,
+        target_character_id: String,
+    },
     #[error("resource already exists: {0}")]
     DuplicateResource(String),
+    #[error("location reference is missing: {target} -> {location_id}")]
+    MissingLocationReference { target: String, location_id: String },
+    #[error("character reference is missing: {target} -> {character_id}")]
+    MissingCharacterReference {
+        target: String,
+        character_id: String,
+    },
+    #[error("relationship reference is missing: {target} -> {source_character_id} -> {target_character_id}")]
+    MissingRelationshipReference {
+        target: String,
+        source_character_id: String,
+        target_character_id: String,
+    },
     #[error("dialogue resource is missing: {node_id} -> {resource_id}")]
     MissingDialogueResource {
         node_id: String,
@@ -176,6 +222,80 @@ fn validate_manifest(
     }
 
     Ok(())
+}
+
+fn validate_locations(locations: &[Location], report: &mut ContentValidationReport) {
+    let mut location_ids = BTreeSet::new();
+
+    for location in locations {
+        let target = if location.id.trim().is_empty() {
+            "location".to_string()
+        } else {
+            location.id.clone()
+        };
+
+        if location.id.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyLocationId, "location");
+        } else if !location_ids.insert(location.id.as_str()) {
+            report.push(ContentIssueCode::DuplicateLocationId, &location.id);
+        }
+
+        if location.name.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyLocationName, &target);
+        }
+
+        if location.terrain.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyLocationTerrain, &target);
+        }
+    }
+}
+
+fn validate_characters(characters: &[Character], report: &mut ContentValidationReport) {
+    let mut character_ids = BTreeSet::new();
+
+    for character in characters {
+        let target = if character.id.trim().is_empty() {
+            "character".to_string()
+        } else {
+            character.id.clone()
+        };
+
+        if character.id.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyCharacterId, "character");
+        } else if !character_ids.insert(character.id.as_str()) {
+            report.push(ContentIssueCode::DuplicateCharacterId, &character.id);
+        }
+
+        if character.display_name.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyCharacterName, &target);
+        }
+
+        if character.location_id.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyCharacterLocation, &target);
+        }
+    }
+}
+
+fn validate_relationships(relationships: &[Relationship], report: &mut ContentValidationReport) {
+    let mut relationship_ids = BTreeSet::new();
+
+    for relationship in relationships {
+        let target = format!(
+            "{}->{}",
+            relationship.source_character_id, relationship.target_character_id
+        );
+
+        if relationship.source_character_id.trim().is_empty()
+            || relationship.target_character_id.trim().is_empty()
+        {
+            report.push(ContentIssueCode::EmptyRelationshipReference, &target);
+        } else if !relationship_ids.insert((
+            relationship.source_character_id.as_str(),
+            relationship.target_character_id.as_str(),
+        )) {
+            report.push(ContentIssueCode::DuplicateRelationship, target);
+        }
+    }
 }
 
 fn validate_resources(resources: &[ResourceAsset], report: &mut ContentValidationReport) {
@@ -360,7 +480,39 @@ fn unreachable_dialogue_nodes(scene: &DialogueScene) -> Vec<String> {
         .collect()
 }
 
-fn ensure_dialogue_resource_refs_exist(
+fn ensure_world_references_exist(world: &WorldState) -> Result<(), ContentInstallError> {
+    for character in &world.characters {
+        if !location_exists(world, &character.location_id) {
+            return Err(ContentInstallError::MissingLocationReference {
+                target: format!("character:{}", character.id),
+                location_id: character.location_id.clone(),
+            });
+        }
+    }
+
+    for relationship in &world.relationships {
+        ensure_character_ref_exists(
+            world,
+            &format!(
+                "relationship:{}->{}",
+                relationship.source_character_id, relationship.target_character_id
+            ),
+            &relationship.source_character_id,
+        )?;
+        ensure_character_ref_exists(
+            world,
+            &format!(
+                "relationship:{}->{}",
+                relationship.source_character_id, relationship.target_character_id
+            ),
+            &relationship.target_character_id,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn ensure_dialogue_references_exist(
     world: &WorldState,
     scenes: &[DialogueScene],
 ) -> Result<(), ContentInstallError> {
@@ -372,6 +524,12 @@ fn ensure_dialogue_resource_refs_exist(
 
     for scene in scenes {
         for node in &scene.nodes {
+            ensure_character_ref_exists(
+                world,
+                &format!("dialogue:{}:{}", scene.id, node.id),
+                &node.speaker_id,
+            )?;
+
             for resource_id in &node.resource_refs {
                 if !resource_ids.contains(resource_id.as_str()) {
                     return Err(ContentInstallError::MissingDialogueResource {
@@ -380,9 +538,240 @@ fn ensure_dialogue_resource_refs_exist(
                     });
                 }
             }
+
+            for choice in &node.choices {
+                let choice_target = format!("dialogue:{}:{}:{}", scene.id, node.id, choice.id);
+                for condition in &choice.conditions {
+                    ensure_dialogue_condition_refs_exist(world, &choice_target, condition)?;
+                }
+
+                for effect in &choice.effects {
+                    ensure_dialogue_effect_refs_exist(world, &choice_target, effect)?;
+                }
+            }
         }
     }
 
+    Ok(())
+}
+
+fn ensure_dialogue_condition_refs_exist(
+    world: &WorldState,
+    target: &str,
+    condition: &DialogueCondition,
+) -> Result<(), ContentInstallError> {
+    match condition {
+        DialogueCondition::CharacterAtLocation {
+            character_id,
+            location_id,
+        } => {
+            ensure_character_ref_exists(world, target, character_id)?;
+            ensure_location_ref_exists(world, target, location_id)?;
+        }
+        DialogueCondition::CharacterMoodAtLeast { character_id, .. } => {
+            ensure_character_ref_exists(world, target, character_id)?;
+        }
+        DialogueCondition::RelationshipAffinityAtLeast {
+            source_character_id,
+            target_character_id,
+            ..
+        } => {
+            ensure_relationship_ref_exists(
+                world,
+                target,
+                source_character_id,
+                target_character_id,
+            )?;
+        }
+        DialogueCondition::WeatherIs { .. } | DialogueCondition::TimeAtLeast { .. } => {}
+    }
+
+    Ok(())
+}
+
+fn ensure_dialogue_effect_refs_exist(
+    world: &WorldState,
+    target: &str,
+    effect: &DialogueEffect,
+) -> Result<(), ContentInstallError> {
+    match effect {
+        DialogueEffect::AdjustCharacterState { character_id, .. } => {
+            ensure_character_ref_exists(world, target, character_id)?;
+        }
+        DialogueEffect::AdjustRelationship {
+            source_character_id,
+            target_character_id,
+            ..
+        } => {
+            ensure_relationship_ref_exists(
+                world,
+                target,
+                source_character_id,
+                target_character_id,
+            )?;
+        }
+        DialogueEffect::ChangeWeather { .. } | DialogueEffect::AddLog { .. } => {}
+    }
+
+    Ok(())
+}
+
+fn ensure_scheduled_event_refs_exist(
+    world: &WorldState,
+    event: &ScheduledEvent,
+) -> Result<(), ContentInstallError> {
+    let target = format!("scheduled_event:{}", event.id);
+
+    for condition in &event.conditions {
+        ensure_dialogue_condition_refs_exist(world, &target, condition)?;
+    }
+
+    match &event.kind {
+        ScheduledEventKind::ChangeWeather { .. } => {}
+        ScheduledEventKind::StartDialogue { .. } => {}
+        ScheduledEventKind::AdjustRelationship {
+            source_character_id,
+            target_character_id,
+            ..
+        } => {
+            ensure_relationship_ref_exists(
+                world,
+                &target,
+                source_character_id,
+                target_character_id,
+            )?;
+        }
+        ScheduledEventKind::AdjustCharacterState { character_id, .. } => {
+            ensure_character_ref_exists(world, &target, character_id)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_character_ref_exists(
+    world: &WorldState,
+    target: &str,
+    character_id: &str,
+) -> Result<(), ContentInstallError> {
+    if character_exists(world, character_id) {
+        Ok(())
+    } else {
+        Err(ContentInstallError::MissingCharacterReference {
+            target: target.to_string(),
+            character_id: character_id.to_string(),
+        })
+    }
+}
+
+fn ensure_location_ref_exists(
+    world: &WorldState,
+    target: &str,
+    location_id: &str,
+) -> Result<(), ContentInstallError> {
+    if location_exists(world, location_id) {
+        Ok(())
+    } else {
+        Err(ContentInstallError::MissingLocationReference {
+            target: target.to_string(),
+            location_id: location_id.to_string(),
+        })
+    }
+}
+
+fn ensure_relationship_ref_exists(
+    world: &WorldState,
+    target: &str,
+    source_character_id: &str,
+    target_character_id: &str,
+) -> Result<(), ContentInstallError> {
+    ensure_character_ref_exists(world, target, source_character_id)?;
+    ensure_character_ref_exists(world, target, target_character_id)?;
+
+    if world.relationships.iter().any(|relationship| {
+        relationship.source_character_id == source_character_id
+            && relationship.target_character_id == target_character_id
+    }) {
+        Ok(())
+    } else {
+        Err(ContentInstallError::MissingRelationshipReference {
+            target: target.to_string(),
+            source_character_id: source_character_id.to_string(),
+            target_character_id: target_character_id.to_string(),
+        })
+    }
+}
+
+fn character_exists(world: &WorldState, character_id: &str) -> bool {
+    matches!(character_id, "player" | "system")
+        || world
+            .characters
+            .iter()
+            .any(|character| character.id == character_id)
+}
+
+fn location_exists(world: &WorldState, location_id: &str) -> bool {
+    world
+        .locations
+        .iter()
+        .any(|location| location.id == location_id)
+}
+
+fn merge_locations(
+    world: &mut WorldState,
+    locations: Vec<Location>,
+) -> Result<(), ContentInstallError> {
+    for location in &locations {
+        if world
+            .locations
+            .iter()
+            .any(|existing| existing.id == location.id)
+        {
+            return Err(ContentInstallError::DuplicateLocation(location.id.clone()));
+        }
+    }
+
+    world.locations.extend(locations);
+    Ok(())
+}
+
+fn merge_characters(
+    world: &mut WorldState,
+    characters: Vec<Character>,
+) -> Result<(), ContentInstallError> {
+    for character in &characters {
+        if world
+            .characters
+            .iter()
+            .any(|existing| existing.id == character.id)
+        {
+            return Err(ContentInstallError::DuplicateCharacter(
+                character.id.clone(),
+            ));
+        }
+    }
+
+    world.characters.extend(characters);
+    Ok(())
+}
+
+fn merge_relationships(
+    world: &mut WorldState,
+    relationships: Vec<Relationship>,
+) -> Result<(), ContentInstallError> {
+    for relationship in &relationships {
+        if world.relationships.iter().any(|existing| {
+            existing.source_character_id == relationship.source_character_id
+                && existing.target_character_id == relationship.target_character_id
+        }) {
+            return Err(ContentInstallError::DuplicateRelationship {
+                source_character_id: relationship.source_character_id.clone(),
+                target_character_id: relationship.target_character_id.clone(),
+            });
+        }
+    }
+
+    world.relationships.extend(relationships);
     Ok(())
 }
 
@@ -519,6 +908,8 @@ fn merge_scheduled_events(
                 });
             }
         }
+
+        ensure_scheduled_event_refs_exist(world, event)?;
     }
 
     world.scheduled_events.extend(events);
@@ -543,8 +934,8 @@ fn scheduled_event_absolute_minute(event: &ScheduledEvent) -> u64 {
 mod tests {
     use super::*;
     use eratw_engine::{
-        DialogueChoice, DialogueCondition, DialogueEffect, DialogueNode, ScheduledRepeat,
-        ScheduledTime, Weather,
+        CharacterState, DialogueChoice, DialogueCondition, DialogueEffect, DialogueNode,
+        ScheduledRepeat, ScheduledTime, Weather,
     };
 
     #[test]
@@ -624,6 +1015,9 @@ mod tests {
     fn manifest_validation_reports_empty_ids() {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("", ""),
+            locations: Vec::new(),
+            characters: Vec::new(),
+            relationships: Vec::new(),
             resources: Vec::new(),
             dialogue_scenes: Vec::new(),
             scheduled_events: Vec::new(),
@@ -755,9 +1149,86 @@ mod tests {
 
         let package: ContentPackage = serde_json::from_value(value).unwrap();
 
+        assert!(package.locations.is_empty());
+        assert!(package.characters.is_empty());
+        assert!(package.relationships.is_empty());
         assert!(package.resources.is_empty());
         assert!(package.dialogue_scenes.is_empty());
         assert!(package.scheduled_events.is_empty());
+    }
+
+    #[test]
+    fn world_entity_validation_reports_invalid_package_entities() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.entities"),
+            locations: vec![
+                Location {
+                    id: "new_place".to_string(),
+                    name: "".to_string(),
+                    ascii_symbol: '新',
+                    terrain: "".to_string(),
+                },
+                Location {
+                    id: "new_place".to_string(),
+                    name: "重复地点".to_string(),
+                    ascii_symbol: '重',
+                    terrain: "interior".to_string(),
+                },
+            ],
+            characters: vec![
+                Character {
+                    id: "new_character".to_string(),
+                    display_name: "".to_string(),
+                    location_id: "".to_string(),
+                    state: character_state(),
+                },
+                Character {
+                    id: "new_character".to_string(),
+                    display_name: "重复角色".to_string(),
+                    location_id: "new_place".to_string(),
+                    state: character_state(),
+                },
+            ],
+            relationships: vec![
+                Relationship {
+                    source_character_id: "player".to_string(),
+                    target_character_id: "".to_string(),
+                    affinity: 0,
+                    trust: 0,
+                },
+                Relationship {
+                    source_character_id: "player".to_string(),
+                    target_character_id: "new_character".to_string(),
+                    affinity: 0,
+                    trust: 0,
+                },
+                Relationship {
+                    source_character_id: "player".to_string(),
+                    target_character_id: "new_character".to_string(),
+                    affinity: 1,
+                    trust: 1,
+                },
+            ],
+            resources: Vec::new(),
+            dialogue_scenes: Vec::new(),
+            scheduled_events: Vec::new(),
+        };
+
+        let report = package.validate().unwrap();
+
+        assert_eq!(
+            issue_codes(&report),
+            vec![
+                ContentIssueCode::EmptyLocationName,
+                ContentIssueCode::EmptyLocationTerrain,
+                ContentIssueCode::DuplicateLocationId,
+                ContentIssueCode::EmptyCharacterName,
+                ContentIssueCode::EmptyCharacterLocation,
+                ContentIssueCode::DuplicateCharacterId,
+                ContentIssueCode::EmptyRelationshipReference,
+                ContentIssueCode::DuplicateRelationship,
+            ]
+        );
     }
 
     #[test]
@@ -766,6 +1237,9 @@ mod tests {
         node.resource_refs = vec!["".to_string()];
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.assets"),
+            locations: Vec::new(),
+            characters: Vec::new(),
+            relationships: Vec::new(),
             resources: vec![
                 ResourceAsset {
                     resource_id: "portrait".to_string(),
@@ -891,6 +1365,9 @@ mod tests {
         node.resource_refs = vec!["core.assets.heroine.smile".to_string()];
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.assets"),
+            locations: Vec::new(),
+            characters: Vec::new(),
+            relationships: Vec::new(),
             resources: vec![resource_asset("core.assets.heroine.smile")],
             dialogue_scenes: vec![DialogueScene {
                 id: "scene.asset".to_string(),
@@ -919,11 +1396,151 @@ mod tests {
     }
 
     #[test]
+    fn clean_package_installs_locations_characters_and_relationships() {
+        let mut node = node_with_choice("entry", None);
+        node.speaker_id = "sample_character".to_string();
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("sample", "sample.character"),
+            locations: vec![location("sample_room")],
+            characters: vec![character("sample_character", "sample_room")],
+            relationships: vec![Relationship {
+                source_character_id: "player".to_string(),
+                target_character_id: "sample_character".to_string(),
+                affinity: 3,
+                trust: 1,
+            }],
+            resources: Vec::new(),
+            dialogue_scenes: vec![DialogueScene {
+                id: "sample_character_intro".to_string(),
+                entry_node_id: "entry".to_string(),
+                nodes: vec![node],
+            }],
+            scheduled_events: Vec::new(),
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let installed = package.install_into_world(world).unwrap();
+
+        assert!(installed
+            .locations
+            .iter()
+            .any(|location| location.id == "sample_room"));
+        assert!(installed
+            .characters
+            .iter()
+            .any(|character| character.id == "sample_character"));
+        assert!(installed.relationships.iter().any(|relationship| {
+            relationship.source_character_id == "player"
+                && relationship.target_character_id == "sample_character"
+        }));
+        assert!(installed
+            .dialogue_scenes
+            .iter()
+            .any(|scene| scene.id == "sample_character_intro"));
+    }
+
+    #[test]
+    fn install_rejects_character_missing_location_transactionally() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("sample", "sample.bad-character"),
+            locations: Vec::new(),
+            characters: vec![character("sample_character", "missing_room")],
+            relationships: Vec::new(),
+            resources: Vec::new(),
+            dialogue_scenes: Vec::new(),
+            scheduled_events: Vec::new(),
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let result = package.install_into_world(world.clone());
+
+        assert_eq!(
+            result,
+            Err(ContentInstallError::MissingLocationReference {
+                target: "character:sample_character".to_string(),
+                location_id: "missing_room".to_string(),
+            })
+        );
+        assert_eq!(
+            world.characters.len(),
+            WorldState::bootstrap_demo().characters.len()
+        );
+    }
+
+    #[test]
+    fn install_rejects_duplicate_world_entity_ids() {
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("sample", "sample.duplicates"),
+            locations: vec![location("school_gate")],
+            characters: Vec::new(),
+            relationships: Vec::new(),
+            resources: Vec::new(),
+            dialogue_scenes: Vec::new(),
+            scheduled_events: Vec::new(),
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let result = package.install_into_world(world);
+
+        assert_eq!(
+            result,
+            Err(ContentInstallError::DuplicateLocation(
+                "school_gate".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn install_rejects_dialogue_effect_missing_relationship() {
+        let mut node = node_with_choice("entry", None);
+        node.choices = vec![DialogueChoice {
+            id: "missing_relationship".to_string(),
+            label: "缺少关系".to_string(),
+            next_node_id: None,
+            conditions: Vec::new(),
+            effects: vec![DialogueEffect::AdjustRelationship {
+                source_character_id: "player".to_string(),
+                target_character_id: "sample_character".to_string(),
+                affinity_delta: 1,
+                trust_delta: 1,
+            }],
+        }];
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("sample", "sample.missing-relationship"),
+            locations: vec![location("sample_room")],
+            characters: vec![character("sample_character", "sample_room")],
+            relationships: Vec::new(),
+            resources: Vec::new(),
+            dialogue_scenes: vec![DialogueScene {
+                id: "sample_relationship_scene".to_string(),
+                entry_node_id: "entry".to_string(),
+                nodes: vec![node],
+            }],
+            scheduled_events: Vec::new(),
+        };
+        let world = WorldState::bootstrap_demo();
+
+        let result = package.install_into_world(world);
+
+        assert_eq!(
+            result,
+            Err(ContentInstallError::MissingRelationshipReference {
+                target: "dialogue:sample_relationship_scene:entry:missing_relationship".to_string(),
+                source_character_id: "player".to_string(),
+                target_character_id: "sample_character".to_string(),
+            })
+        );
+    }
+
+    #[test]
     fn install_rejects_missing_dialogue_resource_ref_transactionally() {
         let mut node = node_with_choice("entry", None);
         node.resource_refs = vec!["missing.resource".to_string()];
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.missing-asset"),
+            locations: Vec::new(),
+            characters: Vec::new(),
+            relationships: Vec::new(),
             resources: Vec::new(),
             dialogue_scenes: vec![DialogueScene {
                 id: "scene.asset".to_string(),
@@ -953,6 +1570,9 @@ mod tests {
     fn install_rejects_existing_resource_id() {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.duplicate-asset"),
+            locations: Vec::new(),
+            characters: Vec::new(),
+            relationships: Vec::new(),
             resources: vec![resource_asset("core.demo.heroine.neutral")],
             dialogue_scenes: Vec::new(),
             scheduled_events: Vec::new(),
@@ -1024,6 +1644,9 @@ mod tests {
     ) -> ContentPackage {
         ContentPackage {
             manifest: ContentPackageManifest::new("core", package_id),
+            locations: Vec::new(),
+            characters: Vec::new(),
+            relationships: Vec::new(),
             resources: Vec::new(),
             dialogue_scenes,
             scheduled_events,
@@ -1098,6 +1721,31 @@ mod tests {
             character_bindings: vec!["demo_heroine".to_string()],
             tags: vec!["smile".to_string()],
             sha256: None,
+        }
+    }
+
+    fn location(id: &str) -> Location {
+        Location {
+            id: id.to_string(),
+            name: "新增地点".to_string(),
+            ascii_symbol: '新',
+            terrain: "interior".to_string(),
+        }
+    }
+
+    fn character(id: &str, location_id: &str) -> Character {
+        Character {
+            id: id.to_string(),
+            display_name: "新增角色".to_string(),
+            location_id: location_id.to_string(),
+            state: character_state(),
+        }
+    }
+
+    fn character_state() -> CharacterState {
+        CharacterState {
+            energy: 70,
+            mood: 0,
         }
     }
 }
