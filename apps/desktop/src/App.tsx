@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
-import { Clock3, CloudSun, MessageSquareText, MoveRight } from "lucide-react";
+import { Clock3, CloudSun, Dices, MessageSquareText, MoveRight } from "lucide-react";
 import { useEngine } from "./engine/useEngine";
 import { ModernMap } from "./components/ModernMap";
 import { TraditionalView } from "./components/TraditionalView";
@@ -78,6 +78,7 @@ export const App = () => {
             {weatherLabels[world.clock.weather]}
           </span>
           <span>{formatScheduledEventTime(world)}</span>
+          <span>RNG {world.random.cursor}</span>
           <span>{currentLocation?.name ?? "未知地点"}</span>
         </div>
       </header>
@@ -146,6 +147,20 @@ export const App = () => {
               disabled={loading}
             >
               <MessageSquareText size={17} /> 对话
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                dispatch({
+                  type: "roll_character_mood",
+                  character_id: character.id,
+                  min_delta: -5,
+                  max_delta: 5,
+                })
+              }
+              disabled={loading}
+            >
+              <Dices size={17} /> 随机心情
             </button>
             <button
               type="button"

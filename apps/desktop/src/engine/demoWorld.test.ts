@@ -80,6 +80,45 @@ describe("demo engine adapter", () => {
     });
   });
 
+  it("rolls character mood from explicit rng state", () => {
+    const first = applyDemoCommand(createDemoWorld(), {
+      type: "roll_character_mood",
+      character_id: "demo_heroine",
+      min_delta: -5,
+      max_delta: 5,
+    });
+    const second = applyDemoCommand(createDemoWorld(), {
+      type: "roll_character_mood",
+      character_id: "demo_heroine",
+      min_delta: -5,
+      max_delta: 5,
+    });
+
+    expect(first).toEqual(second);
+    expect(first.random.cursor).toBe("1");
+    expect(first.characters[0].state.mood).toBeGreaterThanOrEqual(5);
+    expect(first.characters[0].state.mood).toBeLessThanOrEqual(15);
+    expect(first.command_log[0]).toEqual({
+      type: "roll_character_mood",
+      character_id: "demo_heroine",
+      min_delta: -5,
+      max_delta: 5,
+    });
+  });
+
+  it("rejects invalid random commands without consuming rng state", () => {
+    const world = applyDemoCommand(createDemoWorld(), {
+      type: "roll_character_mood",
+      character_id: "demo_heroine",
+      min_delta: 5,
+      max_delta: -5,
+    });
+
+    expect(world.random.cursor).toBe("0");
+    expect(world.command_log).toHaveLength(0);
+    expect(world.characters[0].state.mood).toBe(10);
+  });
+
   it("creates a browser save preview envelope", async () => {
     const client = createBrowserMockEngineClient();
 

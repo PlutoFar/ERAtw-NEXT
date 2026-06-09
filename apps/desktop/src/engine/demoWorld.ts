@@ -18,6 +18,41 @@ const weatherLabels: Record<Weather, string> = {
   snow: "雪",
 };
 
+const DEMO_RNG_SEED = "1163026804";
+const U64_MASK = 0xffff_ffff_ffff_ffffn;
+const U64_SPACE = 1n << 64n;
+
+const splitmix64 = (value: bigint) => {
+  let next = (value + 0x9e37_79b9_7f4a_7c15n) & U64_MASK;
+  next = ((next ^ (next >> 30n)) * 0xbf58_476d_1ce4_e5b9n) & U64_MASK;
+  next = ((next ^ (next >> 27n)) * 0x94d0_49bb_1331_11ebn) & U64_MASK;
+  return (next ^ (next >> 31n)) & U64_MASK;
+};
+
+const nextRandomU64 = (world: WorldState) => {
+  const cursor = BigInt(world.random.cursor);
+  const value = splitmix64(BigInt(world.random.seed) + cursor);
+  world.random.cursor = (cursor + 1n).toString();
+  return value;
+};
+
+const nextBoundedRandom = (world: WorldState, upperExclusive: bigint) => {
+  const zone = (U64_SPACE / upperExclusive) * upperExclusive;
+
+  while (true) {
+    const value = nextRandomU64(world);
+    if (value < zone) {
+      return value % upperExclusive;
+    }
+  }
+};
+
+const rollInclusive = (world: WorldState, min: number, max: number) => {
+  const span = BigInt(max - min + 1);
+  const offset = Number(nextBoundedRandom(world, span));
+  return min + offset;
+};
+
 const absoluteMinute = (time: ScheduledTime) =>
   Math.max(0, time.day - 1) * 1440 + time.hour * 60 + time.minute;
 
@@ -151,6 +186,10 @@ export const createDemoWorld = (): WorldState => ({
       },
     },
   ],
+  random: {
+    seed: DEMO_RNG_SEED,
+    cursor: "0",
+  },
   command_log: [],
   event_log: ["ERAtw-NEXT M0 engine ready."],
 });
@@ -340,6 +379,27 @@ export const applyDemoCommand = (
     return chooseDialogue(next, command.node_id, command.choice_id)
       ? recordCommand(next, command)
       : next;
+  }
+
+  if (command.type === "roll_character_mood") {
+    const character = next.characters.find(
+      (item) => item.id === command.character_id,
+    );
+    if (!character || command.min_delta > command.max_delta) {
+      return next;
+    }
+
+    const delta = rollInclusive(next, command.min_delta, command.max_delta);
+    character.state.mood = clamp(character.state.mood + delta, -100, 100);
+    next.event_log = [
+      `${character.display_name} 心情随机变化 ${delta >= 0 ? "+" : ""}${delta}（范围 ${
+        command.min_delta >= 0 ? "+" : ""
+      }${command.min_delta}..=${command.max_delta >= 0 ? "+" : ""}${
+        command.max_delta
+      }）。`,
+      ...next.event_log,
+    ];
+    return recordCommand(next, command);
   }
 
   if (command.type === "schedule_event") {

@@ -34,6 +34,11 @@ export interface Character {
   state: CharacterState;
 }
 
+export interface WorldRandom {
+  seed: string;
+  cursor: string;
+}
+
 export interface DialogueNode {
   id: string;
   speaker_id: string;
@@ -89,6 +94,7 @@ export interface WorldState {
   active_dialogue_scene_id: string | null;
   active_dialogue: DialogueNode[];
   scheduled_events: ScheduledEvent[];
+  random: WorldRandom;
   command_log: EngineCommand[];
   event_log: string[];
 }
@@ -118,4 +124,10 @@ export type EngineCommand =
   | { type: "move_character"; character_id: string; location_id: string }
   | { type: "start_dialogue"; scene_id: string }
   | { type: "choose_dialogue"; node_id: string; choice_id: string }
+  | {
+      type: "roll_character_mood";
+      character_id: string;
+      min_delta: number;
+      max_delta: number;
+    }
   | { type: "schedule_event"; event: ScheduledEvent };

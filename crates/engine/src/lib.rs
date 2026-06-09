@@ -4,6 +4,7 @@ use thiserror::Error;
 pub mod save;
 
 pub const ENGINE_VERSION: &str = "0.1.0-m0";
+pub const DEMO_RNG_SEED: u64 = 0x4552_4174;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -89,6 +90,50 @@ pub struct Character {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorldRandom {
+    #[serde(with = "u64_string")]
+    pub seed: u64,
+    #[serde(with = "u64_string")]
+    pub cursor: u64,
+}
+
+impl Default for WorldRandom {
+    fn default() -> Self {
+        Self {
+            seed: DEMO_RNG_SEED,
+            cursor: 0,
+        }
+    }
+}
+
+impl WorldRandom {
+    fn next_u64(&mut self) -> u64 {
+        let value = splitmix64(self.seed.wrapping_add(self.cursor));
+        self.cursor = self.cursor.wrapping_add(1);
+        value
+    }
+
+    fn next_bounded_u64(&mut self, upper_exclusive: u64) -> u64 {
+        debug_assert!(upper_exclusive > 0);
+        let sample_space = u128::from(u64::MAX) + 1;
+        let zone = sample_space / u128::from(upper_exclusive) * u128::from(upper_exclusive);
+
+        loop {
+            let value = u128::from(self.next_u64());
+            if value < zone {
+                return (value % u128::from(upper_exclusive)) as u64;
+            }
+        }
+    }
+
+    fn roll_i16_inclusive(&mut self, min: i16, max: i16) -> i16 {
+        let span = i64::from(max) - i64::from(min) + 1;
+        let offset = self.next_bounded_u64(span as u64) as i64;
+        (i64::from(min) + offset) as i16
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DialogueNode {
     pub id: String,
     pub speaker_id: String,
@@ -160,6 +205,8 @@ pub struct WorldState {
     pub active_dialogue_scene_id: Option<String>,
     pub active_dialogue: Vec<DialogueNode>,
     pub scheduled_events: Vec<ScheduledEvent>,
+    #[serde(default)]
+    pub random: WorldRandom,
     pub command_log: Vec<EngineCommand>,
     pub event_log: Vec<String>,
 }
@@ -180,6 +227,11 @@ pub enum EngineCommand {
     ChooseDialogue {
         node_id: String,
         choice_id: String,
+    },
+    RollCharacterMood {
+        character_id: String,
+        min_delta: i16,
+        max_delta: i16,
     },
     ScheduleEvent {
         event: ScheduledEvent,
@@ -208,6 +260,8 @@ pub enum EngineError {
     DuplicateScheduledEvent(String),
     #[error("scheduled event has invalid due time: {0}")]
     InvalidScheduledTime(String),
+    #[error("invalid random range: {min_delta}..={max_delta}")]
+    InvalidRandomRange { min_delta: i16, max_delta: i16 },
 }
 
 impl WorldState {
@@ -271,6 +325,7 @@ impl WorldState {
                     },
                 },
             ],
+            random: WorldRandom::default(),
             command_log: Vec::new(),
             event_log: vec!["ERAtw-NEXT M0 engine ready.".to_string()],
         }
@@ -295,6 +350,11 @@ impl WorldState {
             EngineCommand::ChooseDialogue { node_id, choice_id } => {
                 self.choose_dialogue(&node_id, &choice_id)
             }
+            EngineCommand::RollCharacterMood {
+                character_id,
+                min_delta,
+                max_delta,
+            } => self.roll_character_mood(&character_id, min_delta, max_delta),
             EngineCommand::ScheduleEvent { event } => self.schedule_event(event),
         }
     }
@@ -440,6 +500,28 @@ impl WorldState {
         Ok(())
     }
 
+    fn roll_character_mood(
+        &mut self,
+        character_id: &str,
+        min_delta: i16,
+        max_delta: i16,
+    ) -> Result<(), EngineError> {
+        if min_delta > max_delta {
+            return Err(EngineError::InvalidRandomRange {
+                min_delta,
+                max_delta,
+            });
+        }
+
+        let delta = self.random.roll_i16_inclusive(min_delta, max_delta);
+        let display_name = self.adjust_character_state(character_id, 0, delta)?;
+        self.event_log.push(format!(
+            "{} 心情随机变化 {:+}（范围 {:+}..={:+}）。",
+            display_name, delta, min_delta, max_delta
+        ));
+        Ok(())
+    }
+
     fn trigger_due_events(&mut self, end_minute: u64) -> Result<(), EngineError> {
         let mut due_events = Vec::new();
         let mut pending_events = Vec::new();
@@ -540,6 +622,41 @@ pub fn replay_commands(
 
 fn bounded_delta(value: i16, delta: i16, min: i16, max: i16) -> i16 {
     value.saturating_add(delta).clamp(min, max)
+}
+
+fn splitmix64(value: u64) -> u64 {
+    let mut value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
+}
+
+mod u64_string {
+    use serde::{de, Deserialize, Deserializer, Serializer};
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum U64Wire {
+        String(String),
+        Number(u64),
+    }
+
+    pub fn serialize<S>(value: &u64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&value.to_string())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match U64Wire::deserialize(deserializer)? {
+            U64Wire::String(value) => value.parse().map_err(de::Error::custom),
+            U64Wire::Number(value) => Ok(value),
+        }
+    }
 }
 
 fn demo_dialogue_scenes() -> Vec<DialogueScene> {
@@ -735,6 +852,57 @@ mod tests {
             world.command_log[0],
             EngineCommand::AdvanceTime { minutes: 30 }
         );
+    }
+
+    #[test]
+    fn random_command_consumes_explicit_rng_state() {
+        let mut world = WorldState::bootstrap_demo();
+
+        world
+            .apply_command(EngineCommand::RollCharacterMood {
+                character_id: "demo_heroine".to_string(),
+                min_delta: -5,
+                max_delta: 5,
+            })
+            .unwrap();
+
+        let mood = world.characters[0].state.mood;
+        assert!((5..=15).contains(&mood));
+        assert_eq!(world.random.cursor, 1);
+
+        let replayed = replay_commands(WorldState::bootstrap_demo(), &world.command_log).unwrap();
+        assert_eq!(replayed, world);
+    }
+
+    #[test]
+    fn invalid_random_range_is_transactional() {
+        let mut world = WorldState::bootstrap_demo();
+        let original = world.clone();
+
+        let result = world.apply_command(EngineCommand::RollCharacterMood {
+            character_id: "demo_heroine".to_string(),
+            min_delta: 5,
+            max_delta: -5,
+        });
+
+        assert_eq!(
+            result,
+            Err(EngineError::InvalidRandomRange {
+                min_delta: 5,
+                max_delta: -5
+            })
+        );
+        assert_eq!(world, original);
+    }
+
+    #[test]
+    fn missing_random_state_deserializes_with_default_seed() {
+        let mut value = serde_json::to_value(WorldState::bootstrap_demo()).unwrap();
+        value.as_object_mut().unwrap().remove("random");
+
+        let decoded: WorldState = serde_json::from_value(value).unwrap();
+
+        assert_eq!(decoded.random, WorldRandom::default());
     }
 
     #[test]
