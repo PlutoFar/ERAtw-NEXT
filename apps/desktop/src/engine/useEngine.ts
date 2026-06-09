@@ -4,6 +4,8 @@ import type {
   ContentPackage,
   EngineCommand,
   ModDiscoveryReport,
+  ModEnablement,
+  ModEnablementPlanReport,
   ModInstallPreflightReport,
   ModInstallReport,
   ModRegistry,
@@ -24,6 +26,8 @@ interface EngineStore {
   lastModPackagePreflight: ModInstallPreflightReport | null;
   lastModInstall: ModInstallReport | null;
   lastInstalledMods: ModDiscoveryReport | null;
+  modEnablement: ModEnablement[];
+  lastModEnablementPlan: ModEnablementPlanReport | null;
   load: () => Promise<void>;
   dispatch: (command: EngineCommand) => Promise<void>;
   installContentPackage: (packageData: ContentPackage) => Promise<void>;
@@ -33,6 +37,12 @@ interface EngineStore {
   ) => Promise<void>;
   installModPackage: (packageRoot: string, installRoot: string) => Promise<void>;
   refreshInstalledMods: (installRoot: string) => Promise<void>;
+  planInstalledMods: (installRoot: string) => Promise<void>;
+  setModEnabled: (
+    namespace: string,
+    enabled: boolean,
+    installRoot: string,
+  ) => Promise<void>;
   saveSlot: (slotId: string) => Promise<void>;
   preflightLoadSlot: (slotId: string) => Promise<void>;
   loadSlot: (slotId: string) => Promise<void>;
@@ -68,6 +78,8 @@ export const useEngine = create<EngineStore>((set, get) => ({
   lastModPackagePreflight: null,
   lastModInstall: null,
   lastInstalledMods: null,
+  modEnablement: [],
+  lastModEnablementPlan: null,
   async load() {
     set({ loading: true, error: null });
     try {
@@ -148,10 +160,17 @@ export const useEngine = create<EngineStore>((set, get) => ({
         get().world?.engine_version,
         [],
       );
+      const lastModEnablementPlan = await get().client.planEnabledMods(
+        lastInstalledMods.discovered.map((entry) => entry.manifest),
+        get().modEnablement,
+        get().world?.engine_version,
+        [],
+      );
       set({
         lastModPackagePreflight: preflight,
         lastModInstall,
         lastInstalledMods,
+        lastModEnablementPlan,
         loading: false,
       });
     } catch (error) {
@@ -166,10 +185,52 @@ export const useEngine = create<EngineStore>((set, get) => ({
         get().world?.engine_version,
         [],
       );
-      set({ lastInstalledMods, loading: false });
+      const lastModEnablementPlan = await get().client.planEnabledMods(
+        lastInstalledMods.discovered.map((entry) => entry.manifest),
+        get().modEnablement,
+        get().world?.engine_version,
+        [],
+      );
+      set({ lastInstalledMods, lastModEnablementPlan, loading: false });
     } catch (error) {
-      set({ error: String(error), lastInstalledMods: null, loading: false });
+      set({
+        error: String(error),
+        lastInstalledMods: null,
+        lastModEnablementPlan: null,
+        loading: false,
+      });
     }
+  },
+  async planInstalledMods(installRoot) {
+    set({ loading: true, error: null });
+    try {
+      const existingInstalledMods = get().lastInstalledMods;
+      const installedMods =
+        existingInstalledMods?.root_path === installRoot
+          ? existingInstalledMods
+          : await get().client.discoverMods(
+              installRoot,
+              get().world?.engine_version,
+              [],
+            );
+      const lastModEnablementPlan = await get().client.planEnabledMods(
+        installedMods.discovered.map((entry) => entry.manifest),
+        get().modEnablement,
+        get().world?.engine_version,
+        [],
+      );
+      set({ lastInstalledMods: installedMods, lastModEnablementPlan, loading: false });
+    } catch (error) {
+      set({ error: String(error), lastModEnablementPlan: null, loading: false });
+    }
+  },
+  async setModEnabled(namespace, enabled, installRoot) {
+    const modEnablement = [
+      ...get().modEnablement.filter((entry) => entry.namespace !== namespace),
+      { namespace, enabled },
+    ];
+    set({ modEnablement });
+    await get().planInstalledMods(installRoot);
   },
   async saveSlot(slotId) {
     set({ loading: true, error: null });

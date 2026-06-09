@@ -17,6 +17,8 @@ describe("App", () => {
       lastModPackagePreflight: null,
       lastModInstall: null,
       lastInstalledMods: null,
+      modEnablement: [],
+      lastModEnablementPlan: null,
     });
   });
 
@@ -193,6 +195,8 @@ describe("App", () => {
       expect(
         screen.getByText("example.minimal_character@0.1.0"),
       ).toBeInTheDocument();
+      expect(screen.getByLabelText("mod enablement plan")).toBeInTheDocument();
+      expect(screen.getByText("启用顺序")).toBeInTheDocument();
     });
   });
 
@@ -205,6 +209,28 @@ describe("App", () => {
       const panel = screen.getByLabelText("installed mods");
       expect(within(panel).getByText("根目录：mods/installed")).toBeInTheDocument();
       expect(within(panel).getByText("未发现已安装 Mod。")).toBeInTheDocument();
+    });
+  });
+
+  it("disables an installed mod in the enablement plan", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Mod 预检/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "安装 Mod 包" }));
+
+    const toggle = await screen.findByRole("checkbox", {
+      name: "启用 example.minimal_character",
+    });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(toggle).not.toBeChecked();
+      const plan = screen.getByLabelText("mod enablement plan");
+      expect(within(plan).getByText(/无启用 Mod/)).toBeInTheDocument();
+      expect(
+        within(plan).getByText(/禁用：example\.minimal_character/),
+      ).toBeInTheDocument();
     });
   });
 

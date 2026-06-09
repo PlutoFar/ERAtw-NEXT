@@ -169,6 +169,8 @@ describe("useEngine", () => {
       lastModPackagePreflight: null,
       lastModInstall: null,
       lastInstalledMods: null,
+      modEnablement: [],
+      lastModEnablementPlan: null,
     });
   });
 
@@ -374,6 +376,22 @@ describe("useEngine", () => {
       ],
       errors: [],
     });
+    vi.mocked(client.planEnabledMods).mockResolvedValue({
+      enabled: [
+        {
+          namespace: "example.minimal_character",
+          name: "最小角色 Mod",
+          version: "0.1.0",
+          engine_version: "0.1.0-m0",
+          load_order: 0,
+          dependencies: [],
+          conflicts: [],
+          capabilities: ["content"],
+          resources: [],
+        },
+      ],
+      disabled: [],
+    });
     useEngine.setState({ client, world });
 
     await useEngine.getState().refreshInstalledMods("mods/installed");
@@ -385,6 +403,90 @@ describe("useEngine", () => {
     );
     expect(useEngine.getState().lastInstalledMods?.discovered[0].root_path).toBe(
       "mods/installed/example.minimal_character",
+    );
+    expect(client.planEnabledMods).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          namespace: "example.minimal_character",
+        }),
+      ],
+      [],
+      "0.1.0-m0",
+      [],
+    );
+    expect(useEngine.getState().lastModEnablementPlan?.enabled[0].namespace).toBe(
+      "example.minimal_character",
+    );
+  });
+
+  it("updates mod enablement and replans installed mods", async () => {
+    const world = createDemoWorld();
+    const calls = {
+      preflightRegistries: [] as ModRegistry[],
+      installRegistries: [] as ModRegistry[],
+    };
+    const client = createMockClient(world, calls);
+    vi.mocked(client.discoverMods).mockResolvedValue({
+      root_path: "mods/installed",
+      discovered: [
+        {
+          root_path: "mods/installed/example.minimal_character",
+          manifest_path: "mods/installed/example.minimal_character/manifest.json",
+          manifest: {
+            namespace: "example.minimal_character",
+            name: "最小角色 Mod",
+            version: "0.1.0",
+            engine_version: "0.1.0-m0",
+            load_order: 0,
+            dependencies: [],
+            conflicts: [],
+            capabilities: ["content"],
+            resources: [],
+          },
+        },
+      ],
+      errors: [],
+    });
+    vi.mocked(client.planEnabledMods).mockResolvedValue({
+      enabled: [],
+      disabled: [
+        {
+          manifest: {
+            namespace: "example.minimal_character",
+            name: "最小角色 Mod",
+            version: "0.1.0",
+            engine_version: "0.1.0-m0",
+            load_order: 0,
+            dependencies: [],
+            conflicts: [],
+            capabilities: ["content"],
+            resources: [],
+          },
+          reason: "user_disabled",
+        },
+      ],
+    });
+    useEngine.setState({ client, world });
+
+    await useEngine
+      .getState()
+      .setModEnabled("example.minimal_character", false, "mods/installed");
+
+    expect(useEngine.getState().modEnablement).toEqual([
+      { namespace: "example.minimal_character", enabled: false },
+    ]);
+    expect(client.planEnabledMods).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          namespace: "example.minimal_character",
+        }),
+      ],
+      [{ namespace: "example.minimal_character", enabled: false }],
+      "0.1.0-m0",
+      [],
+    );
+    expect(useEngine.getState().lastModEnablementPlan?.disabled[0].reason).toBe(
+      "user_disabled",
     );
   });
 });

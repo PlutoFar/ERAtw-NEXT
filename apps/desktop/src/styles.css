@@ -315,6 +315,18 @@ button {
   padding: 10px;
 }
 
+.mod-toggle {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.mod-toggle input {
+  accent-color: #f5c87a;
+  height: 16px;
+  width: 16px;
+}
+
 .installed-mods-list strong,
 .mod-preflight-issues strong {
   color: #f5c87a;
@@ -331,6 +343,24 @@ button {
 .installed-mods-list small,
 .mod-preflight-issues small {
   color: #8fa0aa;
+}
+
+.mod-enablement-plan {
+  border-top: 1px solid #2d3940;
+  color: #b9c7ce;
+  display: grid;
+  font-size: 13px;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.mod-enablement-plan ol,
+.mod-enablement-plan p {
+  margin: 0;
+}
+
+.mod-enablement-plan ol {
+  padding-left: 20px;
 }
 
 .mod-install-button {

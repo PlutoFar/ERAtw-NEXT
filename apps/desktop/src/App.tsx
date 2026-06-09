@@ -77,6 +77,8 @@ export const App = () => {
     lastSave,
     lastModInstall,
     lastInstalledMods,
+    lastModEnablementPlan,
+    modEnablement,
     load,
     loadSlot,
     loading,
@@ -85,6 +87,7 @@ export const App = () => {
     preflightModPackageInstall,
     installModPackage,
     refreshInstalledMods,
+    setModEnabled,
     recoverSlot,
     saveSlot,
     world,
@@ -425,7 +428,27 @@ export const App = () => {
                 <ul className="installed-mods-list">
                   {lastInstalledMods.discovered.map((entry) => (
                     <li key={entry.manifest.namespace}>
-                      <strong>{entry.manifest.name}</strong>
+                      <label className="mod-toggle">
+                        <input
+                          type="checkbox"
+                          checked={
+                            modEnablement.find(
+                              (selection) =>
+                                selection.namespace === entry.manifest.namespace,
+                            )?.enabled ?? true
+                          }
+                          onChange={(event) =>
+                            setModEnabled(
+                              entry.manifest.namespace,
+                              event.currentTarget.checked,
+                              DEFAULT_MOD_INSTALL_ROOT,
+                            )
+                          }
+                          disabled={loading}
+                          aria-label={`启用 ${entry.manifest.namespace}`}
+                        />
+                        <strong>{entry.manifest.name}</strong>
+                      </label>
                       <span>
                         {entry.manifest.namespace}@{entry.manifest.version}
                       </span>
@@ -436,6 +459,31 @@ export const App = () => {
               ) : (
                 <p className="empty-text">未发现已安装 Mod。</p>
               )}
+              {lastModEnablementPlan ? (
+                <div
+                  className="mod-enablement-plan"
+                  aria-label="mod enablement plan"
+                >
+                  <strong>启用顺序</strong>
+                  {lastModEnablementPlan.enabled.length > 0 ? (
+                    <ol>
+                      {lastModEnablementPlan.enabled.map((manifest) => (
+                        <li key={manifest.namespace}>{manifest.namespace}</li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="empty-text">无启用 Mod。</p>
+                  )}
+                  {lastModEnablementPlan.disabled.length > 0 ? (
+                    <p>
+                      禁用：
+                      {lastModEnablementPlan.disabled
+                        .map((entry) => entry.manifest.namespace)
+                        .join("、")}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               {lastInstalledMods.errors.length > 0 ? (
                 <ul className="mod-preflight-issues">
                   {lastInstalledMods.errors.map((issue) => (
