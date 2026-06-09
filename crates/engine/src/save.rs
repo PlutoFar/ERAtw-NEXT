@@ -155,7 +155,10 @@ mod tests {
         let report = save.validate(&[]).unwrap();
 
         assert_eq!(report.missing_required_mods.len(), 1);
-        assert_eq!(report.missing_required_mods[0].namespace, "example.required");
+        assert_eq!(
+            report.missing_required_mods[0].namespace,
+            "example.required"
+        );
     }
 
     #[test]
@@ -173,11 +176,7 @@ mod tests {
 
     #[test]
     fn backup_plan_is_deterministic() {
-        let plan = backup_plan(
-            "saves/slot-1.json",
-            42,
-            SaveBackupReason::BeforeOverwrite,
-        );
+        let plan = backup_plan("saves/slot-1.json", 42, SaveBackupReason::BeforeOverwrite);
 
         assert_eq!(plan.backup_path, "saves/slot-1.json.42.bak");
         assert_eq!(plan.reason, SaveBackupReason::BeforeOverwrite);
