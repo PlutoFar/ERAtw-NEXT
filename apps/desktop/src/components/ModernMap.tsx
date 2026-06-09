@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Location, WorldState } from "../types";
 
 interface ModernMapProps {
@@ -18,8 +18,17 @@ const layoutLocation = (location: Location, index: number) => ({
   y: index % 2 === 0 ? 94 : 210,
 });
 
+const destroyApp = (app: Application) => {
+  try {
+    app.destroy(true);
+  } catch {
+    // Pixi can throw while tearing down a partially initialized renderer in jsdom.
+  }
+};
+
 export const ModernMap = ({ world }: ModernMapProps) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const [renderFailed, setRenderFailed] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -29,17 +38,26 @@ export const ModernMap = ({ world }: ModernMapProps) => {
 
     let destroyed = false;
     let app: Application | null = null;
+    setRenderFailed(false);
 
     const render = async () => {
       const nextApp = new Application();
-      await nextApp.init({
-        background: "#172026",
-        antialias: true,
-        resizeTo: host,
-      });
+      try {
+        await nextApp.init({
+          background: "#172026",
+          antialias: true,
+          resizeTo: host,
+        });
+      } catch {
+        destroyApp(nextApp);
+        if (!destroyed) {
+          setRenderFailed(true);
+        }
+        return;
+      }
 
       if (destroyed) {
-        nextApp.destroy(true);
+        destroyApp(nextApp);
         return;
       }
 
@@ -104,13 +122,19 @@ export const ModernMap = ({ world }: ModernMapProps) => {
 
     return () => {
       destroyed = true;
-      app?.destroy(true);
+      if (app) {
+        destroyApp(app);
+      }
     };
   }, [world]);
 
   return (
     <div className="modern-view">
-      <div className="pixi-host" ref={hostRef} aria-label="modern map canvas" />
+      <div className="pixi-host" ref={hostRef} aria-label="modern map canvas">
+        {renderFailed ? (
+          <div className="modern-map-fallback">现代地图渲染不可用。</div>
+        ) : null}
+      </div>
     </div>
   );
 };

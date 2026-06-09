@@ -21,6 +21,20 @@ describe("App", () => {
     expect(screen.getByText("示例角色")).toBeInTheDocument();
   });
 
+  it("loads the modern Pixi map only after selecting modern mode", async () => {
+    render(<App />);
+
+    expect(await screen.findByLabelText("ASCII map")).toBeInTheDocument();
+    expect(screen.queryByLabelText("modern map canvas")).not.toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "现代" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    expect(await screen.findByLabelText("modern map canvas")).toBeInTheDocument();
+  });
+
   it("dispatches dialogue command through the engine store", async () => {
     render(<App />);
 

@@ -1,12 +1,17 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { Clock3, CloudSun, Dices, MessageSquareText, MoveRight } from "lucide-react";
 import { useEngine } from "./engine/useEngine";
 import { visibleChoices } from "./engine/demoWorld";
 import { createSampleContentPackage } from "./engine/sampleContentPackage";
-import { ModernMap } from "./components/ModernMap";
 import { TraditionalView } from "./components/TraditionalView";
 import type { Location, WorldState } from "./types";
+
+const ModernMap = lazy(() =>
+  import("./components/ModernMap").then((module) => ({
+    default: module.ModernMap,
+  })),
+);
 
 const formatClock = (world: WorldState) =>
   `第 ${world.clock.day} 日 ${String(world.clock.hour).padStart(2, "0")}:${String(
@@ -116,7 +121,15 @@ export const App = () => {
             <TraditionalView world={world} />
           </Tabs.Content>
           <Tabs.Content value="modern" className="mode-panel">
-            <ModernMap world={world} />
+            <Suspense
+              fallback={
+                <div className="modern-view">
+                  <div className="pixi-host loading-map" aria-label="modern map loading" />
+                </div>
+              }
+            >
+              <ModernMap world={world} />
+            </Suspense>
           </Tabs.Content>
         </Tabs.Root>
 

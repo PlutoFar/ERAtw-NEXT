@@ -18,14 +18,14 @@
 - `npm run build:web -w @eratw-next/desktop`：通过。
 - `npm audit --omit=dev`：0 vulnerabilities。
 
-## 环境限制
+## 环境说明
 
-当前机器未安装 Rust toolchain，`cargo test --workspace` 和 `rustc --version` 无法执行。CI 已配置 `dtolnay/rust-toolchain@stable`，推送后由远端验证 Rust workspace。
+当前机器可通过本地 Rust toolchain 执行 `cargo fmt` 与 `cargo test --workspace`。若桌面应用未重启导致 PATH 未刷新，可临时把 `%USERPROFILE%\.cargo\bin` 加入当前 shell 的 `PATH`。
 
 ## 已知风险
 
-- PixiJS 当前进入主包，Vite 构建提示首包超过 500 kB；M3 前应改为现代 UI 懒加载或手动 chunk。
-- M0 engine 仍是 mock，尚未实现存档、Mod 沙箱、内容包加载和确定性回放框架。
+- PixiJS 已由现代 UI 懒加载拆出首屏路径；后续 M3/M8 仍需继续做资源按需加载、现代场景 chunk 策略和视觉回归。
+- Mod 沙箱、资源加载、角色/地点内容包和编辑器仍未完成。
 - 文档生成器暂未作为依赖安装，避免在 M0 引入旧 Vite 链路；后续可评估 VitePress 新版本或 Docusaurus。
 
 ## 下一阶段输入
