@@ -19,6 +19,7 @@
 - `EngineCommand::RollCharacterMood`：当前用于验证随机命令、状态结算和回放一致性。
 - `DialogueEffect::RollCharacterState`：内容效果可用同一 RNG 对角色体力和心情做有界随机结算。
 - `replay_commands`：从初始世界和命令列表重放出确定结果。
+- 内容包安装后的 `ScheduledEventKind::StartDialogue` 可启动同包新增的 `DialogueScene`，由跨模块调度测试覆盖。
 
 ## 规则
 
@@ -34,6 +35,7 @@
 - 循环事件只在成功触发后重排；条件未满足时不会消耗剩余次数。
 - `remaining_runs` 表示该循环事件还可成功触发的总次数；`null/None` 表示无限循环。
 - 一次大跨度时间推进会按循环间隔补触发所有已经到期的循环事件。
+- 内容包事件安装后进入同一调度队列；触发包内对话时仍走 engine `StartDialogue` 路径。
 - 取消不存在的事件会失败并回滚，不写入 `command_log`。
 - 角色状态调整使用边界约束：体力 `0..100`，心情 `-100..100`。
 - 关系调整使用边界约束：好感/信赖 `-100..100`。
@@ -48,5 +50,3 @@
 ## 后续
 
 - 将随机结算接入事件条件和更多互动命令。
-- 将 Dialogue/Scene 内容包接入 `StartDialogue`。
-- 补内容包加载后的跨模块调度测试。

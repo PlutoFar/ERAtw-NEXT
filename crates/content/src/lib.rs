@@ -2432,6 +2432,51 @@ mod tests {
     }
 
     #[test]
+    fn installed_content_dialogue_event_triggers_through_scheduler() {
+        let mut node = node_with_choice("entry", None);
+        node.speaker_id = "sample_character".to_string();
+        node.text = "内容包调度对话已触发。".to_string();
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("sample", "sample.scheduled-dialogue"),
+            locations: vec![location("sample_room")],
+            characters: vec![character("sample_character", "sample_room")],
+            relationships: Vec::new(),
+            resources: Vec::new(),
+            dialogue_scenes: vec![DialogueScene {
+                id: "sample.scheduled_dialogue".to_string(),
+                entry_node_id: "entry".to_string(),
+                nodes: vec![node],
+            }],
+            scheduled_events: vec![ScheduledEvent {
+                id: "sample_dialogue_at_0805".to_string(),
+                due: ScheduledTime::new(1, 8, 5),
+                priority: 5,
+                repeat: None,
+                conditions: Vec::new(),
+                kind: ScheduledEventKind::StartDialogue {
+                    scene_id: "sample.scheduled_dialogue".to_string(),
+                },
+            }],
+        };
+        let mut world = WorldState::bootstrap_demo();
+        world.scheduled_events.clear();
+        let mut installed = package.install_into_world(world).unwrap();
+
+        installed
+            .apply_command(eratw_engine::EngineCommand::AdvanceTime { minutes: 5 })
+            .unwrap();
+
+        assert_eq!(
+            installed.active_dialogue_scene_id,
+            Some("sample.scheduled_dialogue".to_string())
+        );
+        assert_eq!(installed.active_dialogue.len(), 1);
+        assert_eq!(installed.active_dialogue[0].speaker_id, "sample_character");
+        assert_eq!(installed.active_dialogue[0].text, "内容包调度对话已触发。");
+        assert!(installed.scheduled_events.is_empty());
+    }
+
+    #[test]
     fn clean_package_installs_resources_and_dialogue_resource_refs() {
         let mut node = node_with_choice("entry", None);
         node.resource_refs = vec!["core.assets.heroine.smile".to_string()];
