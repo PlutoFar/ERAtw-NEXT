@@ -65,6 +65,15 @@ impl ScheduledTime {
             + u64::from(self.hour) * 60
             + u64::from(self.minute)
     }
+
+    fn from_absolute_minute(absolute_minute: u64) -> Self {
+        let minute_of_day = absolute_minute % (24 * 60);
+        Self {
+            day: (absolute_minute / (24 * 60) + 1) as u32,
+            hour: (minute_of_day / 60) as u8,
+            minute: (minute_of_day % 60) as u8,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -218,8 +227,18 @@ pub struct ScheduledEvent {
     pub id: String,
     pub due: ScheduledTime,
     #[serde(default)]
+    pub priority: i16,
+    #[serde(default)]
+    pub repeat: Option<ScheduledRepeat>,
+    #[serde(default)]
     pub conditions: Vec<DialogueCondition>,
     pub kind: ScheduledEventKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduledRepeat {
+    pub every_minutes: u16,
+    pub remaining_runs: Option<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -293,6 +312,9 @@ pub enum EngineCommand {
     ScheduleEvent {
         event: ScheduledEvent,
     },
+    CancelEvent {
+        event_id: String,
+    },
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -322,8 +344,12 @@ pub enum EngineError {
     ScheduledEventIdRequired,
     #[error("duplicate scheduled event: {0}")]
     DuplicateScheduledEvent(String),
+    #[error("scheduled event not found: {0}")]
+    ScheduledEventNotFound(String),
     #[error("scheduled event has invalid due time: {0}")]
     InvalidScheduledTime(String),
+    #[error("scheduled event has invalid repeat: {0}")]
+    InvalidScheduledRepeat(String),
     #[error("invalid random range: {min_delta}..={max_delta}")]
     InvalidRandomRange { min_delta: i16, max_delta: i16 },
 }
@@ -381,6 +407,8 @@ impl WorldState {
                 ScheduledEvent {
                     id: "demo_clouds_at_gate".to_string(),
                     due: ScheduledTime::new(1, 8, 30),
+                    priority: 0,
+                    repeat: None,
                     conditions: Vec::new(),
                     kind: ScheduledEventKind::ChangeWeather {
                         weather: Weather::Cloudy,
@@ -389,6 +417,8 @@ impl WorldState {
                 ScheduledEvent {
                     id: "demo_morning_mood".to_string(),
                     due: ScheduledTime::new(1, 9, 0),
+                    priority: 0,
+                    repeat: None,
                     conditions: Vec::new(),
                     kind: ScheduledEventKind::AdjustCharacterState {
                         character_id: "demo_heroine".to_string(),
@@ -439,6 +469,7 @@ impl WorldState {
                 max_delta,
             } => self.roll_character_mood(&character_id, min_delta, max_delta),
             EngineCommand::ScheduleEvent { event } => self.schedule_event(event),
+            EngineCommand::CancelEvent { event_id } => self.cancel_event(&event_id),
         }
     }
 
@@ -641,6 +672,8 @@ impl WorldState {
             return Err(EngineError::InvalidScheduledTime(event.id));
         }
 
+        Self::validate_scheduled_repeat(&event)?;
+
         if self
             .scheduled_events
             .iter()
@@ -651,6 +684,32 @@ impl WorldState {
 
         self.scheduled_events.push(event);
         self.sort_scheduled_events();
+        Ok(())
+    }
+
+    fn validate_scheduled_repeat(event: &ScheduledEvent) -> Result<(), EngineError> {
+        if let Some(repeat) = &event.repeat {
+            if repeat.every_minutes == 0 || repeat.remaining_runs == Some(0) {
+                return Err(EngineError::InvalidScheduledRepeat(event.id.clone()));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn cancel_event(&mut self, event_id: &str) -> Result<(), EngineError> {
+        if event_id.trim().is_empty() {
+            return Err(EngineError::ScheduledEventIdRequired);
+        }
+
+        let original_len = self.scheduled_events.len();
+        self.scheduled_events.retain(|event| event.id != event_id);
+        if self.scheduled_events.len() == original_len {
+            return Err(EngineError::ScheduledEventNotFound(event_id.to_string()));
+        }
+
+        self.event_log
+            .push(format!("计划事件 {} 已取消。", event_id));
         Ok(())
     }
 
@@ -688,16 +747,21 @@ impl WorldState {
             }
         }
 
-        due_events.sort_by(|left, right| {
-            left.due
-                .absolute_minute()
-                .cmp(&right.due.absolute_minute())
-                .then_with(|| left.id.cmp(&right.id))
-        });
+        due_events.sort_by(compare_scheduled_events);
+        due_events.reverse();
 
-        for event in due_events {
+        while let Some(event) = due_events.pop() {
             if self.scheduled_event_conditions_met(&event)? {
                 self.execute_scheduled_event(&event)?;
+                if let Some(next_event) = Self::reschedule_repeating_event(event) {
+                    if next_event.due.absolute_minute() <= end_minute {
+                        due_events.push(next_event);
+                        due_events.sort_by(compare_scheduled_events);
+                        due_events.reverse();
+                    } else {
+                        pending_events.push(next_event);
+                    }
+                }
             } else {
                 pending_events.push(event);
             }
@@ -715,6 +779,23 @@ impl WorldState {
             }
         }
         Ok(true)
+    }
+
+    fn reschedule_repeating_event(mut event: ScheduledEvent) -> Option<ScheduledEvent> {
+        let repeat = event.repeat.as_mut()?;
+        if let Some(remaining_runs) = repeat.remaining_runs.as_mut() {
+            *remaining_runs = remaining_runs.saturating_sub(1);
+            if *remaining_runs == 0 {
+                return None;
+            }
+        }
+
+        let next_due = event
+            .due
+            .absolute_minute()
+            .saturating_add(u64::from(repeat.every_minutes));
+        event.due = ScheduledTime::from_absolute_minute(next_due);
+        Some(event)
     }
 
     fn execute_scheduled_event(&mut self, event: &ScheduledEvent) -> Result<(), EngineError> {
@@ -868,12 +949,7 @@ impl WorldState {
     }
 
     fn sort_scheduled_events(&mut self) {
-        self.scheduled_events.sort_by(|left, right| {
-            left.due
-                .absolute_minute()
-                .cmp(&right.due.absolute_minute())
-                .then_with(|| left.id.cmp(&right.id))
-        });
+        self.scheduled_events.sort_by(compare_scheduled_events);
     }
 
     fn clock_absolute_minute(&self) -> u64 {
@@ -894,6 +970,14 @@ pub fn replay_commands(
 
 fn bounded_delta(value: i16, delta: i16, min: i16, max: i16) -> i16 {
     value.saturating_add(delta).clamp(min, max)
+}
+
+fn compare_scheduled_events(left: &ScheduledEvent, right: &ScheduledEvent) -> std::cmp::Ordering {
+    left.due
+        .absolute_minute()
+        .cmp(&right.due.absolute_minute())
+        .then_with(|| right.priority.cmp(&left.priority))
+        .then_with(|| left.id.cmp(&right.id))
 }
 
 fn splitmix64(value: u64) -> u64 {
@@ -1324,6 +1408,28 @@ mod tests {
     }
 
     #[test]
+    fn missing_scheduled_event_priority_and_repeat_deserializes_defaults() {
+        let mut value = serde_json::to_value(WorldState::bootstrap_demo()).unwrap();
+        let scheduled_events = value
+            .get_mut("scheduled_events")
+            .unwrap()
+            .as_array_mut()
+            .unwrap();
+        for event in scheduled_events {
+            let object = event.as_object_mut().unwrap();
+            object.remove("priority");
+            object.remove("repeat");
+        }
+
+        let decoded: WorldState = serde_json::from_value(value).unwrap();
+
+        assert!(decoded
+            .scheduled_events
+            .iter()
+            .all(|event| event.priority == 0 && event.repeat.is_none()));
+    }
+
+    #[test]
     fn schedule_event_rejects_duplicate_ids_transactionally() {
         let mut world = WorldState::bootstrap_demo();
         let original = world.clone();
@@ -1332,6 +1438,8 @@ mod tests {
             event: ScheduledEvent {
                 id: "demo_clouds_at_gate".to_string(),
                 due: ScheduledTime::new(1, 10, 0),
+                priority: 0,
+                repeat: None,
                 conditions: Vec::new(),
                 kind: ScheduledEventKind::ChangeWeather {
                     weather: Weather::Rain,
@@ -1377,6 +1485,8 @@ mod tests {
                 event: ScheduledEvent {
                     id: "trust_dialogue".to_string(),
                     due: ScheduledTime::new(1, 8, 10),
+                    priority: 0,
+                    repeat: None,
                     conditions: vec![DialogueCondition::RelationshipAffinityAtLeast {
                         source_character_id: "player".to_string(),
                         target_character_id: "demo_heroine".to_string(),
@@ -1418,5 +1528,169 @@ mod tests {
             .scheduled_events
             .iter()
             .any(|event| event.id == "trust_dialogue"));
+    }
+
+    #[test]
+    fn scheduled_events_use_priority_for_same_due_time() {
+        let mut world = WorldState::bootstrap_demo();
+        world.scheduled_events.clear();
+
+        world
+            .apply_command(EngineCommand::ScheduleEvent {
+                event: ScheduledEvent {
+                    id: "low_priority".to_string(),
+                    due: ScheduledTime::new(1, 8, 10),
+                    priority: 0,
+                    repeat: None,
+                    conditions: Vec::new(),
+                    kind: ScheduledEventKind::AdjustCharacterState {
+                        character_id: "demo_heroine".to_string(),
+                        energy_delta: 0,
+                        mood_delta: 1,
+                    },
+                },
+            })
+            .unwrap();
+        world
+            .apply_command(EngineCommand::ScheduleEvent {
+                event: ScheduledEvent {
+                    id: "high_priority".to_string(),
+                    due: ScheduledTime::new(1, 8, 10),
+                    priority: 10,
+                    repeat: None,
+                    conditions: Vec::new(),
+                    kind: ScheduledEventKind::AdjustCharacterState {
+                        character_id: "demo_heroine".to_string(),
+                        energy_delta: 0,
+                        mood_delta: 1,
+                    },
+                },
+            })
+            .unwrap();
+
+        assert_eq!(world.scheduled_events[0].id, "high_priority");
+
+        world
+            .apply_command(EngineCommand::AdvanceTime { minutes: 10 })
+            .unwrap();
+
+        let high_index = world
+            .event_log
+            .iter()
+            .position(|entry| entry.contains("high_priority"))
+            .unwrap();
+        let low_index = world
+            .event_log
+            .iter()
+            .position(|entry| entry.contains("low_priority"))
+            .unwrap();
+        assert!(high_index < low_index);
+    }
+
+    #[test]
+    fn cancel_event_removes_scheduled_event_transactionally() {
+        let mut world = WorldState::bootstrap_demo();
+
+        world
+            .apply_command(EngineCommand::CancelEvent {
+                event_id: "demo_clouds_at_gate".to_string(),
+            })
+            .unwrap();
+
+        assert!(!world
+            .scheduled_events
+            .iter()
+            .any(|event| event.id == "demo_clouds_at_gate"));
+        assert_eq!(
+            world.command_log[0],
+            EngineCommand::CancelEvent {
+                event_id: "demo_clouds_at_gate".to_string()
+            }
+        );
+
+        let original = world.clone();
+        let result = world.apply_command(EngineCommand::CancelEvent {
+            event_id: "missing".to_string(),
+        });
+
+        assert_eq!(
+            result,
+            Err(EngineError::ScheduledEventNotFound("missing".to_string()))
+        );
+        assert_eq!(world, original);
+    }
+
+    #[test]
+    fn repeating_event_catches_up_and_exhausts_remaining_runs() {
+        let mut world = WorldState::bootstrap_demo();
+        world.scheduled_events.clear();
+
+        world
+            .apply_command(EngineCommand::ScheduleEvent {
+                event: ScheduledEvent {
+                    id: "morning_tick".to_string(),
+                    due: ScheduledTime::new(1, 8, 10),
+                    priority: 0,
+                    repeat: Some(ScheduledRepeat {
+                        every_minutes: 10,
+                        remaining_runs: Some(2),
+                    }),
+                    conditions: Vec::new(),
+                    kind: ScheduledEventKind::AdjustCharacterState {
+                        character_id: "demo_heroine".to_string(),
+                        energy_delta: 0,
+                        mood_delta: 2,
+                    },
+                },
+            })
+            .unwrap();
+
+        world
+            .apply_command(EngineCommand::AdvanceTime { minutes: 30 })
+            .unwrap();
+
+        assert_eq!(world.characters[0].state.mood, 14);
+        assert!(!world
+            .scheduled_events
+            .iter()
+            .any(|event| event.id == "morning_tick"));
+        assert_eq!(
+            world
+                .event_log
+                .iter()
+                .filter(|entry| entry.contains("morning_tick"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn invalid_repeating_event_is_transactional() {
+        let mut world = WorldState::bootstrap_demo();
+        let original = world.clone();
+
+        let result = world.apply_command(EngineCommand::ScheduleEvent {
+            event: ScheduledEvent {
+                id: "bad_repeat".to_string(),
+                due: ScheduledTime::new(1, 8, 10),
+                priority: 0,
+                repeat: Some(ScheduledRepeat {
+                    every_minutes: 0,
+                    remaining_runs: None,
+                }),
+                conditions: Vec::new(),
+                kind: ScheduledEventKind::ChangeWeather {
+                    weather: Weather::Rain,
+                },
+            },
+        });
+
+        assert_eq!(
+            result,
+            Err(EngineError::InvalidScheduledRepeat(
+                "bad_repeat".to_string()
+            ))
+        );
+        assert_eq!(world, original);
     }
 }

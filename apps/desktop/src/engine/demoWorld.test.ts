@@ -41,6 +41,8 @@ describe("demo engine adapter", () => {
       event: {
         id: "trust_dialogue",
         due: { day: 1, hour: 8, minute: 10 },
+        priority: 0,
+        repeat: null,
         conditions: [
           {
             type: "relationship_affinity_at_least",
@@ -78,6 +80,138 @@ describe("demo engine adapter", () => {
     expect(
       triggered.scheduled_events.some((event) => event.id === "trust_dialogue"),
     ).toBe(false);
+  });
+
+  it("orders same-time scheduled events by priority", () => {
+    const base = createDemoWorld();
+    base.scheduled_events = [];
+
+    const withLow = applyDemoCommand(base, {
+      type: "schedule_event",
+      event: {
+        id: "low_priority",
+        due: { day: 1, hour: 8, minute: 10 },
+        priority: 0,
+        repeat: null,
+        conditions: [],
+        kind: {
+          type: "adjust_character_state",
+          character_id: "demo_heroine",
+          energy_delta: 0,
+          mood_delta: 1,
+        },
+      },
+    });
+    const scheduled = applyDemoCommand(withLow, {
+      type: "schedule_event",
+      event: {
+        id: "high_priority",
+        due: { day: 1, hour: 8, minute: 10 },
+        priority: 10,
+        repeat: null,
+        conditions: [],
+        kind: {
+          type: "adjust_character_state",
+          character_id: "demo_heroine",
+          energy_delta: 0,
+          mood_delta: 1,
+        },
+      },
+    });
+
+    expect(scheduled.scheduled_events[0].id).toBe("high_priority");
+
+    const advanced = applyDemoCommand(scheduled, {
+      type: "advance_time",
+      minutes: 10,
+    });
+    const highIndex = advanced.event_log.findIndex((entry) =>
+      entry.includes("high_priority"),
+    );
+    const lowIndex = advanced.event_log.findIndex((entry) =>
+      entry.includes("low_priority"),
+    );
+
+    expect(highIndex).toBeGreaterThan(lowIndex);
+  });
+
+  it("cancels scheduled events transactionally", () => {
+    const cancelled = applyDemoCommand(createDemoWorld(), {
+      type: "cancel_event",
+      event_id: "demo_clouds_at_gate",
+    });
+
+    expect(
+      cancelled.scheduled_events.some((event) => event.id === "demo_clouds_at_gate"),
+    ).toBe(false);
+    expect(cancelled.command_log[0]).toEqual({
+      type: "cancel_event",
+      event_id: "demo_clouds_at_gate",
+    });
+
+    const rejected = applyDemoCommand(cancelled, {
+      type: "cancel_event",
+      event_id: "missing",
+    });
+
+    expect(rejected).toEqual(cancelled);
+  });
+
+  it("catches up repeating events and exhausts remaining runs", () => {
+    const base = createDemoWorld();
+    base.scheduled_events = [];
+    const scheduled = applyDemoCommand(base, {
+      type: "schedule_event",
+      event: {
+        id: "morning_tick",
+        due: { day: 1, hour: 8, minute: 10 },
+        priority: 0,
+        repeat: {
+          every_minutes: 10,
+          remaining_runs: 2,
+        },
+        conditions: [],
+        kind: {
+          type: "adjust_character_state",
+          character_id: "demo_heroine",
+          energy_delta: 0,
+          mood_delta: 2,
+        },
+      },
+    });
+
+    const advanced = applyDemoCommand(scheduled, {
+      type: "advance_time",
+      minutes: 30,
+    });
+
+    expect(advanced.characters[0].state.mood).toBe(14);
+    expect(
+      advanced.scheduled_events.some((event) => event.id === "morning_tick"),
+    ).toBe(false);
+    expect(
+      advanced.event_log.filter((entry) => entry.includes("morning_tick")),
+    ).toHaveLength(2);
+  });
+
+  it("rejects invalid repeating events", () => {
+    const world = createDemoWorld();
+    const rejected = applyDemoCommand(world, {
+      type: "schedule_event",
+      event: {
+        id: "bad_repeat",
+        due: { day: 1, hour: 8, minute: 10 },
+        priority: 0,
+        repeat: {
+          every_minutes: 0,
+          remaining_runs: null,
+        },
+        conditions: [],
+        kind: { type: "change_weather", weather: "rain" },
+      },
+    });
+
+    expect(rejected).toEqual(world);
   });
 
   it("starts a versioned dialogue scene", () => {

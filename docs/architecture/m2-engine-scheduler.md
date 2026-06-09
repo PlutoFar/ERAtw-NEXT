@@ -7,9 +7,11 @@
 ## 当前结构
 
 - `ScheduledTime`：以 day/hour/minute 表达事件触发时间，序列化进入 `WorldState`。
-- `ScheduledEvent`：稳定事件 ID、到期时间、条件列表和事件类型。
-- `ScheduledEventKind`：当前支持天气切换、对话启动、角色状态调整。
+- `ScheduledEvent`：稳定事件 ID、到期时间、优先级、可选循环规则、条件列表和事件类型。
+- `ScheduledRepeat`：定义循环间隔和可选剩余触发次数。
+- `ScheduledEventKind`：当前支持天气切换、对话启动、关系调整、角色状态调整。
 - `EngineCommand::ScheduleEvent`：通过 command API 注册事件，前端不直接修改事件队列。
+- `EngineCommand::CancelEvent`：通过 command API 取消仍在队列中的事件。
 - `Relationship`：保存来源 ID、目标角色 ID、好感和信赖，进入 `WorldState` 与存档。
 - `EngineCommand::AdjustRelationship`：通过 command API 调整关系，前端不直接改关系数组。
 - `WorldState.command_log`：记录成功结算的命令，随存档序列化保存。
@@ -21,12 +23,17 @@
 
 - 事件 ID 不能为空，同一队列内不能重复。
 - 无效时间会被拒绝。
+- 循环事件间隔必须大于 0，`remaining_runs` 不能为 0。
 - `apply_command` 使用事务式更新：命令失败时原 `WorldState` 不变。
 - 只有成功命令进入 `command_log`，失败命令不污染回放历史。
-- `advance_time` 触发所有到期事件；事件按到期分钟和 ID 排序。
+- `advance_time` 触发所有到期事件；事件按到期分钟、优先级降序和 ID 排序。
 - 到期事件只触发一次，触发后从队列移除。
 - 到期但条件未满足的事件保留在队列中，后续时间推进继续尝试。
 - 事件条件复用 `DialogueCondition`，当前支持地点、心情、关系、天气和时间判断。
+- 循环事件只在成功触发后重排；条件未满足时不会消耗剩余次数。
+- `remaining_runs` 表示该循环事件还可成功触发的总次数；`null/None` 表示无限循环。
+- 一次大跨度时间推进会按循环间隔补触发所有已经到期的循环事件。
+- 取消不存在的事件会失败并回滚，不写入 `command_log`。
 - 角色状态调整使用边界约束：体力 `0..100`，心情 `-100..100`。
 - 关系调整使用边界约束：好感/信赖 `-100..100`。
 - 关系目标必须是已存在角色；关系来源可为 `player` 等稳定领域 ID。
@@ -38,7 +45,6 @@
 
 ## 后续
 
-- 增加事件优先级、取消、循环事件。
 - 将随机结算接入事件条件、互动命令和内容效果。
 - 将 Dialogue/Scene 内容包接入 `StartDialogue`。
 - 补内容包加载后的跨模块调度测试。

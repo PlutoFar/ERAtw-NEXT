@@ -124,8 +124,15 @@ export type ScheduledEventKind =
 export interface ScheduledEvent {
   id: string;
   due: ScheduledTime;
+  priority: number;
+  repeat: ScheduledRepeat | null;
   conditions: DialogueCondition[];
   kind: ScheduledEventKind;
+}
+
+export interface ScheduledRepeat {
+  every_minutes: number;
+  remaining_runs: number | null;
 }
 
 export interface WorldState {
@@ -181,4 +188,5 @@ export type EngineCommand =
       min_delta: number;
       max_delta: number;
     }
-  | { type: "schedule_event"; event: ScheduledEvent };
+  | { type: "schedule_event"; event: ScheduledEvent }
+  | { type: "cancel_event"; event_id: string };

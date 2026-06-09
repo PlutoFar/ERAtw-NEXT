@@ -57,6 +57,15 @@ const rollInclusive = (world: WorldState, min: number, max: number) => {
 const absoluteMinute = (time: ScheduledTime) =>
   Math.max(0, time.day - 1) * 1440 + time.hour * 60 + time.minute;
 
+const scheduledTimeFromAbsoluteMinute = (value: number): ScheduledTime => {
+  const minuteOfDay = value % 1440;
+  return {
+    day: Math.floor(value / 1440) + 1,
+    hour: Math.floor(minuteOfDay / 60),
+    minute: minuteOfDay % 60,
+  };
+};
+
 const currentAbsoluteMinute = (world: WorldState) =>
   absoluteMinute({
     day: world.clock.day,
@@ -66,11 +75,20 @@ const currentAbsoluteMinute = (world: WorldState) =>
 
 const byDueTime = (left: ScheduledEvent, right: ScheduledEvent) => {
   const delta = absoluteMinute(left.due) - absoluteMinute(right.due);
-  return delta === 0 ? left.id.localeCompare(right.id) : delta;
+  if (delta !== 0) {
+    return delta;
+  }
+
+  const priorityDelta = (right.priority ?? 0) - (left.priority ?? 0);
+  return priorityDelta === 0 ? left.id.localeCompare(right.id) : priorityDelta;
 };
 
 const isValidDue = (due: ScheduledTime) =>
   due.day > 0 && due.hour >= 0 && due.hour < 24 && due.minute >= 0 && due.minute < 60;
+
+const isValidRepeat = (event: ScheduledEvent) =>
+  event.repeat == null ||
+  (event.repeat.every_minutes > 0 && event.repeat.remaining_runs !== 0);
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
@@ -219,12 +237,16 @@ export const createDemoWorld = (): WorldState => ({
     {
       id: "demo_clouds_at_gate",
       due: { day: 1, hour: 8, minute: 30 },
+      priority: 0,
+      repeat: null,
       conditions: [],
       kind: { type: "change_weather", weather: "cloudy" },
     },
     {
       id: "demo_morning_mood",
       due: { day: 1, hour: 9, minute: 0 },
+      priority: 0,
+      repeat: null,
       conditions: [],
       kind: {
         type: "adjust_character_state",
@@ -462,6 +484,28 @@ const applyScheduledEventKind = (
   ];
 };
 
+const nextRepeatedEvent = (event: ScheduledEvent): ScheduledEvent | null => {
+  if (!event.repeat) {
+    return null;
+  }
+
+  const repeat = { ...event.repeat };
+  if (repeat.remaining_runs !== null) {
+    repeat.remaining_runs = Math.max(0, repeat.remaining_runs - 1);
+    if (repeat.remaining_runs === 0) {
+      return null;
+    }
+  }
+
+  return {
+    ...event,
+    due: scheduledTimeFromAbsoluteMinute(
+      absoluteMinute(event.due) + repeat.every_minutes,
+    ),
+    repeat,
+  };
+};
+
 const triggerDueEvents = (world: WorldState, endMinute: number) => {
   const dueEvents = world.scheduled_events
     .filter((event) => absoluteMinute(event.due) <= endMinute)
@@ -470,12 +514,22 @@ const triggerDueEvents = (world: WorldState, endMinute: number) => {
     (event) => absoluteMinute(event.due) > endMinute,
   );
 
-  for (const event of dueEvents) {
+  while (dueEvents.length > 0) {
+    const event = dueEvents.shift()!;
     const conditionsMet = event.conditions.every((condition) =>
       dialogueConditionMet(world, condition),
     );
     if (conditionsMet) {
       applyScheduledEventKind(world, event.id, event.kind);
+      const nextEvent = nextRepeatedEvent(event);
+      if (nextEvent) {
+        if (absoluteMinute(nextEvent.due) <= endMinute) {
+          dueEvents.push(nextEvent);
+          dueEvents.sort(byDueTime);
+        } else {
+          pendingEvents.push(nextEvent);
+        }
+      }
     } else {
       pendingEvents.push(event);
     }
@@ -577,12 +631,30 @@ export const applyDemoCommand = (
     if (
       !command.event.id.trim() ||
       !isValidDue(command.event.due) ||
+      !isValidRepeat(command.event) ||
       hasDuplicate
     ) {
       return next;
     }
 
     next.scheduled_events = [...next.scheduled_events, command.event].sort(byDueTime);
+    return recordCommand(next, command);
+  }
+
+  if (command.type === "cancel_event") {
+    if (!command.event_id.trim()) {
+      return next;
+    }
+
+    const pendingEvents = next.scheduled_events.filter(
+      (event) => event.id !== command.event_id,
+    );
+    if (pendingEvents.length === next.scheduled_events.length) {
+      return next;
+    }
+
+    next.scheduled_events = pendingEvents;
+    next.event_log = [`计划事件 ${command.event_id} 已取消。`, ...next.event_log];
     return recordCommand(next, command);
   }
 
