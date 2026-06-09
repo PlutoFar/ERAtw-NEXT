@@ -110,6 +110,17 @@ class ResourceReferenceItem:
 
 
 @dataclass
+class DialogueCoverageItem:
+    legacy_id: int
+    name: str
+    dialogue_file_count: int
+    dialogue_line_count: int
+    issue_file_count: int
+    missing_resource_ref_count: int
+    language_hints: list[str] = field(default_factory=list)
+
+
+@dataclass
 class AuditIssue:
     severity: str
     code: str
@@ -128,6 +139,7 @@ class LegacyAuditReport:
     characters: list[CharacterInventoryItem]
     dialogues: list[DialogueInventoryItem]
     resource_references: list[ResourceReferenceItem]
+    dialogue_coverage: list[DialogueCoverageItem]
     issues: list[AuditIssue]
     resource_reference_summary: dict[str, int]
 
@@ -189,6 +201,7 @@ def audit_legacy_source(options: AuditOptions) -> LegacyAuditReport:
     characters = build_character_inventory(records)
     dialogues = build_dialogue_inventory(records)
     resource_references = build_resource_reference_report(assets, referenced_resources)
+    dialogue_coverage = build_dialogue_coverage_report(characters, dialogues, records, resource_references)
     summary_counter["total_files"] = len(records)
     summary_counter["total_size_bytes"] = sum(record.size_bytes for record in records)
     summary_counter["characters"] = len(characters)
@@ -199,6 +212,9 @@ def audit_legacy_source(options: AuditOptions) -> LegacyAuditReport:
     )
     summary_counter["resource_refs_missing"] = sum(
         1 for reference in resource_references if reference.status == "missing"
+    )
+    summary_counter["characters_with_dialogue"] = sum(
+        1 for coverage in dialogue_coverage if coverage.dialogue_file_count > 0
     )
 
     return LegacyAuditReport(
@@ -211,6 +227,7 @@ def audit_legacy_source(options: AuditOptions) -> LegacyAuditReport:
         characters=characters,
         dialogues=dialogues,
         resource_references=resource_references,
+        dialogue_coverage=dialogue_coverage,
         issues=issues[: options.max_issues],
         resource_reference_summary=dict(sorted(referenced_resources.items())),
     )
@@ -362,8 +379,52 @@ def write_audit_outputs(report: LegacyAuditReport, out_dir: Path) -> list[Path]:
                     "status": reference.status,
                     "matched_asset_paths": ";".join(reference.matched_asset_paths),
                 }
-            )
+    )
     written.append(resource_reference_csv)
+
+    dialogue_coverage_json = out_dir / "dialogue-coverage-report.json"
+    dialogue_coverage_json.write_text(
+        json.dumps(
+            {
+                "schemaVersion": "dialogue-coverage-report/v0",
+                "sourceRoot": report.source_root,
+                "coverage": [asdict(item) for item in report.dialogue_coverage],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    written.append(dialogue_coverage_json)
+
+    dialogue_coverage_csv = out_dir / "dialogue-coverage-report.csv"
+    with dialogue_coverage_csv.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "legacy_id",
+                "name",
+                "dialogue_file_count",
+                "dialogue_line_count",
+                "issue_file_count",
+                "missing_resource_ref_count",
+                "language_hints",
+            ],
+        )
+        writer.writeheader()
+        for item in report.dialogue_coverage:
+            writer.writerow(
+                {
+                    "legacy_id": item.legacy_id,
+                    "name": item.name,
+                    "dialogue_file_count": item.dialogue_file_count,
+                    "dialogue_line_count": item.dialogue_line_count,
+                    "issue_file_count": item.issue_file_count,
+                    "missing_resource_ref_count": item.missing_resource_ref_count,
+                    "language_hints": ";".join(item.language_hints),
+                }
+            )
+    written.append(dialogue_coverage_csv)
 
     csv_path = out_dir / "legacy-file-inventory.csv"
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
@@ -431,9 +492,11 @@ def render_markdown_summary(report: LegacyAuditReport) -> str:
             "## Content Inventories",
             "",
             f"- Characters: {len(report.characters)}",
+            f"- Characters with personal dialogue: {report.summary.get('characters_with_dialogue', 0)}",
             f"- Dialogue/reference ERB files: {len(report.dialogues)}",
             "- Character inventory: `character-inventory.csv`",
             "- Dialogue inventory: `dialogue-inventory.csv`",
+            "- Dialogue coverage report: `dialogue-coverage-report.csv`",
             "",
             "## Resource References",
             "",
@@ -574,6 +637,62 @@ def build_resource_reference_report(
         )
 
     return references
+
+
+def build_dialogue_coverage_report(
+    characters: list[CharacterInventoryItem],
+    dialogues: list[DialogueInventoryItem],
+    records: list[FileRecord],
+    resource_references: list[ResourceReferenceItem],
+) -> list[DialogueCoverageItem]:
+    dialogues_by_owner: dict[int, list[DialogueInventoryItem]] = {}
+    for dialogue in dialogues:
+        if dialogue.owner_legacy_id is None:
+            continue
+        dialogues_by_owner.setdefault(dialogue.owner_legacy_id, []).append(dialogue)
+
+    records_by_path = {record.path: record for record in records}
+    missing_refs = {
+        reference.reference.lower()
+        for reference in resource_references
+        if reference.status == "missing"
+    }
+
+    coverage: list[DialogueCoverageItem] = []
+    for character in characters:
+        owned_dialogues = dialogues_by_owner.get(character.legacy_id, [])
+        language_hints = sorted(
+            {
+                dialogue.language_hint
+                for dialogue in owned_dialogues
+                if dialogue.language_hint is not None
+            }
+        )
+        missing_for_character: set[str] = set()
+        for dialogue in owned_dialogues:
+            record = records_by_path.get(dialogue.path)
+            if not record:
+                continue
+            missing_for_character.update(
+                ref for ref in record.resource_refs if ref.lower() in missing_refs
+            )
+
+        coverage.append(
+            DialogueCoverageItem(
+                legacy_id=character.legacy_id,
+                name=character.name,
+                dialogue_file_count=len(owned_dialogues),
+                dialogue_line_count=sum(dialogue.line_count or 0 for dialogue in owned_dialogues),
+                issue_file_count=sum(1 for dialogue in owned_dialogues if dialogue.issue_flags),
+                missing_resource_ref_count=len(missing_for_character),
+                language_hints=language_hints,
+            )
+        )
+
+    return sorted(
+        coverage,
+        key=lambda item: (-item.dialogue_file_count, item.legacy_id),
+    )
 
 
 def parse_character_csv_identity(record: FileRecord) -> tuple[str | None, str | None]:

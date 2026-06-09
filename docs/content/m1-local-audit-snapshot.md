@@ -23,6 +23,7 @@
 - Legacy runtime or saves excluded: 13
 - Referenced resource names sampled from text: 577
 - Characters: 162
+- Characters with personal dialogue: 131
 - Dialogue/reference ERB files: 2284
 - Matched resource references: 486
 - Missing resource references: 91

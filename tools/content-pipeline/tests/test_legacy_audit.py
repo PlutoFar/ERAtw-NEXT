@@ -43,6 +43,7 @@ def test_audit_legacy_source_classifies_files(tmp_path: Path) -> None:
     assert report.summary["tool_script"] == 1
     assert report.summary["legacy_runtime"] == 1
     assert report.summary["characters"] == 1
+    assert report.summary["characters_with_dialogue"] == 1
     assert report.summary["dialogue_files"] == 1
     assert report.summary["resource_refs"] == 1
     assert report.summary["resource_refs_matched"] == 1
@@ -56,6 +57,9 @@ def test_audit_legacy_source_classifies_files(tmp_path: Path) -> None:
     assert report.characters[0].dialogue_paths == ["ERB/口上・メッセージ関連/個人口上/001 Reimu [霊夢]/talk.ERB"]
     assert report.dialogues[0].owner_legacy_id == 1
     assert report.dialogues[0].kind == "personal_dialogue"
+    assert report.dialogue_coverage[0].legacy_id == 1
+    assert report.dialogue_coverage[0].dialogue_file_count == 1
+    assert report.dialogue_coverage[0].dialogue_line_count == 3
     assert any(asset.resource_id == "legacy.resources.image" for asset in report.assets)
     assert any(issue.code == "excluded_runtime_artifact" for issue in report.issues)
 
@@ -74,14 +78,17 @@ def test_audit_legacy_cli_writes_reports(tmp_path: Path) -> None:
     characters = json.loads((out / "character-inventory.json").read_text(encoding="utf-8"))
     dialogues = json.loads((out / "dialogue-inventory.json").read_text(encoding="utf-8"))
     resource_refs = json.loads((out / "resource-reference-report.json").read_text(encoding="utf-8"))
+    coverage = json.loads((out / "dialogue-coverage-report.json").read_text(encoding="utf-8"))
     assert report["schema_version"] == "legacy-audit/v0"
     assert report["files"][0]["path"] == "ERB/demo.ERB"
     assert manifest["schemaVersion"] == "asset-manifest/v0"
     assert characters["schemaVersion"] == "character-inventory/v0"
     assert dialogues["schemaVersion"] == "dialogue-inventory/v0"
     assert resource_refs["schemaVersion"] == "resource-reference-report/v0"
+    assert coverage["schemaVersion"] == "dialogue-coverage-report/v0"
     assert (out / "character-inventory.csv").exists()
     assert (out / "dialogue-inventory.csv").exists()
     assert (out / "resource-reference-report.csv").exists()
+    assert (out / "dialogue-coverage-report.csv").exists()
     assert (out / "legacy-file-inventory.csv").exists()
     assert (out / "summary.md").exists()
