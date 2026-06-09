@@ -319,6 +319,7 @@ button {
   align-items: center;
   display: inline-flex;
   gap: 8px;
+  min-width: 0;
 }
 
 .mod-toggle input {
@@ -327,12 +328,41 @@ button {
   width: 16px;
 }
 
+.mod-row-main {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.mod-uninstall-button {
+  align-items: center;
+  background: #22313a;
+  border: 1px solid #4d6570;
+  border-radius: 8px;
+  color: #e8edf0;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 9px;
+}
+
+.mod-uninstall-button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
 .installed-mods-list strong,
 .mod-preflight-issues strong {
   color: #f5c87a;
   font-size: 13px;
 }
 
+.installed-mods-list strong,
 .installed-mods-list span,
 .installed-mods-list small,
 .mod-preflight-issues span,

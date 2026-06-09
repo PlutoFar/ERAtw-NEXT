@@ -8,6 +8,7 @@ import {
   MessageSquareText,
   MoveRight,
   RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { DEFAULT_MOD_INSTALL_ROOT, useEngine } from "./engine/useEngine";
 import { visibleChoices } from "./engine/demoWorld";
@@ -76,6 +77,7 @@ export const App = () => {
     lastRecovery,
     lastSave,
     lastModInstall,
+    lastModUninstall,
     lastInstalledMods,
     lastModEnablementPlan,
     modEnablement,
@@ -88,6 +90,7 @@ export const App = () => {
     installModPackage,
     refreshInstalledMods,
     setModEnabled,
+    uninstallInstalledMod,
     recoverSlot,
     saveSlot,
     world,
@@ -420,6 +423,13 @@ export const App = () => {
               目标：{lastModInstall.target_root}
             </p>
           ) : null}
+          {lastModUninstall ? (
+            <p className="mod-install-text" aria-label="mod uninstall result">
+              已卸载 Mod：{lastModUninstall.namespace}
+              <br />
+              目标：{lastModUninstall.target_root}
+            </p>
+          ) : null}
           {lastInstalledMods ? (
             <section className="installed-mods-panel" aria-label="installed mods">
               <h2>已安装 Mod</h2>
@@ -428,27 +438,43 @@ export const App = () => {
                 <ul className="installed-mods-list">
                   {lastInstalledMods.discovered.map((entry) => (
                     <li key={entry.manifest.namespace}>
-                      <label className="mod-toggle">
-                        <input
-                          type="checkbox"
-                          checked={
-                            modEnablement.find(
-                              (selection) =>
-                                selection.namespace === entry.manifest.namespace,
-                            )?.enabled ?? true
-                          }
-                          onChange={(event) =>
-                            setModEnabled(
-                              entry.manifest.namespace,
-                              event.currentTarget.checked,
+                      <div className="mod-row-main">
+                        <label className="mod-toggle">
+                          <input
+                            type="checkbox"
+                            checked={
+                              modEnablement.find(
+                                (selection) =>
+                                  selection.namespace === entry.manifest.namespace,
+                              )?.enabled ?? true
+                            }
+                            onChange={(event) =>
+                              setModEnabled(
+                                entry.manifest.namespace,
+                                event.currentTarget.checked,
+                                DEFAULT_MOD_INSTALL_ROOT,
+                              )
+                            }
+                            disabled={loading}
+                            aria-label={`启用 ${entry.manifest.namespace}`}
+                          />
+                          <strong>{entry.manifest.name}</strong>
+                        </label>
+                        <button
+                          type="button"
+                          className="mod-uninstall-button"
+                          onClick={() =>
+                            uninstallInstalledMod(
                               DEFAULT_MOD_INSTALL_ROOT,
+                              entry.manifest.namespace,
                             )
                           }
                           disabled={loading}
-                          aria-label={`启用 ${entry.manifest.namespace}`}
-                        />
-                        <strong>{entry.manifest.name}</strong>
-                      </label>
+                          aria-label={`卸载 ${entry.manifest.namespace}`}
+                        >
+                          <Trash2 size={15} /> 卸载
+                        </button>
+                      </div>
                       <span>
                         {entry.manifest.namespace}@{entry.manifest.version}
                       </span>

@@ -172,6 +172,7 @@ describe("useEngine", () => {
       lastRecovery: null,
       lastModPackagePreflight: null,
       lastModInstall: null,
+      lastModUninstall: null,
       lastInstalledMods: null,
       modEnablement: [],
       lastModEnablementPlan: null,
@@ -536,5 +537,70 @@ describe("useEngine", () => {
     expect(useEngine.getState().lastModEnablementPlan?.disabled[0].reason).toBe(
       "user_disabled",
     );
+  });
+
+  it("uninstalls a mod, clears its enablement, and refreshes the plan", async () => {
+    const world = createDemoWorld();
+    const calls = {
+      preflightRegistries: [] as ModRegistry[],
+      installRegistries: [] as ModRegistry[],
+    };
+    const client = createMockClient(world, calls);
+    vi.mocked(client.uninstallMod).mockResolvedValue({
+      namespace: "example.minimal_character",
+      target_root: "mods/installed/example.minimal_character",
+      actions: [
+        {
+          kind: "move_directory",
+          path: null,
+          from: "mods/installed/example.minimal_character",
+          to: "mods/installed/.uninstalling-example.minimal_character",
+        },
+        {
+          kind: "delete_directory",
+          path: "mods/installed/.uninstalling-example.minimal_character",
+          from: null,
+          to: null,
+        },
+      ],
+    });
+    vi.mocked(client.discoverMods).mockResolvedValue({
+      root_path: "mods/installed",
+      discovered: [],
+      errors: [],
+    });
+    useEngine.setState({
+      client,
+      world,
+      modEnablement: [
+        { namespace: "example.minimal_character", enabled: false },
+      ],
+    });
+
+    await useEngine
+      .getState()
+      .uninstallInstalledMod("mods/installed", "example.minimal_character");
+
+    expect(client.uninstallMod).toHaveBeenCalledWith(
+      "mods/installed",
+      "example.minimal_character",
+    );
+    expect(client.saveModEnablement).toHaveBeenCalledWith("mods/installed", []);
+    expect(client.discoverMods).toHaveBeenCalledWith(
+      "mods/installed",
+      "0.1.0-m0",
+      [],
+    );
+    expect(client.planEnabledMods).toHaveBeenCalledWith(
+      [],
+      [],
+      "0.1.0-m0",
+      [],
+    );
+    expect(useEngine.getState().lastModUninstall?.namespace).toBe(
+      "example.minimal_character",
+    );
+    expect(useEngine.getState().lastInstalledMods?.discovered).toEqual([]);
+    expect(useEngine.getState().modEnablement).toEqual([]);
   });
 });

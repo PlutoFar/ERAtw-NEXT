@@ -9,6 +9,7 @@ import type {
   ModInstallPreflightReport,
   ModInstallReport,
   ModRegistry,
+  ModUninstallReport,
   SavePreflightReport,
   SaveRecoveryReport,
   SaveSlotReport,
@@ -25,6 +26,7 @@ interface EngineStore {
   lastRecovery: SaveRecoveryReport | null;
   lastModPackagePreflight: ModInstallPreflightReport | null;
   lastModInstall: ModInstallReport | null;
+  lastModUninstall: ModUninstallReport | null;
   lastInstalledMods: ModDiscoveryReport | null;
   modEnablement: ModEnablement[];
   lastModEnablementPlan: ModEnablementPlanReport | null;
@@ -36,6 +38,7 @@ interface EngineStore {
     installRoot: string,
   ) => Promise<void>;
   installModPackage: (packageRoot: string, installRoot: string) => Promise<void>;
+  uninstallInstalledMod: (installRoot: string, namespace: string) => Promise<void>;
   refreshInstalledMods: (installRoot: string) => Promise<void>;
   planInstalledMods: (installRoot: string) => Promise<void>;
   setModEnabled: (
@@ -144,6 +147,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
   lastRecovery: null,
   lastModPackagePreflight: null,
   lastModInstall: null,
+  lastModUninstall: null,
   lastInstalledMods: null,
   modEnablement: [],
   lastModEnablementPlan: null,
@@ -202,7 +206,12 @@ export const useEngine = create<EngineStore>((set, get) => ({
         get().world?.engine_version,
         [],
       );
-      set({ lastModPackagePreflight, lastModInstall: null, loading: false });
+      set({
+        lastModPackagePreflight,
+        lastModInstall: null,
+        lastModUninstall: null,
+        loading: false,
+      });
     } catch (error) {
       set({ error: String(error), lastModPackagePreflight: null, loading: false });
     }
@@ -251,6 +260,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
       set({
         lastModPackagePreflight: preflight,
         lastModInstall,
+        lastModUninstall: null,
         lastInstalledMods,
         modEnablement,
         lastModEnablementPlan,
@@ -259,6 +269,43 @@ export const useEngine = create<EngineStore>((set, get) => ({
       });
     } catch (error) {
       set({ error: String(error), lastModInstall: null, loading: false });
+    }
+  },
+  async uninstallInstalledMod(installRoot, namespace) {
+    set({ loading: true, error: null });
+    try {
+      const lastModUninstall = await get().client.uninstallMod(installRoot, namespace);
+      const nextModEnablement = normalizeModEnablement(
+        get().modEnablement.filter((entry) => entry.namespace !== namespace),
+      );
+      let savedModEnablement = nextModEnablement;
+      let settingsError: string | null = null;
+      try {
+        savedModEnablement = normalizeModEnablement(
+          await get().client.saveModEnablement(installRoot, nextModEnablement),
+        );
+      } catch (error) {
+        settingsError = String(error);
+      }
+      const { lastInstalledMods, lastModEnablementPlan } =
+        await planInstalledModsForState(
+          get().client,
+          installRoot,
+          get().world,
+          savedModEnablement,
+          null,
+        );
+      set({
+        lastModInstall: null,
+        lastModUninstall,
+        lastInstalledMods,
+        modEnablement: savedModEnablement,
+        lastModEnablementPlan,
+        error: settingsError,
+        loading: false,
+      });
+    } catch (error) {
+      set({ error: String(error), lastModUninstall: null, loading: false });
     }
   },
   async refreshInstalledMods(installRoot) {

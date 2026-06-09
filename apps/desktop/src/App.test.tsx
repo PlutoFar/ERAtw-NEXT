@@ -17,6 +17,7 @@ describe("App", () => {
       lastRecovery: null,
       lastModPackagePreflight: null,
       lastModInstall: null,
+      lastModUninstall: null,
       lastInstalledMods: null,
       modEnablement: [],
       lastModEnablementPlan: null,
@@ -251,6 +252,30 @@ describe("App", () => {
 
     expect(toggle).not.toBeChecked();
     expect(within(plan).getByText(/禁用：example\.minimal_character/)).toBeInTheDocument();
+  });
+
+  it("uninstalls an installed mod and refreshes the installed list", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Mod 预检/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "安装 Mod 包" }));
+
+    const uninstallButton = await screen.findByRole("button", {
+      name: "卸载 example.minimal_character",
+    });
+    fireEvent.click(uninstallButton);
+
+    await waitFor(() => {
+      const uninstallResult = screen.getByLabelText("mod uninstall result");
+      expect(
+        within(uninstallResult).getByText(/已卸载 Mod：example\.minimal_character/),
+      ).toBeInTheDocument();
+      const panel = screen.getByLabelText("installed mods");
+      expect(within(panel).getByText("未发现已安装 Mod。")).toBeInTheDocument();
+      expect(
+        screen.queryByText("example.minimal_character@0.1.0"),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("dispatches relationship command through the engine store", async () => {
