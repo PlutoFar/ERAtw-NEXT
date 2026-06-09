@@ -11,6 +11,7 @@ M0 proves the new project can stand alone:
 - Traditional and modern UI mode prototype sharing the same state
 - Workspace structure for engine, content, mod runtime, tools, docs, and examples
 - CI, tests, architecture notes, and content boundary notes
+- M1 legacy content audit CLI and draft asset manifest output
 
 ## Development
 
@@ -25,4 +26,11 @@ Tauri development additionally requires a local Rust toolchain.
 
 ```powershell
 npm run dev
+```
+
+## Content Audit
+
+```powershell
+python -m pip install -e "tools/content-pipeline[test]"
+python -m eratw_content_pipeline.cli audit-legacy --source D:\AICODE\ERAtw --out reports\legacy-audit
 ```

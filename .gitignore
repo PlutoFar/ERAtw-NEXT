@@ -3,6 +3,7 @@ node_modules/
 target/
 .venv/
 __pycache__/
+*.egg-info/
 
 # Build outputs
 dist/
@@ -11,6 +12,8 @@ out/
 coverage/
 .vite/
 .turbo/
+reports/
+audit-output/
 
 # Tauri generated artifacts
 apps/**/src-tauri/target/
