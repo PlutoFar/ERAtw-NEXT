@@ -1,3 +1,7 @@
+use eratw_engine::{
+    resource::{audit_resource_publication, ResourcePublishIssueSeverity, ResourcePublishReport},
+    ResourceAsset,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -22,6 +26,8 @@ pub struct ModManifest {
     pub conflicts: Vec<String>,
     #[serde(default)]
     pub capabilities: Vec<ModCapability>,
+    #[serde(default)]
+    pub resources: Vec<ResourceAsset>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -246,6 +252,7 @@ pub struct ModPackageCheckReport {
     pub content_manifest_path: PathBuf,
     pub package_manifest: ModPackageManifest,
     pub manifest: ModManifest,
+    pub resource_report: ResourcePublishReport,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -345,6 +352,19 @@ pub enum ModDiscoveryError {
         expected_version: String,
         actual_namespace: String,
         actual_version: String,
+    },
+    #[error(
+        "mod package resources are not publishable: {errors} errors, {warnings} warnings; first issue: {first_issue}"
+    )]
+    ResourcePublicationFailed {
+        errors: usize,
+        warnings: usize,
+        first_issue: String,
+    },
+    #[error("mod package resource publication warning: {resource_id}: {message}")]
+    ResourcePublicationWarning {
+        resource_id: String,
+        message: String,
     },
     #[error("mod install target already exists: {0}")]
     InstallTargetExists(String),
@@ -697,6 +717,7 @@ pub fn scaffold_mod_template(
         dependencies: Vec::new(),
         conflicts: Vec::new(),
         capabilities: vec![ModCapability::Content],
+        resources: Vec::new(),
     };
     validate_manifest(&manifest)?;
 
@@ -787,6 +808,19 @@ pub fn check_mod_package_for_engine_with_policy(
         });
     }
 
+    let resource_report = audit_resource_publication(&manifest.resources, &content_root);
+    if !resource_report.ready {
+        return Err(ModDiscoveryError::ResourcePublicationFailed {
+            errors: resource_report.error_count,
+            warnings: resource_report.warning_count,
+            first_issue: resource_report
+                .issues
+                .first()
+                .map(|issue| issue.message.clone())
+                .unwrap_or_else(|| "resource publication audit failed".to_string()),
+        });
+    }
+
     Ok(ModPackageCheckReport {
         package_root: package_root.to_path_buf(),
         package_manifest_path,
@@ -794,6 +828,7 @@ pub fn check_mod_package_for_engine_with_policy(
         content_manifest_path,
         package_manifest,
         manifest,
+        resource_report,
     })
 }
 
@@ -1040,13 +1075,30 @@ pub fn preflight_mod_package_install_for_engine_with_policy(
         };
 
     let content_root = package.content_root.clone();
+    let resource_warnings = package
+        .resource_report
+        .issues
+        .iter()
+        .filter(|issue| issue.severity == ResourcePublishIssueSeverity::Warning)
+        .map(|issue| ModInstallPreflightIssue {
+            severity: ModInstallPreflightIssueSeverity::Warning,
+            path: content_root.join(&issue.source_path),
+            error: ModDiscoveryError::ResourcePublicationWarning {
+                resource_id: issue.resource_id.clone(),
+                message: issue.message.clone(),
+            },
+        })
+        .collect::<Vec<_>>();
     let plan = plan_mod_install_for_engine_with_policy(
         &package.content_root,
         &install_root,
         engine_version,
         policy,
     );
-    preflight_install_plan_result(package_root, install_root, Some(content_root), plan)
+    let mut report =
+        preflight_install_plan_result(package_root, install_root, Some(content_root), plan);
+    report.issues.extend(resource_warnings);
+    report
 }
 
 pub fn execute_mod_install_plan(
@@ -1777,6 +1829,7 @@ fn default_required() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eratw_engine::{ResourceAsset, ResourceMediaType};
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
@@ -2326,11 +2379,76 @@ mod tests {
         assert_eq!(report.package_root, package.package_root);
         assert_eq!(report.package_manifest.namespace, "example.package");
         assert_eq!(report.manifest.namespace, "example.package");
+        assert!(report.resource_report.ready);
+        assert_eq!(report.resource_report.error_count, 0);
+        assert_eq!(report.resource_report.warning_count, 0);
         assert_eq!(report.content_root, report.package_root.join("content"));
         assert_eq!(
             report.content_manifest_path,
             report.package_root.join("content/manifest.json")
         );
+
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn check_mod_package_reports_resource_publication_warnings() {
+        let source_root = temp_mod_dir("package_check_resource_warnings_source");
+        let output_root = temp_mod_dir("package_check_resource_warnings_output");
+        fs::create_dir_all(source_root.join("assets")).unwrap();
+        fs::write(source_root.join("assets/readme.txt"), "publishable").unwrap();
+        let mut manifest = manifest("example.package");
+        manifest.resources = vec![resource_asset(
+            "example.package.assets.readme",
+            "assets/readme.txt",
+            None,
+        )];
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let package = package_mod_project(&source_root, &output_root).unwrap();
+
+        let report = check_mod_package(&package.package_root).unwrap();
+
+        assert!(report.resource_report.ready);
+        assert_eq!(report.resource_report.error_count, 0);
+        assert_eq!(report.resource_report.warning_count, 1);
+
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn check_mod_package_rejects_unpublishable_resources() {
+        let source_root = temp_mod_dir("package_check_resource_errors_source");
+        let output_root = temp_mod_dir("package_check_resource_errors_output");
+        fs::create_dir_all(&source_root).unwrap();
+        let mut manifest = manifest("example.package");
+        let mut missing =
+            resource_asset("example.package.assets.missing", "assets/missing.txt", None);
+        missing.license = "unknown".to_string();
+        missing.author = "".to_string();
+        manifest.resources = vec![missing];
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let package = package_mod_project(&source_root, &output_root).unwrap();
+
+        let result = check_mod_package(&package.package_root);
+
+        assert!(matches!(
+            result,
+            Err(ModDiscoveryError::ResourcePublicationFailed {
+                errors: 3,
+                warnings: 1,
+                ..
+            })
+        ));
 
         let _ = fs::remove_dir_all(output_root);
         let _ = fs::remove_dir_all(source_root);
@@ -2866,6 +2984,39 @@ mod tests {
     }
 
     #[test]
+    fn preflight_mod_package_install_reports_resource_publication_warnings() {
+        let source_root = temp_mod_dir("preflight_package_resource_warnings_source");
+        let package_output_root = temp_mod_dir("preflight_package_resource_warnings_output");
+        let install_root = temp_mod_dir("preflight_package_resource_warnings_root");
+        fs::create_dir_all(source_root.join("assets")).unwrap();
+        fs::write(source_root.join("assets/readme.txt"), "publishable").unwrap();
+        let mut manifest = manifest("example.preflight");
+        manifest.resources = vec![resource_asset(
+            "example.preflight.assets.readme",
+            "assets/readme.txt",
+            None,
+        )];
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        let package = package_mod_project(&source_root, &package_output_root).unwrap();
+
+        let report = preflight_mod_package_install(&package.package_root, &install_root);
+
+        assert!(report.is_ready());
+        assert_eq!(report.issues.len(), 1);
+        assert!(matches!(
+            report.issues[0].error,
+            ModDiscoveryError::ResourcePublicationWarning { .. }
+        ));
+
+        let _ = fs::remove_dir_all(package_output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
     fn preflight_mod_package_install_checks_package_and_authorization() {
         let source_root = temp_mod_dir("preflight_package_policy_source");
         let package_output_root = temp_mod_dir("preflight_package_policy_output");
@@ -3264,6 +3415,7 @@ mod tests {
 
         assert_eq!(manifest.dependencies, vec![dependency("core.base", None)]);
         assert_eq!(manifest.load_order, 3);
+        assert!(manifest.resources.is_empty());
         validate_manifest(&manifest).unwrap();
     }
 
@@ -3277,6 +3429,21 @@ mod tests {
             dependencies: Vec::new(),
             conflicts: Vec::new(),
             capabilities: vec![ModCapability::Content],
+            resources: Vec::new(),
+        }
+    }
+
+    fn resource_asset(resource_id: &str, source_path: &str, sha256: Option<&str>) -> ResourceAsset {
+        ResourceAsset {
+            resource_id: resource_id.to_string(),
+            source_path: source_path.to_string(),
+            media_type: ResourceMediaType::Other,
+            license: "CC-BY-4.0".to_string(),
+            author: "ERAtw-NEXT".to_string(),
+            usage: Vec::new(),
+            character_bindings: Vec::new(),
+            tags: Vec::new(),
+            sha256: sha256.map(ToString::to_string),
         }
     }
 

@@ -800,6 +800,7 @@ const sampleBrowserModManifest = (): ModManifest => ({
   dependencies: [],
   conflicts: [],
   capabilities: ["content"],
+  resources: [],
 });
 
 const unsafeModCapabilities = new Set<ModCapability>([

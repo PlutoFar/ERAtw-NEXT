@@ -1306,4 +1306,5 @@ const sampleBrowserMod = (namespace: string) => ({
   dependencies: [],
   conflicts: [],
   capabilities: ["content" as const],
+  resources: [],
 });

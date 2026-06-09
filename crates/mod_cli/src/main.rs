@@ -142,10 +142,12 @@ fn run(args: Vec<String>) -> Result<String, String> {
         )
         .map(|report| {
             format!(
-                "checked mod package {} {} at {}",
+                "checked mod package {} {} at {} ({} resource errors, {} resource warnings)",
                 report.manifest.namespace,
                 report.manifest.version,
-                report.package_root.display()
+                report.package_root.display(),
+                report.resource_report.error_count,
+                report.resource_report.warning_count
             )
         })
         .map_err(format_mod_error),
@@ -578,6 +580,35 @@ mod tests {
         .unwrap();
 
         assert!(output.contains("checked mod package example.cli 0.1.0"));
+        assert!(output.contains("0 resource errors, 0 resource warnings"));
+
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn check_package_command_reports_resource_warnings() {
+        let source_root = temp_dir("check_package_command_resource_source");
+        let output_root = temp_dir("check_package_command_resource_output");
+        write_manifest_with_resource(&source_root, "example.cli");
+        fs::write(source_root.join("assets/readme.txt"), "publishable").unwrap();
+        run(vec![
+            "pack".to_string(),
+            source_root.to_string_lossy().to_string(),
+            output_root.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+
+        let output = run(vec![
+            "check-package".to_string(),
+            output_root
+                .join("example.cli-0.1.0")
+                .to_string_lossy()
+                .to_string(),
+        ])
+        .unwrap();
+
+        assert!(output.contains("0 resource errors, 1 resource warnings"));
 
         let _ = fs::remove_dir_all(output_root);
         let _ = fs::remove_dir_all(source_root);
@@ -611,6 +642,38 @@ mod tests {
         assert!(output.contains("preflight ready: example.cli"));
         assert!(output.contains("0 errors, 0 warnings"));
         assert!(!install_root.exists());
+
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn preflight_install_package_command_reports_resource_warnings() {
+        let source_root = temp_dir("preflight_package_command_resource_source");
+        let output_root = temp_dir("preflight_package_command_resource_output");
+        let install_root = temp_dir("preflight_package_command_resource_root");
+        write_manifest_with_resource(&source_root, "example.cli");
+        fs::write(source_root.join("assets/readme.txt"), "publishable").unwrap();
+        run(vec![
+            "pack".to_string(),
+            source_root.to_string_lossy().to_string(),
+            output_root.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+
+        let output = run(vec![
+            "preflight-install-package".to_string(),
+            output_root
+                .join("example.cli-0.1.0")
+                .to_string_lossy()
+                .to_string(),
+            install_root.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+
+        assert!(output.contains("preflight ready: example.cli"));
+        assert!(output.contains("0 errors, 1 warnings"));
+        assert!(output.contains("mod package resource publication warning"));
 
         let _ = fs::remove_dir_all(output_root);
         let _ = fs::remove_dir_all(source_root);
@@ -765,6 +828,39 @@ mod tests {
   "dependencies": [],
   "conflicts": [],
   "capabilities": [{capabilities}]
+}}"#
+            ),
+        )
+        .unwrap();
+    }
+
+    fn write_manifest_with_resource(root: &PathBuf, namespace: &str) {
+        fs::create_dir_all(root.join("assets")).unwrap();
+        fs::write(
+            root.join("manifest.json"),
+            format!(
+                r#"{{
+  "namespace": "{namespace}",
+  "name": "{namespace}",
+  "version": "0.1.0",
+  "engine_version": "0.1.0-m0",
+  "load_order": 0,
+  "dependencies": [],
+  "conflicts": [],
+  "capabilities": ["content"],
+  "resources": [
+    {{
+      "resource_id": "{namespace}.assets.readme",
+      "source_path": "assets/readme.txt",
+      "media_type": "other",
+      "license": "CC-BY-4.0",
+      "author": "ERAtw-NEXT",
+      "usage": [],
+      "character_bindings": [],
+      "tags": [],
+      "sha256": null
+    }}
+  ]
 }}"#
             ),
         )

@@ -207,6 +207,7 @@ export interface ModManifest {
   dependencies: ModDependency[];
   conflicts: string[];
   capabilities: ModCapability[];
+  resources: ResourceAsset[];
 }
 
 export interface DiscoveredModReport {
@@ -224,6 +225,8 @@ export type ModDiscoveryIssueKind =
   | "template_target_not_empty"
   | "unsupported_package_schema"
   | "package_manifest_mismatch"
+  | "resource_publication_failed"
+  | "resource_publication_warning"
   | "install_target_exists"
   | "install_root_not_directory"
   | "install_staging_exists"

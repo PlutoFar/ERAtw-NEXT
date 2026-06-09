@@ -893,6 +893,8 @@ fn mod_discovery_error_kind(error: &ModDiscoveryError) -> &'static str {
         ModDiscoveryError::TemplateTargetNotEmpty(_) => "template_target_not_empty",
         ModDiscoveryError::UnsupportedPackageSchema(_) => "unsupported_package_schema",
         ModDiscoveryError::PackageManifestMismatch { .. } => "package_manifest_mismatch",
+        ModDiscoveryError::ResourcePublicationFailed { .. } => "resource_publication_failed",
+        ModDiscoveryError::ResourcePublicationWarning { .. } => "resource_publication_warning",
         ModDiscoveryError::InstallTargetExists(_) => "install_target_exists",
         ModDiscoveryError::InstallRootNotDirectory(_) => "install_root_not_directory",
         ModDiscoveryError::InstallStagingExists(_) => "install_staging_exists",
@@ -1386,6 +1388,7 @@ mod tests {
             dependencies: Vec::new(),
             conflicts: Vec::new(),
             capabilities: vec![eratw_mod_runtime::ModCapability::Content],
+            resources: Vec::new(),
         }
     }
 
