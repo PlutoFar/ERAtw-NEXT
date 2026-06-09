@@ -48,4 +48,19 @@ describe("App", () => {
       expect(screen.getByText(/browser-memory:\/\/slot_1.json/)).toBeInTheDocument();
     });
   });
+
+  it("dispatches relationship command through the engine store", async () => {
+    render(<App />);
+
+    expect(await screen.findByText("好感")).toBeInTheDocument();
+    expect(screen.getByText("信赖")).toBeInTheDocument();
+
+    const communicateButton = screen.getByRole("button", { name: /交流/ });
+    fireEvent.click(communicateButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("6")).toBeInTheDocument();
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+  });
 });

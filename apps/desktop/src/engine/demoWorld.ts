@@ -106,6 +106,13 @@ const createDemoDialogueScenes = (): DialogueScene[] => [
                 energy_delta: 0,
                 mood_delta: 3,
               },
+              {
+                type: "adjust_relationship",
+                source_character_id: "player",
+                target_character_id: "demo_heroine",
+                affinity_delta: 2,
+                trust_delta: 1,
+              },
             ],
           },
         ],
@@ -164,6 +171,14 @@ export const createDemoWorld = (): WorldState => ({
         energy: 80,
         mood: 10,
       },
+    },
+  ],
+  relationships: [
+    {
+      source_character_id: "player",
+      target_character_id: "demo_heroine",
+      affinity: 5,
+      trust: 0,
     },
   ],
   dialogue_scenes: createDemoDialogueScenes(),
@@ -236,6 +251,28 @@ const applyCharacterStateDelta = (
   character.state.mood = clamp(character.state.mood + moodDelta, -100, 100);
 };
 
+const applyRelationshipDelta = (
+  world: WorldState,
+  sourceCharacterId: string,
+  targetCharacterId: string,
+  affinityDelta: number,
+  trustDelta: number,
+) => {
+  const target = world.characters.find((item) => item.id === targetCharacterId);
+  const relationship = world.relationships.find(
+    (item) =>
+      item.source_character_id === sourceCharacterId &&
+      item.target_character_id === targetCharacterId,
+  );
+  if (!target || !relationship) {
+    return false;
+  }
+
+  relationship.affinity = clamp(relationship.affinity + affinityDelta, -100, 100);
+  relationship.trust = clamp(relationship.trust + trustDelta, -100, 100);
+  return true;
+};
+
 const applyDialogueEffect = (world: WorldState, effect: DialogueEffect) => {
   if (effect.type === "adjust_character_state") {
     applyCharacterStateDelta(
@@ -243,6 +280,17 @@ const applyDialogueEffect = (world: WorldState, effect: DialogueEffect) => {
       effect.character_id,
       effect.energy_delta,
       effect.mood_delta,
+    );
+    return;
+  }
+
+  if (effect.type === "adjust_relationship") {
+    applyRelationshipDelta(
+      world,
+      effect.source_character_id,
+      effect.target_character_id,
+      effect.affinity_delta,
+      effect.trust_delta,
     );
     return;
   }
@@ -309,6 +357,21 @@ const applyScheduledEventKind = (
     return;
   }
 
+  if (kind.type === "adjust_relationship") {
+    applyRelationshipDelta(
+      world,
+      kind.source_character_id,
+      kind.target_character_id,
+      kind.affinity_delta,
+      kind.trust_delta,
+    );
+    world.event_log = [
+      `事件 ${eventId} 触发：关系 ${kind.source_character_id} -> ${kind.target_character_id} 更新。`,
+      ...world.event_log,
+    ];
+    return;
+  }
+
   applyCharacterStateDelta(
     world,
     kind.character_id,
@@ -364,6 +427,25 @@ export const applyDemoCommand = (
     character.location_id = location.id;
     next.event_log = [
       `${character.display_name} 移动到 ${location.name}。`,
+      ...next.event_log,
+    ];
+    return recordCommand(next, command);
+  }
+
+  if (command.type === "adjust_relationship") {
+    const updated = applyRelationshipDelta(
+      next,
+      command.source_character_id,
+      command.target_character_id,
+      command.affinity_delta,
+      command.trust_delta,
+    );
+    if (!updated) {
+      return next;
+    }
+
+    next.event_log = [
+      `关系 ${command.source_character_id} -> ${command.target_character_id} 更新。`,
       ...next.event_log,
     ];
     return recordCommand(next, command);

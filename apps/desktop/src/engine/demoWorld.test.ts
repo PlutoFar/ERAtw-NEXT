@@ -60,6 +60,8 @@ describe("demo engine adapter", () => {
     expect(world.active_dialogue).toHaveLength(2);
     expect(world.active_dialogue[1].text).toContain("稳定重放");
     expect(world.characters[0].state.mood).toBe(13);
+    expect(world.relationships[0].affinity).toBe(7);
+    expect(world.relationships[0].trust).toBe(1);
   });
 
   it("records successful commands only", () => {
@@ -77,6 +79,26 @@ describe("demo engine adapter", () => {
     expect(rejected.command_log[0]).toEqual({
       type: "advance_time",
       minutes: 30,
+    });
+  });
+
+  it("adjusts relationships through command api", () => {
+    const world = applyDemoCommand(createDemoWorld(), {
+      type: "adjust_relationship",
+      source_character_id: "player",
+      target_character_id: "demo_heroine",
+      affinity_delta: 120,
+      trust_delta: 2,
+    });
+
+    expect(world.relationships[0].affinity).toBe(100);
+    expect(world.relationships[0].trust).toBe(2);
+    expect(world.command_log[0]).toEqual({
+      type: "adjust_relationship",
+      source_character_id: "player",
+      target_character_id: "demo_heroine",
+      affinity_delta: 120,
+      trust_delta: 2,
     });
   });
 

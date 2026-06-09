@@ -30,6 +30,15 @@ const getCurrentLocation = (world: WorldState): Location | undefined => {
   return world.locations.find((location) => location.id === character?.location_id);
 };
 
+const getPlayerRelationship = (world: WorldState) => {
+  const character = world.characters[0];
+  return world.relationships.find(
+    (relationship) =>
+      relationship.source_character_id === "player" &&
+      relationship.target_character_id === character?.id,
+  );
+};
+
 const formatScheduledEventTime = (world: WorldState) => {
   const event = world.scheduled_events[0];
   if (!event) {
@@ -61,6 +70,7 @@ export const App = () => {
 
   const character = world.characters[0];
   const currentLocation = getCurrentLocation(world);
+  const relationship = getPlayerRelationship(world);
 
   return (
     <main className="app-shell">
@@ -114,6 +124,14 @@ export const App = () => {
                 <dt>心情</dt>
                 <dd>{character.state.mood}</dd>
               </div>
+              <div>
+                <dt>好感</dt>
+                <dd>{relationship?.affinity ?? "未知"}</dd>
+              </div>
+              <div>
+                <dt>信赖</dt>
+                <dd>{relationship?.trust ?? "未知"}</dd>
+              </div>
             </dl>
           </section>
 
@@ -161,6 +179,21 @@ export const App = () => {
               disabled={loading}
             >
               <Dices size={17} /> 随机心情
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                dispatch({
+                  type: "adjust_relationship",
+                  source_character_id: "player",
+                  target_character_id: character.id,
+                  affinity_delta: 1,
+                  trust_delta: 1,
+                })
+              }
+              disabled={loading}
+            >
+              <MessageSquareText size={17} /> 交流
             </button>
             <button
               type="button"

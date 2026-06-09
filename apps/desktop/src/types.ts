@@ -34,6 +34,13 @@ export interface Character {
   state: CharacterState;
 }
 
+export interface Relationship {
+  source_character_id: string;
+  target_character_id: string;
+  affinity: number;
+  trust: number;
+}
+
 export interface WorldRandom {
   seed: string;
   cursor: string;
@@ -60,6 +67,13 @@ export type DialogueEffect =
       energy_delta: number;
       mood_delta: number;
     }
+  | {
+      type: "adjust_relationship";
+      source_character_id: string;
+      target_character_id: string;
+      affinity_delta: number;
+      trust_delta: number;
+    }
   | { type: "change_weather"; weather: Weather }
   | { type: "add_log"; message: string };
 
@@ -72,6 +86,13 @@ export interface DialogueScene {
 export type ScheduledEventKind =
   | { type: "change_weather"; weather: Weather }
   | { type: "start_dialogue"; scene_id: string }
+  | {
+      type: "adjust_relationship";
+      source_character_id: string;
+      target_character_id: string;
+      affinity_delta: number;
+      trust_delta: number;
+    }
   | {
       type: "adjust_character_state";
       character_id: string;
@@ -90,6 +111,7 @@ export interface WorldState {
   clock: WorldClock;
   locations: Location[];
   characters: Character[];
+  relationships: Relationship[];
   dialogue_scenes: DialogueScene[];
   active_dialogue_scene_id: string | null;
   active_dialogue: DialogueNode[];
@@ -122,6 +144,13 @@ export interface SaveSlotReport {
 export type EngineCommand =
   | { type: "advance_time"; minutes: number }
   | { type: "move_character"; character_id: string; location_id: string }
+  | {
+      type: "adjust_relationship";
+      source_character_id: string;
+      target_character_id: string;
+      affinity_delta: number;
+      trust_delta: number;
+    }
   | { type: "start_dialogue"; scene_id: string }
   | { type: "choose_dialogue"; node_id: string; choice_id: string }
   | {

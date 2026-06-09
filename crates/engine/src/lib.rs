@@ -90,6 +90,14 @@ pub struct Character {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Relationship {
+    pub source_character_id: String,
+    pub target_character_id: String,
+    pub affinity: i16,
+    pub trust: i16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorldRandom {
     #[serde(with = "u64_string")]
     pub seed: u64,
@@ -157,6 +165,12 @@ pub enum DialogueEffect {
         energy_delta: i16,
         mood_delta: i16,
     },
+    AdjustRelationship {
+        source_character_id: String,
+        target_character_id: String,
+        affinity_delta: i16,
+        trust_delta: i16,
+    },
     ChangeWeather {
         weather: Weather,
     },
@@ -188,6 +202,12 @@ pub enum ScheduledEventKind {
     StartDialogue {
         scene_id: String,
     },
+    AdjustRelationship {
+        source_character_id: String,
+        target_character_id: String,
+        affinity_delta: i16,
+        trust_delta: i16,
+    },
     AdjustCharacterState {
         character_id: String,
         energy_delta: i16,
@@ -201,6 +221,8 @@ pub struct WorldState {
     pub clock: WorldClock,
     pub locations: Vec<Location>,
     pub characters: Vec<Character>,
+    #[serde(default)]
+    pub relationships: Vec<Relationship>,
     pub dialogue_scenes: Vec<DialogueScene>,
     pub active_dialogue_scene_id: Option<String>,
     pub active_dialogue: Vec<DialogueNode>,
@@ -220,6 +242,12 @@ pub enum EngineCommand {
     MoveCharacter {
         character_id: String,
         location_id: String,
+    },
+    AdjustRelationship {
+        source_character_id: String,
+        target_character_id: String,
+        affinity_delta: i16,
+        trust_delta: i16,
     },
     StartDialogue {
         scene_id: String,
@@ -242,6 +270,11 @@ pub enum EngineCommand {
 pub enum EngineError {
     #[error("character not found: {0}")]
     CharacterNotFound(String),
+    #[error("relationship not found: {source_character_id} -> {target_character_id}")]
+    RelationshipNotFound {
+        source_character_id: String,
+        target_character_id: String,
+    },
     #[error("location not found: {0}")]
     LocationNotFound(String),
     #[error("scene not found: {0}")]
@@ -304,6 +337,12 @@ impl WorldState {
                     mood: 10,
                 },
             }],
+            relationships: vec![Relationship {
+                source_character_id: "player".to_string(),
+                target_character_id: "demo_heroine".to_string(),
+                affinity: 5,
+                trust: 0,
+            }],
             dialogue_scenes: demo_dialogue_scenes(),
             active_dialogue_scene_id: None,
             active_dialogue: Vec::new(),
@@ -346,6 +385,17 @@ impl WorldState {
                 character_id,
                 location_id,
             } => self.move_character(&character_id, &location_id),
+            EngineCommand::AdjustRelationship {
+                source_character_id,
+                target_character_id,
+                affinity_delta,
+                trust_delta,
+            } => self.adjust_relationship_command(
+                &source_character_id,
+                &target_character_id,
+                affinity_delta,
+                trust_delta,
+            ),
             EngineCommand::StartDialogue { scene_id } => self.start_dialogue(&scene_id),
             EngineCommand::ChooseDialogue { node_id, choice_id } => {
                 self.choose_dialogue(&node_id, &choice_id)
@@ -451,6 +501,20 @@ impl WorldState {
                 mood_delta,
             } => {
                 self.adjust_character_state(character_id, *energy_delta, *mood_delta)?;
+                Ok(())
+            }
+            DialogueEffect::AdjustRelationship {
+                source_character_id,
+                target_character_id,
+                affinity_delta,
+                trust_delta,
+            } => {
+                self.adjust_relationship(
+                    source_character_id,
+                    target_character_id,
+                    *affinity_delta,
+                    *trust_delta,
+                )?;
                 Ok(())
             }
             DialogueEffect::ChangeWeather { weather } => {
@@ -561,6 +625,24 @@ impl WorldState {
                 Ok(())
             }
             ScheduledEventKind::StartDialogue { scene_id } => self.start_dialogue(scene_id),
+            ScheduledEventKind::AdjustRelationship {
+                source_character_id,
+                target_character_id,
+                affinity_delta,
+                trust_delta,
+            } => {
+                self.adjust_relationship(
+                    source_character_id,
+                    target_character_id,
+                    *affinity_delta,
+                    *trust_delta,
+                )?;
+                self.event_log.push(format!(
+                    "事件 {} 触发：关系 {} -> {} 更新。",
+                    event.id, source_character_id, target_character_id
+                ));
+                Ok(())
+            }
             ScheduledEventKind::AdjustCharacterState {
                 character_id,
                 energy_delta,
@@ -593,6 +675,61 @@ impl WorldState {
         character.state.mood = bounded_delta(character.state.mood, mood_delta, -100, 100);
 
         Ok(character.display_name.clone())
+    }
+
+    fn adjust_relationship_command(
+        &mut self,
+        source_character_id: &str,
+        target_character_id: &str,
+        affinity_delta: i16,
+        trust_delta: i16,
+    ) -> Result<(), EngineError> {
+        self.ensure_character_exists(target_character_id)?;
+        self.adjust_relationship(
+            source_character_id,
+            target_character_id,
+            affinity_delta,
+            trust_delta,
+        )?;
+        self.event_log.push(format!(
+            "关系 {} -> {} 更新。",
+            source_character_id, target_character_id
+        ));
+        Ok(())
+    }
+
+    fn adjust_relationship(
+        &mut self,
+        source_character_id: &str,
+        target_character_id: &str,
+        affinity_delta: i16,
+        trust_delta: i16,
+    ) -> Result<(), EngineError> {
+        self.ensure_character_exists(target_character_id)?;
+
+        let relationship = self
+            .relationships
+            .iter_mut()
+            .find(|relationship| {
+                relationship.source_character_id == source_character_id
+                    && relationship.target_character_id == target_character_id
+            })
+            .ok_or_else(|| EngineError::RelationshipNotFound {
+                source_character_id: source_character_id.to_string(),
+                target_character_id: target_character_id.to_string(),
+            })?;
+
+        relationship.affinity = bounded_delta(relationship.affinity, affinity_delta, -100, 100);
+        relationship.trust = bounded_delta(relationship.trust, trust_delta, -100, 100);
+        Ok(())
+    }
+
+    fn ensure_character_exists(&self, character_id: &str) -> Result<(), EngineError> {
+        self.characters
+            .iter()
+            .any(|character| character.id == character_id)
+            .then_some(())
+            .ok_or_else(|| EngineError::CharacterNotFound(character_id.to_string()))
     }
 
     fn sort_scheduled_events(&mut self) {
@@ -681,11 +818,19 @@ fn demo_dialogue_scenes() -> Vec<DialogueScene> {
                         id: "encourage".to_string(),
                         label: "鼓励她".to_string(),
                         next_node_id: Some("demo_morning_003".to_string()),
-                        effects: vec![DialogueEffect::AdjustCharacterState {
-                            character_id: "demo_heroine".to_string(),
-                            energy_delta: 0,
-                            mood_delta: 3,
-                        }],
+                        effects: vec![
+                            DialogueEffect::AdjustCharacterState {
+                                character_id: "demo_heroine".to_string(),
+                                energy_delta: 0,
+                                mood_delta: 3,
+                            },
+                            DialogueEffect::AdjustRelationship {
+                                source_character_id: "player".to_string(),
+                                target_character_id: "demo_heroine".to_string(),
+                                affinity_delta: 2,
+                                trust_delta: 1,
+                            },
+                        ],
                     },
                 ],
             },
@@ -807,6 +952,8 @@ mod tests {
         assert_eq!(world.active_dialogue.len(), 2);
         assert_eq!(world.active_dialogue[1].id, "demo_morning_003");
         assert_eq!(world.characters[0].state.mood, 13);
+        assert_eq!(world.relationships[0].affinity, 7);
+        assert_eq!(world.relationships[0].trust, 1);
     }
 
     #[test]
@@ -852,6 +999,51 @@ mod tests {
             world.command_log[0],
             EngineCommand::AdvanceTime { minutes: 30 }
         );
+    }
+
+    #[test]
+    fn adjust_relationship_command_updates_bounded_relationship() {
+        let mut world = WorldState::bootstrap_demo();
+
+        world
+            .apply_command(EngineCommand::AdjustRelationship {
+                source_character_id: "player".to_string(),
+                target_character_id: "demo_heroine".to_string(),
+                affinity_delta: 120,
+                trust_delta: 3,
+            })
+            .unwrap();
+
+        assert_eq!(world.relationships[0].affinity, 100);
+        assert_eq!(world.relationships[0].trust, 3);
+        assert_eq!(
+            world.command_log[0],
+            EngineCommand::AdjustRelationship {
+                source_character_id: "player".to_string(),
+                target_character_id: "demo_heroine".to_string(),
+                affinity_delta: 120,
+                trust_delta: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn missing_relationship_is_transactional() {
+        let mut world = WorldState::bootstrap_demo();
+        let original = world.clone();
+
+        let result = world.apply_command(EngineCommand::AdjustRelationship {
+            source_character_id: "player".to_string(),
+            target_character_id: "missing".to_string(),
+            affinity_delta: 1,
+            trust_delta: 1,
+        });
+
+        assert_eq!(
+            result,
+            Err(EngineError::CharacterNotFound("missing".to_string()))
+        );
+        assert_eq!(world, original);
     }
 
     #[test]
@@ -903,6 +1095,16 @@ mod tests {
         let decoded: WorldState = serde_json::from_value(value).unwrap();
 
         assert_eq!(decoded.random, WorldRandom::default());
+    }
+
+    #[test]
+    fn missing_relationships_deserializes_as_empty_list() {
+        let mut value = serde_json::to_value(WorldState::bootstrap_demo()).unwrap();
+        value.as_object_mut().unwrap().remove("relationships");
+
+        let decoded: WorldState = serde_json::from_value(value).unwrap();
+
+        assert!(decoded.relationships.is_empty());
     }
 
     #[test]

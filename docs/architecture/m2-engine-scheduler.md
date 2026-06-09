@@ -10,6 +10,8 @@
 - `ScheduledEvent`：稳定事件 ID、到期时间和事件类型。
 - `ScheduledEventKind`：当前支持天气切换、对话启动、角色状态调整。
 - `EngineCommand::ScheduleEvent`：通过 command API 注册事件，前端不直接修改事件队列。
+- `Relationship`：保存来源 ID、目标角色 ID、好感和信赖，进入 `WorldState` 与存档。
+- `EngineCommand::AdjustRelationship`：通过 command API 调整关系，前端不直接改关系数组。
 - `WorldState.command_log`：记录成功结算的命令，随存档序列化保存。
 - `WorldState.random`：显式保存随机种子和游标，用于可重放的随机结算。
 - `EngineCommand::RollCharacterMood`：当前用于验证随机命令、状态结算和回放一致性。
@@ -24,6 +26,8 @@
 - `advance_time` 触发所有到期事件；事件按到期分钟和 ID 排序。
 - 到期事件只触发一次，触发后从队列移除。
 - 角色状态调整使用边界约束：体力 `0..100`，心情 `-100..100`。
+- 关系调整使用边界约束：好感/信赖 `-100..100`。
+- 关系目标必须是已存在角色；关系来源可为 `player` 等稳定领域 ID。
 - 随机数不读取系统熵；所有随机结果由 `WorldState.random.seed + cursor` 派生。
 - `seed` 和 `cursor` 在 JSON 中以字符串保存，避免前端 64 位整数精度损失。
 - 随机命令失败时不推进 `cursor`，成功后才进入 `command_log`。
