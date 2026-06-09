@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs, io,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,7 +83,27 @@ pub struct ModLoadPlan {
     pub manifests: Vec<ModManifest>,
 }
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredMod {
+    pub root_path: PathBuf,
+    pub manifest_path: PathBuf,
+    pub manifest: ModManifest,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModDiscoveryReport {
+    pub root_path: PathBuf,
+    pub discovered: Vec<DiscoveredMod>,
+    pub errors: Vec<ModDiscoveryIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModDiscoveryIssue {
+    pub path: PathBuf,
+    pub error: ModDiscoveryError,
+}
+
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ModValidationError {
     #[error("namespace is required")]
     MissingNamespace,
@@ -112,6 +136,16 @@ pub enum ModValidationError {
     },
 }
 
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum ModDiscoveryError {
+    #[error("mod io error: {0}")]
+    Io(String),
+    #[error("mod manifest json error: {0}")]
+    Json(String),
+    #[error(transparent)]
+    Validation(#[from] ModValidationError),
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ModLoadError {
     #[error(transparent)]
@@ -139,6 +173,18 @@ pub enum ModLoadError {
     },
     #[error("mod dependency cycle detected: {0}")]
     DependencyCycle(String),
+}
+
+impl From<io::Error> for ModDiscoveryError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error.to_string())
+    }
+}
+
+impl From<serde_json::Error> for ModDiscoveryError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error.to_string())
+    }
 }
 
 pub fn validate_manifest(manifest: &ModManifest) -> Result<(), ModValidationError> {
@@ -216,6 +262,83 @@ pub fn validate_manifest_for_engine(
     }
 
     Ok(())
+}
+
+pub fn read_manifest_file(path: impl AsRef<Path>) -> Result<ModManifest, ModDiscoveryError> {
+    let encoded = fs::read_to_string(path)?;
+    let manifest: ModManifest = serde_json::from_str(&encoded)?;
+    validate_manifest(&manifest)?;
+    Ok(manifest)
+}
+
+pub fn discover_mods(root: impl AsRef<Path>) -> ModDiscoveryReport {
+    discover_mods_for_engine(root, None)
+}
+
+pub fn discover_mods_for_engine(
+    root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+) -> ModDiscoveryReport {
+    let root = root.as_ref();
+    let mut report = ModDiscoveryReport {
+        root_path: root.to_path_buf(),
+        discovered: Vec::new(),
+        errors: Vec::new(),
+    };
+
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) => {
+            report.errors.push(ModDiscoveryIssue {
+                path: root.to_path_buf(),
+                error: error.into(),
+            });
+            return report;
+        }
+    };
+
+    for entry in entries {
+        let Ok(entry) = entry else {
+            report.errors.push(ModDiscoveryIssue {
+                path: root.to_path_buf(),
+                error: ModDiscoveryError::Io("failed to read mod directory entry".to_string()),
+            });
+            continue;
+        };
+        let mod_root = entry.path();
+        if !mod_root.is_dir() {
+            continue;
+        }
+
+        let manifest_path = mod_root.join("manifest.json");
+        match read_manifest_file(&manifest_path).and_then(|manifest| {
+            if let Some(engine_version) = engine_version {
+                validate_manifest_for_engine(&manifest, engine_version)?;
+            }
+            Ok(manifest)
+        }) {
+            Ok(manifest) => report.discovered.push(DiscoveredMod {
+                root_path: mod_root,
+                manifest_path,
+                manifest,
+            }),
+            Err(error) => report.errors.push(ModDiscoveryIssue {
+                path: manifest_path,
+                error,
+            }),
+        }
+    }
+
+    report.discovered.sort_by(|left, right| {
+        left.manifest
+            .namespace
+            .cmp(&right.manifest.namespace)
+            .then_with(|| left.root_path.cmp(&right.root_path))
+    });
+    report
+        .errors
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    report
 }
 
 pub fn plan_load_order(manifests: Vec<ModManifest>) -> Result<ModLoadPlan, ModLoadError> {
@@ -378,6 +501,10 @@ fn default_required() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn content_only_manifest_validates() {
@@ -537,6 +664,100 @@ mod tests {
     }
 
     #[test]
+    fn read_manifest_file_validates_manifest_json() {
+        let dir = temp_mod_dir("read_manifest");
+        let path = dir.join("manifest.json");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            &path,
+            serde_json::to_string_pretty(&manifest("example.file")).unwrap(),
+        )
+        .unwrap();
+
+        let manifest = read_manifest_file(&path).unwrap();
+
+        assert_eq!(manifest.namespace, "example.file");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn discover_mods_reports_good_and_bad_manifest_dirs() {
+        let root = temp_mod_dir("discover");
+        let good_dir = root.join("good");
+        let bad_json_dir = root.join("bad-json");
+        let unsafe_dir = root.join("unsafe");
+        fs::create_dir_all(&good_dir).unwrap();
+        fs::create_dir_all(&bad_json_dir).unwrap();
+        fs::create_dir_all(&unsafe_dir).unwrap();
+        fs::write(
+            good_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.good")).unwrap(),
+        )
+        .unwrap();
+        fs::write(bad_json_dir.join("manifest.json"), b"{broken").unwrap();
+        let mut unsafe_manifest = manifest("example.unsafe");
+        unsafe_manifest.capabilities = vec![ModCapability::SystemCommand];
+        fs::write(
+            unsafe_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&unsafe_manifest).unwrap(),
+        )
+        .unwrap();
+        fs::write(root.join("loose-file.txt"), b"ignored").unwrap();
+
+        let report = discover_mods(&root);
+
+        assert_eq!(
+            report
+                .discovered
+                .iter()
+                .map(|entry| entry.manifest.namespace.as_str())
+                .collect::<Vec<_>>(),
+            vec!["example.good"]
+        );
+        assert_eq!(report.errors.len(), 2);
+        assert!(matches!(report.errors[0].error, ModDiscoveryError::Json(_)));
+        assert!(matches!(
+            report.errors[1].error,
+            ModDiscoveryError::Validation(ModValidationError::UnsafeCapability { .. })
+        ));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn discover_mods_for_engine_reports_incompatible_manifests() {
+        let root = temp_mod_dir("discover_engine");
+        let mod_dir = root.join("addon");
+        fs::create_dir_all(&mod_dir).unwrap();
+        fs::write(
+            mod_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.addon")).unwrap(),
+        )
+        .unwrap();
+
+        let report = discover_mods_for_engine(&root, Some("9.9.9"));
+
+        assert!(report.discovered.is_empty());
+        assert!(matches!(
+            report.errors[0].error,
+            ModDiscoveryError::Validation(ModValidationError::IncompatibleEngineVersion { .. })
+        ));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn discover_mods_reports_unreadable_root_without_panicking() {
+        let root = temp_mod_dir("missing_root");
+
+        let report = discover_mods(&root);
+
+        assert!(report.discovered.is_empty());
+        assert_eq!(report.errors.len(), 1);
+        assert!(matches!(report.errors[0].error, ModDiscoveryError::Io(_)));
+    }
+
+    #[test]
     fn legacy_manifest_json_aliases_still_decode() {
         let encoded = serde_json::json!({
             "namespace": "example.minimal_character",
@@ -581,5 +802,13 @@ mod tests {
             .iter()
             .map(|manifest| manifest.namespace.as_str())
             .collect()
+    }
+
+    fn temp_mod_dir(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("eratw_next_mod_{label}_{nonce}"))
     }
 }
