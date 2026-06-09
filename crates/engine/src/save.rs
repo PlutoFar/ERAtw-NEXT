@@ -1,4 +1,4 @@
-use crate::{InstalledContentPackage, WorldState, ENGINE_VERSION};
+use crate::{EngineReplayLog, InstalledContentPackage, WorldState, ENGINE_VERSION};
 use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
@@ -18,6 +18,8 @@ pub struct SaveEnvelope {
     pub saved_at_unix_ms: u64,
     pub slot_id: String,
     pub mod_dependencies: Vec<SaveModDependency>,
+    #[serde(default)]
+    pub replay_log: Option<EngineReplayLog>,
     pub world: WorldState,
 }
 
@@ -104,6 +106,7 @@ impl From<serde_json::Error> for SaveError {
 impl SaveEnvelope {
     pub fn new(slot_id: impl Into<String>, world: WorldState, saved_at_unix_ms: u64) -> Self {
         let mod_dependencies = mod_dependencies_for_world(&world);
+        let replay_log = Some(world.replay_log());
 
         Self {
             schema_version: SAVE_SCHEMA_VERSION,
@@ -111,6 +114,7 @@ impl SaveEnvelope {
             saved_at_unix_ms,
             slot_id: slot_id.into(),
             mod_dependencies,
+            replay_log,
             world,
         }
     }
@@ -175,6 +179,15 @@ impl SaveEnvelope {
 
         self.schema_version = SAVE_SCHEMA_VERSION;
         self.engine_version = ENGINE_VERSION.to_string();
+        if let Some(replay_log) = &self.replay_log {
+            if self.world.command_log_initial_random.is_none()
+                && !replay_log.commands.is_empty()
+                && self.world.command_log == replay_log.commands
+            {
+                self.world.command_log_initial_random = Some(replay_log.initial_random.clone());
+            }
+        }
+        self.replay_log = Some(self.world.replay_log());
         Ok(self)
     }
 }
@@ -529,6 +542,48 @@ mod tests {
             }]
         );
         assert!(report.missing_required_mods.is_empty());
+    }
+
+    #[test]
+    fn save_envelope_embeds_replay_log_with_initial_random() {
+        let mut world = WorldState::bootstrap_demo();
+        world.random = crate::WorldRandom {
+            seed: 42,
+            cursor: 3,
+        };
+        world
+            .apply_command(crate::EngineCommand::RollCharacterMood {
+                character_id: "demo_heroine".to_string(),
+                min_delta: -2,
+                max_delta: 2,
+            })
+            .unwrap();
+
+        let save = SaveEnvelope::new("slot-1", world, 123);
+        let replay_log = save.replay_log.as_ref().unwrap();
+
+        assert_eq!(
+            replay_log.initial_random,
+            crate::WorldRandom {
+                seed: 42,
+                cursor: 3,
+            }
+        );
+        assert_eq!(replay_log.commands, save.world.command_log);
+    }
+
+    #[test]
+    fn migration_backfills_missing_replay_log() {
+        let mut save = SaveEnvelope::new("slot-1", WorldState::bootstrap_demo(), 123);
+        save.replay_log = None;
+
+        let migrated = save.migrate_to_current().unwrap();
+
+        assert!(migrated.replay_log.is_some());
+        assert_eq!(
+            migrated.replay_log.as_ref().unwrap().commands,
+            migrated.world.command_log
+        );
     }
 
     #[test]

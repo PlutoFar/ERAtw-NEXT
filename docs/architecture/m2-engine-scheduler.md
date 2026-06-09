@@ -16,6 +16,8 @@
 - `EngineCommand::AdjustRelationship`：通过 command API 调整关系，前端不直接改关系数组。
 - `WorldState.command_log`：记录成功结算的命令，随存档序列化保存。
 - `WorldState.random`：显式保存随机种子和游标，用于可重放的随机结算。
+- `WorldState.command_log_initial_random`：记录第一条成功命令前的 RNG seed/cursor，确保非默认 seed 的随机命令也能独立重放。
+- `EngineReplayLog` / `replay_command_log`：从初始世界、初始 RNG 和成功命令列表重放世界，用于存档诊断和故障复现。
 - `EngineCommand::RollCharacterMood`：当前用于验证随机命令、状态结算和回放一致性。
 - `DialogueEffect::RollCharacterState`：内容效果可用同一 RNG 对角色体力和心情做有界随机结算。
 - `replay_commands`：从初始世界和命令列表重放出确定结果。
@@ -42,6 +44,7 @@
 - 关系目标必须是已存在角色；关系来源可为 `player` 等稳定领域 ID。
 - 随机数不读取系统熵；所有随机结果由 `WorldState.random.seed + cursor` 派生。
 - `seed` 和 `cursor` 在 JSON 中以字符串保存，避免前端 64 位整数精度损失。
+- replay log 记录第一条成功命令之前的 `seed/cursor`，不要求调用方知道世界的原始启动 seed。
 - 随机命令失败时不推进 `cursor`，成功后才进入 `command_log`。
 - 随机范围必须满足 `min_delta <= max_delta`，否则命令整体回滚。
 - Dialogue 随机效果使用 `WorldState.random`，非法范围或缺失角色会让整条选择回滚且不消费 RNG。
@@ -50,3 +53,4 @@
 ## 后续
 
 - 将随机结算接入事件条件和更多互动命令。
+- 将 replay log 接入故障反馈包、开发者诊断 UI 和长时间游玩回归样例。

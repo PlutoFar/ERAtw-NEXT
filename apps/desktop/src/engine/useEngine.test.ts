@@ -26,6 +26,12 @@ const createMockClient = (
     saved_at_unix_ms: 100,
     slot_id: "slot_1",
     mod_dependencies: [],
+    replay_log: {
+      schema_version: 1,
+      engine_version: recoveredWorld.engine_version,
+      initial_random: recoveredWorld.command_log_initial_random ?? recoveredWorld.random,
+      commands: recoveredWorld.command_log,
+    },
     world: recoveredWorld,
   };
   const recoveryReport: SaveRecoveryReport = {

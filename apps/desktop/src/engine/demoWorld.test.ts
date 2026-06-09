@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createBrowserMockEngineClient } from "./client";
-import { applyDemoCommand, createDemoWorld, visibleChoices } from "./demoWorld";
+import {
+  applyDemoCommand,
+  createDemoWorld,
+  replayDemoCommandLog,
+  visibleChoices,
+} from "./demoWorld";
 import { createSampleContentPackage } from "./sampleContentPackage";
 
 describe("demo engine adapter", () => {
@@ -341,6 +346,10 @@ describe("demo engine adapter", () => {
 
     expect(first).toEqual(second);
     expect(first.random.cursor).toBe("1");
+    expect(first.command_log_initial_random).toEqual({
+      seed: "1163026804",
+      cursor: "0",
+    });
     expect(first.characters[0].state.mood).toBeGreaterThanOrEqual(5);
     expect(first.characters[0].state.mood).toBeLessThanOrEqual(15);
     expect(first.command_log[0]).toEqual({
@@ -437,6 +446,37 @@ describe("demo engine adapter", () => {
     expect(world.random.cursor).toBe("0");
     expect(world.command_log).toHaveLength(0);
     expect(world.characters[0].state.mood).toBe(10);
+  });
+
+  it("replays browser command logs from captured rng state", () => {
+    const base = createDemoWorld();
+    base.random = {
+      seed: "987654321",
+      cursor: "7",
+    };
+
+    const rolled = applyDemoCommand(base, {
+      type: "roll_character_mood",
+      character_id: "demo_heroine",
+      min_delta: -5,
+      max_delta: 5,
+    });
+    const advanced = applyDemoCommand(rolled, {
+      type: "advance_time",
+      minutes: 30,
+    });
+    const replayed = replayDemoCommandLog(createDemoWorld(), {
+      schema_version: 1,
+      engine_version: advanced.engine_version,
+      initial_random: advanced.command_log_initial_random!,
+      commands: advanced.command_log,
+    });
+
+    expect(advanced.command_log_initial_random).toEqual({
+      seed: "987654321",
+      cursor: "7",
+    });
+    expect(replayed).toEqual(advanced);
   });
 
   it("creates a browser save preview envelope", async () => {

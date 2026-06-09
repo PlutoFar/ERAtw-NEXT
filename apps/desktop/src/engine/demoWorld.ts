@@ -4,6 +4,7 @@ import type {
   DialogueEffect,
   DialogueNode,
   DialogueScene,
+  EngineReplayLog,
   EngineCommand,
   ScheduledEvent,
   ScheduledEventKind,
@@ -278,14 +279,25 @@ export const createDemoWorld = (): WorldState => ({
     seed: DEMO_RNG_SEED,
     cursor: "0",
   },
+  command_log_initial_random: null,
   command_log: [],
   event_log: ["ERAtw-NEXT M0 engine ready."],
 });
 
-const recordCommand = (world: WorldState, command: EngineCommand): WorldState => ({
-  ...world,
-  command_log: [...world.command_log, structuredClone(command)],
-});
+const recordCommand = (
+  world: WorldState,
+  command: EngineCommand,
+  initialRandom: WorldState["random"],
+): WorldState => {
+  return {
+    ...world,
+    command_log_initial_random:
+      world.command_log.length === 0
+        ? structuredClone(initialRandom)
+        : world.command_log_initial_random,
+    command_log: [...world.command_log, structuredClone(command)],
+  };
+};
 
 const startDialogue = (world: WorldState, sceneId: string): boolean => {
   const scene = world.dialogue_scenes.find((item) => item.id === sceneId);
@@ -616,6 +628,8 @@ export const applyDemoCommand = (
   command: EngineCommand,
 ): WorldState => {
   const next = structuredClone(world);
+  const initialRandom =
+    next.command_log_initial_random ?? structuredClone(next.random);
 
   if (command.type === "advance_time") {
     const total = currentAbsoluteMinute(next) + Math.max(0, command.minutes);
@@ -625,7 +639,7 @@ export const applyDemoCommand = (
     next.clock.minute = minuteOfDay % 60;
     next.event_log = [`时间推进 ${command.minutes} 分钟。`, ...next.event_log];
     triggerDueEvents(next, total);
-    return recordCommand(next, command);
+    return recordCommand(next, command, initialRandom);
   }
 
   if (command.type === "move_character") {
@@ -642,7 +656,7 @@ export const applyDemoCommand = (
       `${character.display_name} 移动到 ${location.name}。`,
       ...next.event_log,
     ];
-    return recordCommand(next, command);
+    return recordCommand(next, command, initialRandom);
   }
 
   if (command.type === "adjust_relationship") {
@@ -661,18 +675,18 @@ export const applyDemoCommand = (
       `关系 ${command.source_character_id} -> ${command.target_character_id} 更新。`,
       ...next.event_log,
     ];
-    return recordCommand(next, command);
+    return recordCommand(next, command, initialRandom);
   }
 
   if (command.type === "start_dialogue") {
     return startDialogue(next, command.scene_id)
-      ? recordCommand(next, command)
+      ? recordCommand(next, command, initialRandom)
       : next;
   }
 
   if (command.type === "choose_dialogue") {
     return chooseDialogue(next, command.node_id, command.choice_id)
-      ? recordCommand(next, command)
+      ? recordCommand(next, command, initialRandom)
       : next;
   }
 
@@ -694,7 +708,7 @@ export const applyDemoCommand = (
       }）。`,
       ...next.event_log,
     ];
-    return recordCommand(next, command);
+    return recordCommand(next, command, initialRandom);
   }
 
   if (command.type === "schedule_event") {
@@ -711,7 +725,7 @@ export const applyDemoCommand = (
     }
 
     next.scheduled_events = [...next.scheduled_events, command.event].sort(byDueTime);
-    return recordCommand(next, command);
+    return recordCommand(next, command, initialRandom);
   }
 
   if (command.type === "cancel_event") {
@@ -728,7 +742,23 @@ export const applyDemoCommand = (
 
     next.scheduled_events = pendingEvents;
     next.event_log = [`计划事件 ${command.event_id} 已取消。`, ...next.event_log];
-    return recordCommand(next, command);
+    return recordCommand(next, command, initialRandom);
+  }
+
+  return next;
+};
+
+export const replayDemoCommandLog = (
+  world: WorldState,
+  replayLog: EngineReplayLog,
+): WorldState => {
+  let next = structuredClone(world);
+  next.random = structuredClone(replayLog.initial_random);
+  next.command_log_initial_random = null;
+  next.command_log = [];
+
+  for (const command of replayLog.commands) {
+    next = applyDemoCommand(next, command);
   }
 
   return next;

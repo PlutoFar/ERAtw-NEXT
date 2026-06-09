@@ -1036,6 +1036,27 @@ const modDependenciesForWorld = (world: WorldState) =>
       required: true,
     }));
 
+const replayLogForWorld = (world: WorldState) => ({
+  schema_version: 1,
+  engine_version: world.engine_version,
+  initial_random: structuredClone(world.command_log_initial_random ?? world.random),
+  commands: structuredClone(world.command_log),
+});
+
+const saveEnvelopeForBrowserWorld = (
+  slotId: string,
+  savedAtUnixMs: number,
+  world: WorldState,
+): SaveEnvelope => ({
+  schema_version: 1,
+  engine_version: world.engine_version,
+  saved_at_unix_ms: savedAtUnixMs,
+  slot_id: slotId,
+  mod_dependencies: modDependenciesForWorld(world),
+  replay_log: replayLogForWorld(world),
+  world: structuredClone(world),
+});
+
 const browserSaveBackupLimit = 10;
 
 const modRegistryFromEnabledPlan = (
@@ -1579,14 +1600,7 @@ export const createBrowserMockEngineClient = (): EngineClient => {
       );
     },
     async savePreview(slotId, savedAtUnixMs) {
-      return {
-        schema_version: 1,
-        engine_version: world.engine_version,
-        saved_at_unix_ms: savedAtUnixMs,
-        slot_id: slotId,
-        mod_dependencies: modDependenciesForWorld(world),
-        world: structuredClone(world),
-      };
+      return saveEnvelopeForBrowserWorld(slotId, savedAtUnixMs, world);
     },
     async saveSlot(slotId, savedAtUnixMs) {
       const existing = saves.get(slotId);
@@ -1599,14 +1613,7 @@ export const createBrowserMockEngineClient = (): EngineClient => {
         saveBackups.set(slotId, backups);
       }
 
-      saves.set(slotId, {
-        schema_version: 1,
-        engine_version: world.engine_version,
-        saved_at_unix_ms: savedAtUnixMs,
-        slot_id: slotId,
-        mod_dependencies: modDependenciesForWorld(world),
-        world: structuredClone(world),
-      });
+      saves.set(slotId, saveEnvelopeForBrowserWorld(slotId, savedAtUnixMs, world));
 
       return {
         path: `browser-memory://${slotId}.json`,

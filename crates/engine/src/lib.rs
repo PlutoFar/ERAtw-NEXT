@@ -6,6 +6,7 @@ pub mod save;
 
 pub const ENGINE_VERSION: &str = "0.1.0-m0";
 pub const DEMO_RNG_SEED: u64 = 0x4552_4174;
+pub const REPLAY_LOG_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -113,6 +114,14 @@ pub struct WorldRandom {
     pub seed: u64,
     #[serde(with = "u64_string")]
     pub cursor: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EngineReplayLog {
+    pub schema_version: u32,
+    pub engine_version: String,
+    pub initial_random: WorldRandom,
+    pub commands: Vec<EngineCommand>,
 }
 
 impl Default for WorldRandom {
@@ -377,6 +386,8 @@ pub struct WorldState {
     pub scheduled_events: Vec<ScheduledEvent>,
     #[serde(default)]
     pub random: WorldRandom,
+    #[serde(default)]
+    pub command_log_initial_random: Option<WorldRandom>,
     pub command_log: Vec<EngineCommand>,
     pub event_log: Vec<String>,
 }
@@ -540,6 +551,7 @@ impl WorldState {
                 },
             ],
             random: WorldRandom::default(),
+            command_log_initial_random: None,
             command_log: Vec::new(),
             event_log: vec!["ERAtw-NEXT M0 engine ready.".to_string()],
         }
@@ -547,10 +559,37 @@ impl WorldState {
 
     pub fn apply_command(&mut self, command: EngineCommand) -> Result<(), EngineError> {
         let mut next = self.clone();
+        let initial_random = next
+            .command_log_initial_random
+            .clone()
+            .unwrap_or_else(|| next.random.clone());
         next.apply_command_inner(command.clone())?;
+        if next.command_log.is_empty() {
+            next.command_log_initial_random = Some(initial_random);
+        }
         next.command_log.push(command);
         *self = next;
         Ok(())
+    }
+
+    pub fn replay_log(&self) -> EngineReplayLog {
+        EngineReplayLog {
+            schema_version: REPLAY_LOG_SCHEMA_VERSION,
+            engine_version: ENGINE_VERSION.to_string(),
+            initial_random: self.replay_initial_random(),
+            commands: self.command_log.clone(),
+        }
+    }
+
+    fn replay_initial_random(&self) -> WorldRandom {
+        match (
+            &self.command_log_initial_random,
+            self.command_log.is_empty(),
+        ) {
+            (Some(initial_random), _) => initial_random.clone(),
+            (None, true) => self.random.clone(),
+            (None, false) => WorldRandom::default(),
+        }
     }
 
     fn apply_command_inner(&mut self, command: EngineCommand) -> Result<(), EngineError> {
@@ -1133,6 +1172,16 @@ pub fn replay_commands(
     Ok(world)
 }
 
+pub fn replay_command_log(
+    mut world: WorldState,
+    replay_log: &EngineReplayLog,
+) -> Result<WorldState, EngineError> {
+    world.random = replay_log.initial_random.clone();
+    world.command_log_initial_random = None;
+    world.command_log.clear();
+    replay_commands(world, &replay_log.commands)
+}
+
 fn bounded_delta(value: i16, delta: i16, min: i16, max: i16) -> i16 {
     value.saturating_add(delta).clamp(min, max)
 }
@@ -1549,6 +1598,10 @@ mod tests {
             world.command_log[0],
             EngineCommand::AdvanceTime { minutes: 30 }
         );
+        assert_eq!(
+            world.command_log_initial_random,
+            Some(WorldRandom::default())
+        );
     }
 
     #[test]
@@ -1617,6 +1670,39 @@ mod tests {
     }
 
     #[test]
+    fn replay_log_records_initial_rng_state_for_deterministic_replay() {
+        let mut world = WorldState::bootstrap_demo();
+        world.random = WorldRandom {
+            seed: 987_654_321,
+            cursor: 7,
+        };
+
+        world
+            .apply_command(EngineCommand::RollCharacterMood {
+                character_id: "demo_heroine".to_string(),
+                min_delta: -5,
+                max_delta: 5,
+            })
+            .unwrap();
+        world
+            .apply_command(EngineCommand::AdvanceTime { minutes: 30 })
+            .unwrap();
+
+        let replay_log = world.replay_log();
+        let replayed = replay_command_log(WorldState::bootstrap_demo(), &replay_log).unwrap();
+
+        assert_eq!(replay_log.schema_version, REPLAY_LOG_SCHEMA_VERSION);
+        assert_eq!(
+            replay_log.initial_random,
+            WorldRandom {
+                seed: 987_654_321,
+                cursor: 7,
+            }
+        );
+        assert_eq!(replayed, world);
+    }
+
+    #[test]
     fn invalid_random_range_is_transactional() {
         let mut world = WorldState::bootstrap_demo();
         let original = world.clone();
@@ -1645,6 +1731,19 @@ mod tests {
         let decoded: WorldState = serde_json::from_value(value).unwrap();
 
         assert_eq!(decoded.random, WorldRandom::default());
+    }
+
+    #[test]
+    fn missing_command_log_initial_random_deserializes_as_none() {
+        let mut value = serde_json::to_value(WorldState::bootstrap_demo()).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("command_log_initial_random");
+
+        let decoded: WorldState = serde_json::from_value(value).unwrap();
+
+        assert_eq!(decoded.command_log_initial_random, None);
     }
 
     #[test]

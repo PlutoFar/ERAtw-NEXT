@@ -316,6 +316,13 @@ export interface WorldRandom {
   cursor: string;
 }
 
+export interface EngineReplayLog {
+  schema_version: number;
+  engine_version: string;
+  initial_random: WorldRandom;
+  commands: EngineCommand[];
+}
+
 export interface DialogueNode {
   id: string;
   speaker_id: string;
@@ -427,6 +434,7 @@ export interface WorldState {
   active_dialogue: DialogueNode[];
   scheduled_events: ScheduledEvent[];
   random: WorldRandom;
+  command_log_initial_random: WorldRandom | null;
   command_log: EngineCommand[];
   event_log: string[];
 }
@@ -443,6 +451,7 @@ export interface SaveEnvelope {
   saved_at_unix_ms: number;
   slot_id: string;
   mod_dependencies: SaveModDependency[];
+  replay_log: EngineReplayLog | null;
   world: WorldState;
 }
 
