@@ -488,6 +488,26 @@ describe("demo engine adapter", () => {
     ]);
   });
 
+  it("recovers browser saves from the latest backup", async () => {
+    const client = createBrowserMockEngineClient();
+    await client.saveSlot("slot_1", 100);
+    await client.dispatch({
+      type: "advance_time",
+      minutes: 30,
+    });
+    await client.saveSlot("slot_1", 200);
+
+    const recovered = await client.recoverSlot("slot_1", 300);
+    const loaded = await client.loadSlot("slot_1");
+
+    expect(recovered.path).toBe("browser-memory://slot_1.json");
+    expect(recovered.failed_primary_backup_path).toBe(
+      "browser-memory://slot_1.json.300.bak",
+    );
+    expect(recovered.save.saved_at_unix_ms).toBe(100);
+    expect(loaded.clock.minute).toBe(0);
+  });
+
   it("rejects browser content packages with missing dependencies or conflicts", async () => {
     const client = createBrowserMockEngineClient();
     const packageData = createSampleContentPackage();

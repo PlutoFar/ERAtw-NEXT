@@ -8,8 +8,9 @@ use eratw_engine::{
         ResourcePreflightReport, ResourceResolutionReport,
     },
     save::{
-        preflight_save_against_registry, read_save, write_save_atomic, SaveEnvelope,
-        SaveModDependency, SaveReadReport, SaveValidationReport,
+        preflight_save_against_registry, read_save, recover_save_from_latest_backup,
+        write_save_atomic, SaveEnvelope, SaveModDependency, SaveReadReport,
+        SaveRecoveryReport as EngineSaveRecoveryReport, SaveValidationReport,
     },
     EngineCommand, WorldState,
 };
@@ -32,6 +33,14 @@ use tauri::Manager;
 struct SaveSlotReport {
     path: String,
     backup_path: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct SaveRecoveryReport {
+    path: String,
+    recovered_from: String,
+    failed_primary_backup_path: Option<String>,
+    save: SaveEnvelope,
 }
 
 #[derive(Debug, Deserialize)]
@@ -425,6 +434,21 @@ fn engine_load_slot(
 }
 
 #[tauri::command]
+fn engine_recover_slot(
+    app: tauri::AppHandle,
+    slot_id: String,
+    recovered_at_unix_ms: u64,
+    state: tauri::State<'_, Mutex<WorldState>>,
+) -> Result<SaveRecoveryReport, String> {
+    let save_path = save_path_for_slot(&app, &slot_id)?;
+    let report = recover_save_from_latest_backup(&save_path, &[], recovered_at_unix_ms)
+        .map_err(|error| error.to_string())?;
+    let mut world = state.lock().expect("engine state lock poisoned");
+    *world = report.save.world.clone();
+    Ok(report.into())
+}
+
+#[tauri::command]
 fn engine_preflight_load_slot(
     app: tauri::AppHandle,
     request: SavePreflightRequest,
@@ -618,6 +642,19 @@ impl From<SaveValidationReport> for SaveValidationReportDto {
             missing_required_mods: report.missing_required_mods,
             incompatible_schema: report.incompatible_schema,
             engine_version_mismatch: report.engine_version_mismatch,
+        }
+    }
+}
+
+impl From<EngineSaveRecoveryReport> for SaveRecoveryReport {
+    fn from(report: EngineSaveRecoveryReport) -> Self {
+        Self {
+            path: report.path.to_string_lossy().to_string(),
+            recovered_from: report.recovered_from.to_string_lossy().to_string(),
+            failed_primary_backup_path: report
+                .failed_primary_backup_path
+                .map(|path| path.to_string_lossy().to_string()),
+            save: report.save,
         }
     }
 }
@@ -1318,6 +1355,7 @@ pub fn run() {
             engine_plan_enabled_mods,
             engine_save_preview,
             engine_save_slot,
+            engine_recover_slot,
             engine_preflight_load_slot,
             engine_load_slot
         ])

@@ -451,6 +451,13 @@ export interface SaveSlotReport {
   backup_path: string | null;
 }
 
+export interface SaveRecoveryReport {
+  path: string;
+  recovered_from: string;
+  failed_primary_backup_path: string | null;
+  save: SaveEnvelope;
+}
+
 export interface ContentPackageManifest {
   schema_version: string;
   namespace: string;

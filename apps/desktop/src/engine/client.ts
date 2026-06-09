@@ -23,6 +23,7 @@ import type {
   ResourceResolutionReport,
   SaveEnvelope,
   SavePreflightReport,
+  SaveRecoveryReport,
   SaveSlotReport,
   WorldState,
 } from "../types";
@@ -77,6 +78,7 @@ export interface EngineClient {
   ): Promise<ModEnablementPlanReport>;
   savePreview(slotId: string, savedAtUnixMs: number): Promise<SaveEnvelope>;
   saveSlot(slotId: string, savedAtUnixMs: number): Promise<SaveSlotReport>;
+  recoverSlot(slotId: string, recoveredAtUnixMs: number): Promise<SaveRecoveryReport>;
   preflightLoadSlot(
     slotId: string,
     modRoot: string,
@@ -198,6 +200,11 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<SaveSlotReport>("engine_save_slot", {
       slotId,
       savedAtUnixMs,
+    }),
+  recoverSlot: (slotId, recoveredAtUnixMs) =>
+    invoke<SaveRecoveryReport>("engine_recover_slot", {
+      slotId,
+      recoveredAtUnixMs,
     }),
   preflightLoadSlot: (
     slotId,
@@ -1176,6 +1183,7 @@ const preflightPackageIntoBrowserWorld = (
 export const createBrowserMockEngineClient = (): EngineClient => {
   let world = createDemoWorld();
   const saves = new Map<string, SaveEnvelope>();
+  const saveBackups = new Map<string, SaveEnvelope[]>();
 
   return {
     async snapshot() {
@@ -1285,6 +1293,13 @@ export const createBrowserMockEngineClient = (): EngineClient => {
       };
     },
     async saveSlot(slotId, savedAtUnixMs) {
+      const existing = saves.get(slotId);
+      if (existing) {
+        const backups = saveBackups.get(slotId) ?? [];
+        backups.push(structuredClone(existing));
+        saveBackups.set(slotId, backups);
+      }
+
       saves.set(slotId, {
         schema_version: 1,
         engine_version: world.engine_version,
@@ -1296,8 +1311,32 @@ export const createBrowserMockEngineClient = (): EngineClient => {
 
       return {
         path: `browser-memory://${slotId}.json`,
-        backup_path: null,
+        backup_path: existing
+          ? `browser-memory://${slotId}.json.${savedAtUnixMs}.bak`
+          : null,
       };
+    },
+    async recoverSlot(slotId, recoveredAtUnixMs) {
+      const backups = saveBackups.get(slotId) ?? [];
+      const latest = backups.at(-1);
+      if (!latest) {
+        throw {
+          kind: "save",
+          message: "save has no recoverable backup",
+        };
+      }
+
+      const failedPrimary = saves.get(slotId);
+      saves.set(slotId, structuredClone(latest));
+      world = structuredClone(latest.world);
+      return structuredClone({
+        path: `browser-memory://${slotId}.json`,
+        recovered_from: `browser-memory://${slotId}.json.backup-${backups.length}`,
+        failed_primary_backup_path: failedPrimary
+          ? `browser-memory://${slotId}.json.${recoveredAtUnixMs}.bak`
+          : null,
+        save: latest,
+      });
     },
     async preflightLoadSlot(
       slotId,

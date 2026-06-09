@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 use thiserror::Error;
 
@@ -52,6 +53,14 @@ pub struct SaveWriteReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveRecoveryReport {
+    pub path: PathBuf,
+    pub recovered_from: PathBuf,
+    pub failed_primary_backup_path: Option<PathBuf>,
+    pub save: SaveEnvelope,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveBackupReason {
     BeforeOverwrite,
     BeforeMigration,
@@ -70,6 +79,8 @@ pub enum SaveError {
     EmptyCharacters,
     #[error("save path has no parent directory")]
     MissingParentDirectory,
+    #[error("save has no recoverable backup")]
+    MissingRecoverableBackup,
     #[error("save io error: {0}")]
     Io(String),
     #[error("save json error: {0}")]
@@ -266,6 +277,33 @@ pub fn preflight_save_against_registry(
     Ok(SaveReadReport { save, validation })
 }
 
+pub fn recover_save_from_latest_backup(
+    path: impl AsRef<Path>,
+    enabled_mods: &[SaveModDependency],
+    timestamp_unix_ms: u64,
+) -> Result<SaveRecoveryReport, SaveError> {
+    let path = path.as_ref();
+    let recovered_from =
+        latest_backup_path_for(path)?.ok_or(SaveError::MissingRecoverableBackup)?;
+    let failed_primary_backup_path = if path.exists() {
+        let backup_path = backup_path_for(path, timestamp_unix_ms);
+        fs::copy(path, &backup_path)?;
+        Some(backup_path)
+    } else {
+        None
+    };
+
+    fs::copy(&recovered_from, path)?;
+    let save = read_save(path, enabled_mods)?;
+
+    Ok(SaveRecoveryReport {
+        path: path.to_path_buf(),
+        recovered_from,
+        failed_primary_backup_path,
+        save,
+    })
+}
+
 pub fn backup_plan(
     primary_path: impl Into<String>,
     timestamp_unix_ms: u64,
@@ -301,6 +339,46 @@ fn temp_path_for(path: &Path, timestamp_unix_ms: u64) -> PathBuf {
         _ => format!("{timestamp_unix_ms}.tmp"),
     });
     temp
+}
+
+fn latest_backup_path_for(path: &Path) -> Result<Option<PathBuf>, SaveError> {
+    let parent = path.parent().ok_or(SaveError::MissingParentDirectory)?;
+    if !parent.exists() {
+        return Ok(None);
+    }
+
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return Ok(None);
+    };
+    let backup_prefix = format!("{file_name}.");
+
+    let mut candidates = Vec::<(SystemTime, String, PathBuf)>::new();
+    for entry in fs::read_dir(parent)? {
+        let entry = entry?;
+        let entry_path = entry.path();
+        if !entry_path.is_file() {
+            continue;
+        }
+        let Some(entry_name) = entry_path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !entry_name.starts_with(&backup_prefix) || !entry_name.ends_with(".bak") {
+            continue;
+        }
+        let modified = entry
+            .metadata()?
+            .modified()
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        candidates.push((modified, entry_name.to_string(), entry_path));
+    }
+
+    candidates.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+    });
+    Ok(candidates.pop().map(|(_, _, path)| path))
 }
 
 #[cfg(test)]
@@ -473,6 +551,53 @@ mod tests {
 
         assert_eq!(backup.saved_at_unix_ms, 100);
         assert_eq!(current.saved_at_unix_ms, 200);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn recover_save_restores_latest_backup_and_preserves_failed_primary() {
+        let dir = temp_save_dir("recover_latest");
+        let path = dir.join("slot-1.json");
+        let first = SaveEnvelope::new("slot-1", WorldState::bootstrap_demo(), 100);
+        let mut second_world = WorldState::bootstrap_demo();
+        second_world.clock.minute = 30;
+        let second = SaveEnvelope::new("slot-1", second_world, 200);
+
+        write_save_atomic(&path, &first, 100).unwrap();
+        write_save_atomic(&path, &second, 200).unwrap();
+        fs::write(&path, b"{broken").unwrap();
+
+        let report = recover_save_from_latest_backup(&path, &[], 300).unwrap();
+        let recovered = read_save(&path, &[]).unwrap();
+
+        assert_eq!(report.save.saved_at_unix_ms, 100);
+        assert_eq!(recovered.saved_at_unix_ms, 100);
+        assert!(report
+            .recovered_from
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains(".200.bak"));
+        let failed_primary_backup_path = report.failed_primary_backup_path.unwrap();
+        assert_eq!(
+            fs::read_to_string(failed_primary_backup_path).unwrap(),
+            "{broken"
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn recover_save_reports_missing_backup() {
+        let dir = temp_save_dir("recover_missing");
+        let path = dir.join("slot-1.json");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&path, b"{broken").unwrap();
+
+        let result = recover_save_from_latest_backup(&path, &[], 300);
+
+        assert_eq!(result, Err(SaveError::MissingRecoverableBackup));
 
         let _ = fs::remove_dir_all(dir);
     }
