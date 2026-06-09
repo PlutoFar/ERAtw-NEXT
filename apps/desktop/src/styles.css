@@ -267,6 +267,28 @@ button {
   line-height: 1.55;
 }
 
+.choice-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.choice-list button {
+  background: #22313a;
+  border: 1px solid #4d6570;
+  border-radius: 8px;
+  color: #e8edf0;
+  cursor: pointer;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.choice-list button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
 .empty-text {
   color: #8fa0aa;
 }

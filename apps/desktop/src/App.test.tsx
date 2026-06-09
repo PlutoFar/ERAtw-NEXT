@@ -27,6 +27,12 @@ describe("App", () => {
     fireEvent.click(dialogueButton);
 
     await waitFor(() => {
+      expect(screen.getByText("询问新引擎")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "询问新引擎" }));
+
+    await waitFor(() => {
       expect(screen.getByText(/不执行旧 ERB/)).toBeInTheDocument();
     });
   });

@@ -40,17 +40,35 @@ M1 schema 只定义边界和审计目标，不承诺运行时完整实现。
 }
 ```
 
-## DialogueNode
+## DialogueScene
 
 ```json
 {
   "schemaVersion": "dialogue/v0",
-  "id": "core.demo.morning.001",
-  "speakerId": "core.character.demo_heroine",
-  "text": "早上好。",
-  "conditions": [],
-  "effects": [],
-  "resourceRefs": []
+  "id": "core.demo.morning",
+  "entryNodeId": "core.demo.morning.001",
+  "nodes": [
+    {
+      "id": "core.demo.morning.001",
+      "speakerId": "core.character.demo_heroine",
+      "text": "早上好。",
+      "choices": [
+        {
+          "id": "ask_about_engine",
+          "label": "询问新引擎",
+          "nextNodeId": "core.demo.morning.002",
+          "effects": [
+            {
+              "type": "add_log",
+              "message": "对话选择：询问新引擎。"
+            }
+          ]
+        }
+      ],
+      "conditions": [],
+      "resourceRefs": []
+    }
+  ]
 }
 ```
 

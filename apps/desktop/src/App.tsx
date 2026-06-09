@@ -156,6 +156,26 @@ export const App = () => {
                 <article key={node.id}>
                   <strong>{node.speaker_id}</strong>
                   <p>{node.text}</p>
+                  {node.choices.length > 0 ? (
+                    <div className="choice-list">
+                      {node.choices.map((choice) => (
+                        <button
+                          key={choice.id}
+                          type="button"
+                          onClick={() =>
+                            dispatch({
+                              type: "choose_dialogue",
+                              node_id: node.id,
+                              choice_id: choice.id,
+                            })
+                          }
+                          disabled={loading}
+                        >
+                          {choice.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </article>
               ))
             )}

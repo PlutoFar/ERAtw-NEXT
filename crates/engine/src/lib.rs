@@ -93,6 +93,38 @@ pub struct DialogueNode {
     pub id: String,
     pub speaker_id: String,
     pub text: String,
+    pub choices: Vec<DialogueChoice>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DialogueChoice {
+    pub id: String,
+    pub label: String,
+    pub next_node_id: Option<String>,
+    pub effects: Vec<DialogueEffect>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DialogueEffect {
+    AdjustCharacterState {
+        character_id: String,
+        energy_delta: i16,
+        mood_delta: i16,
+    },
+    ChangeWeather {
+        weather: Weather,
+    },
+    AddLog {
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DialogueScene {
+    pub id: String,
+    pub entry_node_id: String,
+    pub nodes: Vec<DialogueNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +156,8 @@ pub struct WorldState {
     pub clock: WorldClock,
     pub locations: Vec<Location>,
     pub characters: Vec<Character>,
+    pub dialogue_scenes: Vec<DialogueScene>,
+    pub active_dialogue_scene_id: Option<String>,
     pub active_dialogue: Vec<DialogueNode>,
     pub scheduled_events: Vec<ScheduledEvent>,
     pub event_log: Vec<String>,
@@ -142,6 +176,10 @@ pub enum EngineCommand {
     StartDialogue {
         scene_id: String,
     },
+    ChooseDialogue {
+        node_id: String,
+        choice_id: String,
+    },
     ScheduleEvent {
         event: ScheduledEvent,
     },
@@ -155,6 +193,14 @@ pub enum EngineError {
     LocationNotFound(String),
     #[error("scene not found: {0}")]
     SceneNotFound(String),
+    #[error("dialogue is not active")]
+    DialogueNotActive,
+    #[error("dialogue node is not active: {0}")]
+    DialogueNodeNotActive(String),
+    #[error("dialogue node not found: {0}")]
+    DialogueNodeNotFound(String),
+    #[error("dialogue choice not found: {0}")]
+    DialogueChoiceNotFound(String),
     #[error("scheduled event id is required")]
     ScheduledEventIdRequired,
     #[error("duplicate scheduled event: {0}")]
@@ -203,6 +249,8 @@ impl WorldState {
                     mood: 10,
                 },
             }],
+            dialogue_scenes: demo_dialogue_scenes(),
+            active_dialogue_scene_id: None,
             active_dialogue: Vec::new(),
             scheduled_events: vec![
                 ScheduledEvent {
@@ -241,6 +289,9 @@ impl WorldState {
                 location_id,
             } => self.move_character(&character_id, &location_id),
             EngineCommand::StartDialogue { scene_id } => self.start_dialogue(&scene_id),
+            EngineCommand::ChooseDialogue { node_id, choice_id } => {
+                self.choose_dialogue(&node_id, &choice_id)
+            }
             EngineCommand::ScheduleEvent { event } => self.schedule_event(event),
         }
     }
@@ -279,24 +330,89 @@ impl WorldState {
     }
 
     fn start_dialogue(&mut self, scene_id: &str) -> Result<(), EngineError> {
-        if scene_id != "demo_morning" {
-            return Err(EngineError::SceneNotFound(scene_id.to_string()));
+        let scene = self
+            .dialogue_scenes
+            .iter()
+            .find(|scene| scene.id == scene_id)
+            .ok_or_else(|| EngineError::SceneNotFound(scene_id.to_string()))?;
+        let entry = scene
+            .nodes
+            .iter()
+            .find(|node| node.id == scene.entry_node_id)
+            .ok_or_else(|| EngineError::DialogueNodeNotFound(scene.entry_node_id.clone()))?;
+
+        self.active_dialogue_scene_id = Some(scene.id.clone());
+        self.active_dialogue = vec![entry.clone()];
+        self.event_log.push(format!("播放场景 {}。", scene_id));
+        Ok(())
+    }
+
+    fn choose_dialogue(&mut self, node_id: &str, choice_id: &str) -> Result<(), EngineError> {
+        let active_scene_id = self
+            .active_dialogue_scene_id
+            .clone()
+            .ok_or(EngineError::DialogueNotActive)?;
+        let active_node = self
+            .active_dialogue
+            .iter()
+            .find(|node| node.id == node_id)
+            .ok_or_else(|| EngineError::DialogueNodeNotActive(node_id.to_string()))?;
+        let choice = active_node
+            .choices
+            .iter()
+            .find(|choice| choice.id == choice_id)
+            .cloned()
+            .ok_or_else(|| EngineError::DialogueChoiceNotFound(choice_id.to_string()))?;
+
+        for effect in &choice.effects {
+            self.apply_dialogue_effect(effect)?;
         }
 
-        self.active_dialogue = vec![
-            DialogueNode {
-                id: "demo_morning_001".to_string(),
-                speaker_id: "demo_heroine".to_string(),
-                text: "早上好。今天先从一个干净的新世界开始。".to_string(),
-            },
-            DialogueNode {
-                id: "demo_morning_002".to_string(),
-                speaker_id: "system".to_string(),
-                text: "该对话来自版本化 DialogueNode，不执行旧 ERB。".to_string(),
-            },
-        ];
-        self.event_log.push("播放场景 demo_morning。".to_string());
+        if let Some(next_node_id) = choice.next_node_id {
+            let next = self.dialogue_node(&active_scene_id, &next_node_id)?.clone();
+            self.active_dialogue.push(next);
+        } else {
+            self.active_dialogue_scene_id = None;
+        }
+
+        self.event_log
+            .push(format!("选择对话 {} / {}。", node_id, choice_id));
         Ok(())
+    }
+
+    fn apply_dialogue_effect(&mut self, effect: &DialogueEffect) -> Result<(), EngineError> {
+        match effect {
+            DialogueEffect::AdjustCharacterState {
+                character_id,
+                energy_delta,
+                mood_delta,
+            } => {
+                self.adjust_character_state(character_id, *energy_delta, *mood_delta)?;
+                Ok(())
+            }
+            DialogueEffect::ChangeWeather { weather } => {
+                self.clock.weather = weather.clone();
+                Ok(())
+            }
+            DialogueEffect::AddLog { message } => {
+                self.event_log.push(message.clone());
+                Ok(())
+            }
+        }
+    }
+
+    fn dialogue_node(&self, scene_id: &str, node_id: &str) -> Result<&DialogueNode, EngineError> {
+        let scene = self
+            .dialogue_scenes
+            .iter()
+            .find(|scene| scene.id == scene_id)
+            .ok_or_else(|| EngineError::SceneNotFound(scene_id.to_string()))?;
+
+        scene
+            .nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .ok_or_else(|| EngineError::DialogueNodeNotFound(node_id.to_string()))
     }
 
     fn schedule_event(&mut self, event: ScheduledEvent) -> Result<(), EngineError> {
@@ -365,22 +481,33 @@ impl WorldState {
                 energy_delta,
                 mood_delta,
             } => {
-                let character = self
-                    .characters
-                    .iter_mut()
-                    .find(|character| character.id == *character_id)
-                    .ok_or_else(|| EngineError::CharacterNotFound(character_id.clone()))?;
-
-                character.state.energy =
-                    bounded_delta(character.state.energy, *energy_delta, 0, 100);
-                character.state.mood = bounded_delta(character.state.mood, *mood_delta, -100, 100);
+                let display_name =
+                    self.adjust_character_state(character_id, *energy_delta, *mood_delta)?;
                 self.event_log.push(format!(
                     "事件 {} 触发：{} 状态更新。",
-                    event.id, character.display_name
+                    event.id, display_name
                 ));
                 Ok(())
             }
         }
+    }
+
+    fn adjust_character_state(
+        &mut self,
+        character_id: &str,
+        energy_delta: i16,
+        mood_delta: i16,
+    ) -> Result<String, EngineError> {
+        let character = self
+            .characters
+            .iter_mut()
+            .find(|character| character.id == character_id)
+            .ok_or_else(|| EngineError::CharacterNotFound(character_id.to_string()))?;
+
+        character.state.energy = bounded_delta(character.state.energy, energy_delta, 0, 100);
+        character.state.mood = bounded_delta(character.state.mood, mood_delta, -100, 100);
+
+        Ok(character.display_name.clone())
     }
 
     fn sort_scheduled_events(&mut self) {
@@ -410,6 +537,52 @@ pub fn replay_commands(
 
 fn bounded_delta(value: i16, delta: i16, min: i16, max: i16) -> i16 {
     value.saturating_add(delta).clamp(min, max)
+}
+
+fn demo_dialogue_scenes() -> Vec<DialogueScene> {
+    vec![DialogueScene {
+        id: "demo_morning".to_string(),
+        entry_node_id: "demo_morning_001".to_string(),
+        nodes: vec![
+            DialogueNode {
+                id: "demo_morning_001".to_string(),
+                speaker_id: "demo_heroine".to_string(),
+                text: "早上好。今天先从一个干净的新世界开始。".to_string(),
+                choices: vec![
+                    DialogueChoice {
+                        id: "ask_about_engine".to_string(),
+                        label: "询问新引擎".to_string(),
+                        next_node_id: Some("demo_morning_002".to_string()),
+                        effects: vec![DialogueEffect::AddLog {
+                            message: "对话选择：询问新引擎。".to_string(),
+                        }],
+                    },
+                    DialogueChoice {
+                        id: "encourage".to_string(),
+                        label: "鼓励她".to_string(),
+                        next_node_id: Some("demo_morning_003".to_string()),
+                        effects: vec![DialogueEffect::AdjustCharacterState {
+                            character_id: "demo_heroine".to_string(),
+                            energy_delta: 0,
+                            mood_delta: 3,
+                        }],
+                    },
+                ],
+            },
+            DialogueNode {
+                id: "demo_morning_002".to_string(),
+                speaker_id: "system".to_string(),
+                text: "该对话来自版本化 DialogueScene，不执行旧 ERB。".to_string(),
+                choices: Vec::new(),
+            },
+            DialogueNode {
+                id: "demo_morning_003".to_string(),
+                speaker_id: "demo_heroine".to_string(),
+                text: "嗯。先把能稳定重放的小循环做好。".to_string(),
+                choices: Vec::new(),
+            },
+        ],
+    }]
 }
 
 #[cfg(test)]
@@ -475,6 +648,67 @@ mod tests {
             result,
             Err(EngineError::LocationNotFound("missing".to_string()))
         );
+    }
+
+    #[test]
+    fn dialogue_scene_starts_at_entry_node() {
+        let mut world = WorldState::bootstrap_demo();
+
+        world
+            .apply_command(EngineCommand::StartDialogue {
+                scene_id: "demo_morning".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(
+            world.active_dialogue_scene_id,
+            Some("demo_morning".to_string())
+        );
+        assert_eq!(world.active_dialogue.len(), 1);
+        assert_eq!(world.active_dialogue[0].choices.len(), 2);
+    }
+
+    #[test]
+    fn choosing_dialogue_advances_node_and_applies_effects() {
+        let mut world = WorldState::bootstrap_demo();
+
+        world
+            .apply_command(EngineCommand::StartDialogue {
+                scene_id: "demo_morning".to_string(),
+            })
+            .unwrap();
+        world
+            .apply_command(EngineCommand::ChooseDialogue {
+                node_id: "demo_morning_001".to_string(),
+                choice_id: "encourage".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(world.active_dialogue.len(), 2);
+        assert_eq!(world.active_dialogue[1].id, "demo_morning_003");
+        assert_eq!(world.characters[0].state.mood, 13);
+    }
+
+    #[test]
+    fn invalid_dialogue_choice_is_transactional() {
+        let mut world = WorldState::bootstrap_demo();
+        world
+            .apply_command(EngineCommand::StartDialogue {
+                scene_id: "demo_morning".to_string(),
+            })
+            .unwrap();
+        let original = world.clone();
+
+        let result = world.apply_command(EngineCommand::ChooseDialogue {
+            node_id: "demo_morning_001".to_string(),
+            choice_id: "missing".to_string(),
+        });
+
+        assert_eq!(
+            result,
+            Err(EngineError::DialogueChoiceNotFound("missing".to_string()))
+        );
+        assert_eq!(world, original);
     }
 
     #[test]

@@ -1,4 +1,8 @@
 import type {
+  DialogueChoice,
+  DialogueEffect,
+  DialogueNode,
+  DialogueScene,
   EngineCommand,
   ScheduledEvent,
   ScheduledEventKind,
@@ -34,6 +38,58 @@ const isValidDue = (due: ScheduledTime) =>
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
+
+const createDemoDialogueScenes = (): DialogueScene[] => [
+  {
+    id: "demo_morning",
+    entry_node_id: "demo_morning_001",
+    nodes: [
+      {
+        id: "demo_morning_001",
+        speaker_id: "demo_heroine",
+        text: "早上好。今天先从一个干净的新世界开始。",
+        choices: [
+          {
+            id: "ask_about_engine",
+            label: "询问新引擎",
+            next_node_id: "demo_morning_002",
+            effects: [
+              {
+                type: "add_log",
+                message: "对话选择：询问新引擎。",
+              },
+            ],
+          },
+          {
+            id: "encourage",
+            label: "鼓励她",
+            next_node_id: "demo_morning_003",
+            effects: [
+              {
+                type: "adjust_character_state",
+                character_id: "demo_heroine",
+                energy_delta: 0,
+                mood_delta: 3,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: "demo_morning_002",
+        speaker_id: "system",
+        text: "该对话来自版本化 DialogueScene，不执行旧 ERB。",
+        choices: [],
+      },
+      {
+        id: "demo_morning_003",
+        speaker_id: "demo_heroine",
+        text: "嗯。先把能稳定重放的小循环做好。",
+        choices: [],
+      },
+    ],
+  },
+];
 
 export const createDemoWorld = (): WorldState => ({
   engine_version: "0.1.0-m0",
@@ -75,6 +131,8 @@ export const createDemoWorld = (): WorldState => ({
       },
     },
   ],
+  dialogue_scenes: createDemoDialogueScenes(),
+  active_dialogue_scene_id: null,
   active_dialogue: [],
   scheduled_events: [
     {
@@ -97,19 +155,92 @@ export const createDemoWorld = (): WorldState => ({
 });
 
 const startDialogue = (world: WorldState, sceneId: string) => {
-  world.active_dialogue = [
-    {
-      id: `${sceneId}_001`,
-      speaker_id: "demo_heroine",
-      text: "早上好。今天先从一个干净的新世界开始。",
-    },
-    {
-      id: `${sceneId}_002`,
-      speaker_id: "system",
-      text: "该对话来自版本化 DialogueNode，不执行旧 ERB。",
-    },
-  ];
+  const scene = world.dialogue_scenes.find((item) => item.id === sceneId);
+  const entry = scene?.nodes.find((node) => node.id === scene.entry_node_id);
+  if (!scene || !entry) {
+    return;
+  }
+
+  world.active_dialogue_scene_id = scene.id;
+  world.active_dialogue = [structuredClone(entry)];
   world.event_log = [`播放场景 ${sceneId}。`, ...world.event_log];
+};
+
+const findDialogueNode = (
+  world: WorldState,
+  sceneId: string,
+  nodeId: string,
+): DialogueNode | undefined =>
+  world.dialogue_scenes
+    .find((scene) => scene.id === sceneId)
+    ?.nodes.find((node) => node.id === nodeId);
+
+const applyCharacterStateDelta = (
+  world: WorldState,
+  characterId: string,
+  energyDelta: number,
+  moodDelta: number,
+) => {
+  const character = world.characters.find((item) => item.id === characterId);
+  if (!character) {
+    return;
+  }
+
+  character.state.energy = clamp(character.state.energy + energyDelta, 0, 100);
+  character.state.mood = clamp(character.state.mood + moodDelta, -100, 100);
+};
+
+const applyDialogueEffect = (world: WorldState, effect: DialogueEffect) => {
+  if (effect.type === "adjust_character_state") {
+    applyCharacterStateDelta(
+      world,
+      effect.character_id,
+      effect.energy_delta,
+      effect.mood_delta,
+    );
+    return;
+  }
+
+  if (effect.type === "change_weather") {
+    world.clock.weather = effect.weather;
+    return;
+  }
+
+  world.event_log = [effect.message, ...world.event_log];
+};
+
+const chooseDialogue = (
+  world: WorldState,
+  nodeId: string,
+  choiceId: string,
+) => {
+  const sceneId = world.active_dialogue_scene_id;
+  if (!sceneId) {
+    return;
+  }
+
+  const activeNode = world.active_dialogue.find((node) => node.id === nodeId);
+  const choice: DialogueChoice | undefined = activeNode?.choices.find(
+    (item) => item.id === choiceId,
+  );
+  if (!choice) {
+    return;
+  }
+
+  for (const effect of choice.effects) {
+    applyDialogueEffect(world, effect);
+  }
+
+  if (choice.next_node_id) {
+    const nextNode = findDialogueNode(world, sceneId, choice.next_node_id);
+    if (nextNode) {
+      world.active_dialogue = [...world.active_dialogue, structuredClone(nextNode)];
+    }
+  } else {
+    world.active_dialogue_scene_id = null;
+  }
+
+  world.event_log = [`选择对话 ${nodeId} / ${choiceId}。`, ...world.event_log];
 };
 
 const applyScheduledEventKind = (
@@ -131,15 +262,15 @@ const applyScheduledEventKind = (
     return;
   }
 
+  applyCharacterStateDelta(
+    world,
+    kind.character_id,
+    kind.energy_delta,
+    kind.mood_delta,
+  );
   const character = world.characters.find((item) => item.id === kind.character_id);
-  if (!character) {
-    return;
-  }
-
-  character.state.energy = clamp(character.state.energy + kind.energy_delta, 0, 100);
-  character.state.mood = clamp(character.state.mood + kind.mood_delta, -100, 100);
   world.event_log = [
-    `事件 ${eventId} 触发：${character.display_name} 状态更新。`,
+    `事件 ${eventId} 触发：${character?.display_name ?? kind.character_id} 状态更新。`,
     ...world.event_log,
   ];
 };
@@ -193,6 +324,10 @@ export const applyDemoCommand = (
 
   if (command.type === "start_dialogue") {
     startDialogue(next, command.scene_id);
+  }
+
+  if (command.type === "choose_dialogue") {
+    chooseDialogue(next, command.node_id, command.choice_id);
   }
 
   if (command.type === "schedule_event") {

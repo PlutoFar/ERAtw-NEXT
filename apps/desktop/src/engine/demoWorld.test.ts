@@ -41,8 +41,25 @@ describe("demo engine adapter", () => {
       scene_id: "demo_morning",
     });
 
+    expect(world.active_dialogue_scene_id).toBe("demo_morning");
+    expect(world.active_dialogue).toHaveLength(1);
+    expect(world.active_dialogue[0].choices).toHaveLength(2);
+  });
+
+  it("applies dialogue choice effects", () => {
+    const started = applyDemoCommand(createDemoWorld(), {
+      type: "start_dialogue",
+      scene_id: "demo_morning",
+    });
+    const world = applyDemoCommand(started, {
+      type: "choose_dialogue",
+      node_id: "demo_morning_001",
+      choice_id: "encourage",
+    });
+
     expect(world.active_dialogue).toHaveLength(2);
-    expect(world.active_dialogue[1].text).toContain("不执行旧 ERB");
+    expect(world.active_dialogue[1].text).toContain("稳定重放");
+    expect(world.characters[0].state.mood).toBe(13);
   });
 
   it("creates a browser save preview envelope", async () => {

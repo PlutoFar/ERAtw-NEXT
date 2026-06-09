@@ -38,6 +38,30 @@ export interface DialogueNode {
   id: string;
   speaker_id: string;
   text: string;
+  choices: DialogueChoice[];
+}
+
+export interface DialogueChoice {
+  id: string;
+  label: string;
+  next_node_id: string | null;
+  effects: DialogueEffect[];
+}
+
+export type DialogueEffect =
+  | {
+      type: "adjust_character_state";
+      character_id: string;
+      energy_delta: number;
+      mood_delta: number;
+    }
+  | { type: "change_weather"; weather: Weather }
+  | { type: "add_log"; message: string };
+
+export interface DialogueScene {
+  id: string;
+  entry_node_id: string;
+  nodes: DialogueNode[];
 }
 
 export type ScheduledEventKind =
@@ -61,6 +85,8 @@ export interface WorldState {
   clock: WorldClock;
   locations: Location[];
   characters: Character[];
+  dialogue_scenes: DialogueScene[];
+  active_dialogue_scene_id: string | null;
   active_dialogue: DialogueNode[];
   scheduled_events: ScheduledEvent[];
   event_log: string[];
@@ -85,4 +111,5 @@ export type EngineCommand =
   | { type: "advance_time"; minutes: number }
   | { type: "move_character"; character_id: string; location_id: string }
   | { type: "start_dialogue"; scene_id: string }
+  | { type: "choose_dialogue"; node_id: string; choice_id: string }
   | { type: "schedule_event"; event: ScheduledEvent };
