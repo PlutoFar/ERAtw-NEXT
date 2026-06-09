@@ -6,6 +6,7 @@
 
 - [架构决策记录](./architecture/adr-0001-project-boundary.md)
 - [M2 Engine Save Foundation](./architecture/m2-engine-save.md)
+- [M2 Engine Scheduler](./architecture/m2-engine-scheduler.md)
 - [内容边界](./content/content-boundary.md)
 - [内容 Schema 草案](./content/schemas.md)
 - [M1 内容审计计划](./content/m1-audit-plan.md)

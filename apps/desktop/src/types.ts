@@ -9,6 +9,12 @@ export interface WorldClock {
   weather: Weather;
 }
 
+export interface ScheduledTime {
+  day: number;
+  hour: number;
+  minute: number;
+}
+
 export interface Location {
   id: string;
   name: string;
@@ -34,12 +40,29 @@ export interface DialogueNode {
   text: string;
 }
 
+export type ScheduledEventKind =
+  | { type: "change_weather"; weather: Weather }
+  | { type: "start_dialogue"; scene_id: string }
+  | {
+      type: "adjust_character_state";
+      character_id: string;
+      energy_delta: number;
+      mood_delta: number;
+    };
+
+export interface ScheduledEvent {
+  id: string;
+  due: ScheduledTime;
+  kind: ScheduledEventKind;
+}
+
 export interface WorldState {
   engine_version: string;
   clock: WorldClock;
   locations: Location[];
   characters: Character[];
   active_dialogue: DialogueNode[];
+  scheduled_events: ScheduledEvent[];
   event_log: string[];
 }
 
@@ -61,4 +84,5 @@ export interface SaveEnvelope {
 export type EngineCommand =
   | { type: "advance_time"; minutes: number }
   | { type: "move_character"; character_id: string; location_id: string }
-  | { type: "start_dialogue"; scene_id: string };
+  | { type: "start_dialogue"; scene_id: string }
+  | { type: "schedule_event"; event: ScheduledEvent };

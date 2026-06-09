@@ -18,6 +18,23 @@ describe("demo engine adapter", () => {
     expect(world.clock.minute).toBe(0);
   });
 
+  it("triggers scheduled events deterministically", () => {
+    const first = applyDemoCommand(createDemoWorld(), {
+      type: "advance_time",
+      minutes: 60,
+    });
+    const second = applyDemoCommand(createDemoWorld(), {
+      type: "advance_time",
+      minutes: 60,
+    });
+
+    expect(first).toEqual(second);
+    expect(first.clock.weather).toBe("cloudy");
+    expect(first.scheduled_events).toHaveLength(0);
+    expect(first.characters[0].state.energy).toBe(77);
+    expect(first.characters[0].state.mood).toBe(15);
+  });
+
   it("starts a versioned dialogue scene", () => {
     const world = applyDemoCommand(createDemoWorld(), {
       type: "start_dialogue",

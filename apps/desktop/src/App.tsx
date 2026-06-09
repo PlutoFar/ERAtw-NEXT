@@ -30,6 +30,17 @@ const getCurrentLocation = (world: WorldState): Location | undefined => {
   return world.locations.find((location) => location.id === character?.location_id);
 };
 
+const formatScheduledEventTime = (world: WorldState) => {
+  const event = world.scheduled_events[0];
+  if (!event) {
+    return "无待触发事件";
+  }
+
+  return `下个事件 D${event.due.day} ${String(event.due.hour).padStart(2, "0")}:${String(
+    event.due.minute,
+  ).padStart(2, "0")}`;
+};
+
 export const App = () => {
   const { dispatch, error, load, loading, world } = useEngine();
 
@@ -63,6 +74,7 @@ export const App = () => {
             <CloudSun size={16} /> {seasonLabels[world.clock.season]} ·{" "}
             {weatherLabels[world.clock.weather]}
           </span>
+          <span>{formatScheduledEventTime(world)}</span>
           <span>{currentLocation?.name ?? "未知地点"}</span>
         </div>
       </header>

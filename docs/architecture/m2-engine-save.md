@@ -24,4 +24,4 @@
 - 增加真实文件读写、原子写入、备份轮转。
 - 增加损坏存档恢复入口。
 - 将 Mod runtime 的 manifest 校验接入存档依赖检查。
-- 加入 deterministic replay seed 和 command log。
+- 将 deterministic replay seed 和 command log 接入当前事件调度器。
