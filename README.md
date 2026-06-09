@@ -24,6 +24,7 @@ M0 proves the new project can stand alone:
 - Mod install planning validates target namespace and emits planned filesystem actions
 - Mod install execution stages copies before moving into the final namespace directory
 - Mod uninstall planning and execution move installs through uninstall staging before deletion
+- Mod CLI validates projects and packages example Mods into release directories
 
 ## Development
 
@@ -38,6 +39,13 @@ Tauri development additionally requires a local Rust toolchain.
 
 ```powershell
 npm run dev
+```
+
+## Mod CLI
+
+```powershell
+cargo run -p eratw_mod_cli -- validate examples/mods/minimal-character --engine-version 0.1.0-m0
+cargo run -p eratw_mod_cli -- pack examples/mods/minimal-character D:\tmp\eratw-mod-packages --engine-version 0.1.0-m0
 ```
 
 ## Content Audit

@@ -753,6 +753,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "eratw_mod_cli"
+version = "0.1.0"
+dependencies = [
+ "eratw_mod_runtime",
+]
+
+[[package]]
 name = "eratw_mod_runtime"
 version = "0.1.0"
 dependencies = [

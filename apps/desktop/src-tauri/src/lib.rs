@@ -476,6 +476,7 @@ fn mod_discovery_error_kind(error: &ModDiscoveryError) -> &'static str {
         ModDiscoveryError::Io(_) => "io",
         ModDiscoveryError::Json(_) => "json",
         ModDiscoveryError::UnsafeInstallNamespace(_) => "unsafe_install_namespace",
+        ModDiscoveryError::UnsafePackageVersion(_) => "unsafe_package_version",
         ModDiscoveryError::InstallTargetExists(_) => "install_target_exists",
         ModDiscoveryError::InstallTargetMissing(_) => "install_target_missing",
         ModDiscoveryError::InstallTargetNotDirectory(_) => "install_target_not_directory",

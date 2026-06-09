@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    ffi::OsString,
     fs, io,
     path::{Path, PathBuf},
 };
@@ -168,6 +169,30 @@ pub struct ModUninstallReport {
     pub actions: Vec<ModInstallAction>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModProjectValidationReport {
+    pub root_path: PathBuf,
+    pub manifest_path: PathBuf,
+    pub manifest: ModManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModPackageManifest {
+    pub schema_version: String,
+    pub namespace: String,
+    pub version: String,
+    pub manifest_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModPackageReport {
+    pub source_root: PathBuf,
+    pub package_root: PathBuf,
+    pub content_root: PathBuf,
+    pub package_manifest_path: PathBuf,
+    pub manifest: ModManifest,
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ModValidationError {
     #[error("namespace is required")]
@@ -209,6 +234,8 @@ pub enum ModDiscoveryError {
     Json(String),
     #[error("unsafe mod install namespace: {0}")]
     UnsafeInstallNamespace(String),
+    #[error("unsafe mod package version: {0}")]
+    UnsafePackageVersion(String),
     #[error("mod install target already exists: {0}")]
     InstallTargetExists(String),
     #[error("mod install target is missing: {0}")]
@@ -346,6 +373,114 @@ pub fn read_manifest_file(path: impl AsRef<Path>) -> Result<ModManifest, ModDisc
     let manifest: ModManifest = serde_json::from_str(&encoded)?;
     validate_manifest(&manifest)?;
     Ok(manifest)
+}
+
+pub fn validate_mod_project(
+    root: impl AsRef<Path>,
+) -> Result<ModProjectValidationReport, ModDiscoveryError> {
+    validate_mod_project_for_engine(root, None)
+}
+
+pub fn validate_mod_project_for_engine(
+    root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+) -> Result<ModProjectValidationReport, ModDiscoveryError> {
+    let root = root.as_ref();
+    if is_mod_staging_directory(root) {
+        return Err(ModDiscoveryError::UnsafeInstallNamespace(
+            root.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_string(),
+        ));
+    }
+
+    let manifest_path = root.join("manifest.json");
+    let manifest = read_manifest_file(&manifest_path)?;
+    if let Some(engine_version) = engine_version {
+        validate_manifest_for_engine(&manifest, engine_version)?;
+    }
+    safe_install_namespace(&manifest.namespace)?;
+
+    Ok(ModProjectValidationReport {
+        root_path: root.to_path_buf(),
+        manifest_path,
+        manifest,
+    })
+}
+
+pub fn package_mod_project(
+    source_root: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+) -> Result<ModPackageReport, ModDiscoveryError> {
+    package_mod_project_for_engine(source_root, output_root, None)
+}
+
+pub fn package_mod_project_for_engine(
+    source_root: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+) -> Result<ModPackageReport, ModDiscoveryError> {
+    let validation = validate_mod_project_for_engine(&source_root, engine_version)?;
+    let source_root = validation.root_path;
+    let output_root = output_root.as_ref();
+    let package_version = safe_package_component(&validation.manifest.version)?;
+    let package_name = format!("{}-{package_version}", validation.manifest.namespace);
+    let package_root = output_root.join(&package_name);
+    let staging_root = output_root.join(format!(".packaging-{package_name}"));
+    let staging_content_root = staging_root.join("content");
+    let staging_manifest_path = staging_root.join("eratw-mod-package.json");
+    let content_root = package_root.join("content");
+    let package_manifest_path = package_root.join("eratw-mod-package.json");
+
+    let source_absolute = absolute_existing_path(&source_root)?;
+    let output_absolute = absolute_path(output_root)?;
+    if output_absolute.starts_with(&source_absolute) {
+        return Err(ModDiscoveryError::UnsafeInstallNamespace(
+            output_root.to_string_lossy().to_string(),
+        ));
+    }
+
+    if package_root.exists() {
+        return Err(ModDiscoveryError::InstallTargetExists(
+            package_root.to_string_lossy().to_string(),
+        ));
+    }
+
+    fs::create_dir_all(output_root)?;
+    if staging_root.exists() {
+        fs::remove_dir_all(&staging_root)?;
+    }
+
+    let package_manifest = ModPackageManifest {
+        schema_version: "eratw-mod-package/v0".to_string(),
+        namespace: validation.manifest.namespace.clone(),
+        version: validation.manifest.version.clone(),
+        manifest_path: "content/manifest.json".to_string(),
+    };
+
+    let result = (|| -> Result<(), ModDiscoveryError> {
+        copy_mod_project_recursively(&source_root, &staging_content_root)?;
+        fs::write(
+            &staging_manifest_path,
+            serde_json::to_string_pretty(&package_manifest)?,
+        )?;
+        fs::rename(&staging_root, &package_root)?;
+        Ok(())
+    })();
+
+    if result.is_err() && staging_root.exists() {
+        let _ = fs::remove_dir_all(&staging_root);
+    }
+    result?;
+
+    Ok(ModPackageReport {
+        source_root,
+        package_root,
+        content_root,
+        package_manifest_path,
+        manifest: validation.manifest,
+    })
 }
 
 pub fn plan_mod_install(
@@ -733,10 +868,61 @@ fn safe_install_namespace(namespace: &str) -> Result<&str, ModDiscoveryError> {
     Ok(namespace)
 }
 
+fn safe_package_component(component: &str) -> Result<&str, ModDiscoveryError> {
+    let component = component.trim();
+    if component.is_empty()
+        || component == "."
+        || component == ".."
+        || component.contains('/')
+        || component.contains('\\')
+        || component.contains(':')
+    {
+        return Err(ModDiscoveryError::UnsafePackageVersion(
+            component.to_string(),
+        ));
+    }
+    Ok(component)
+}
+
 fn is_mod_staging_directory(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.starts_with(".installing-") || name.starts_with(".uninstalling-"))
+}
+
+fn absolute_existing_path(path: &Path) -> io::Result<PathBuf> {
+    path.canonicalize()
+}
+
+fn absolute_path(path: &Path) -> io::Result<PathBuf> {
+    if path.exists() {
+        return path.canonicalize();
+    }
+
+    let current_dir = std::env::current_dir()?;
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        current_dir.join(path)
+    };
+    let mut missing = Vec::<OsString>::new();
+    let mut cursor = absolute.as_path();
+    while !cursor.exists() {
+        let Some(name) = cursor.file_name() else {
+            break;
+        };
+        missing.push(name.to_os_string());
+        let Some(parent) = cursor.parent() else {
+            break;
+        };
+        cursor = parent;
+    }
+
+    let mut resolved = cursor.canonicalize()?;
+    for name in missing.iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved)
 }
 
 fn copy_directory_recursively(from: &Path, to: &Path) -> io::Result<()> {
@@ -753,6 +939,36 @@ fn copy_directory_recursively(from: &Path, to: &Path) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn copy_mod_project_recursively(from: &Path, to: &Path) -> io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let file_name = entry.file_name();
+        let target_path = to.join(&file_name);
+        let metadata = entry.file_type()?;
+        if metadata.is_dir() {
+            if is_mod_package_excluded_directory(&source_path) {
+                continue;
+            }
+            copy_mod_project_recursively(&source_path, &target_path)?;
+        } else if metadata.is_file() {
+            fs::copy(&source_path, &target_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn is_mod_package_excluded_directory(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            is_mod_staging_directory(path)
+                || matches!(name, ".git" | "node_modules" | "target" | "dist" | "build")
+                || name.starts_with(".packaging-")
+        })
 }
 
 fn next_ready_namespace(
@@ -1123,6 +1339,149 @@ mod tests {
                 }
             ))
         );
+    }
+
+    #[test]
+    fn validate_mod_project_reads_manifest_and_engine_version() {
+        let source_root = temp_mod_dir("project_validate");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.project")).unwrap(),
+        )
+        .unwrap();
+
+        let report = validate_mod_project_for_engine(&source_root, Some("0.1.0-m0")).unwrap();
+
+        assert_eq!(report.root_path, source_root);
+        assert_eq!(report.manifest_path, report.root_path.join("manifest.json"));
+        assert_eq!(report.manifest.namespace, "example.project");
+
+        let _ = fs::remove_dir_all(report.root_path);
+    }
+
+    #[test]
+    fn validate_mod_project_rejects_incompatible_engine_version() {
+        let source_root = temp_mod_dir("project_validate_engine");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.project")).unwrap(),
+        )
+        .unwrap();
+
+        let result = validate_mod_project_for_engine(&source_root, Some("9.9.9"));
+
+        assert!(matches!(
+            result,
+            Err(ModDiscoveryError::Validation(
+                ModValidationError::IncompatibleEngineVersion { .. }
+            ))
+        ));
+
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn package_mod_project_copies_project_to_package_directory() {
+        let source_root = temp_mod_dir("project_package_source");
+        let output_root = temp_mod_dir("project_package_output");
+        fs::create_dir_all(source_root.join("assets")).unwrap();
+        fs::create_dir_all(source_root.join(".git")).unwrap();
+        fs::create_dir_all(source_root.join("dist")).unwrap();
+        fs::create_dir_all(source_root.join(".installing-example.package")).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+        fs::write(source_root.join("assets/readme.txt"), "package me").unwrap();
+        fs::write(source_root.join(".git/config"), "ignored").unwrap();
+        fs::write(source_root.join("dist/generated.txt"), "ignored").unwrap();
+        fs::write(
+            source_root.join(".installing-example.package/manifest.json"),
+            "ignored",
+        )
+        .unwrap();
+
+        let report =
+            package_mod_project_for_engine(&source_root, &output_root, Some("0.1.0-m0")).unwrap();
+
+        assert_eq!(report.source_root, source_root);
+        assert_eq!(
+            report.package_root,
+            output_root.join("example.package-0.1.0")
+        );
+        assert_eq!(
+            fs::read_to_string(report.content_root.join("assets/readme.txt")).unwrap(),
+            "package me"
+        );
+        assert!(!report.content_root.join(".git").exists());
+        assert!(!report.content_root.join("dist").exists());
+        assert!(!report
+            .content_root
+            .join(".installing-example.package")
+            .exists());
+        let package_manifest: ModPackageManifest =
+            serde_json::from_str(&fs::read_to_string(&report.package_manifest_path).unwrap())
+                .unwrap();
+        assert_eq!(package_manifest.schema_version, "eratw-mod-package/v0");
+        assert_eq!(package_manifest.namespace, "example.package");
+        assert_eq!(package_manifest.version, "0.1.0");
+        assert_eq!(package_manifest.manifest_path, "content/manifest.json");
+        assert!(!output_root
+            .join(".packaging-example.package-0.1.0")
+            .exists());
+
+        let _ = fs::remove_dir_all(output_root);
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn package_mod_project_rejects_output_inside_source_root() {
+        let source_root = temp_mod_dir("project_package_recursive");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.package")).unwrap(),
+        )
+        .unwrap();
+
+        let result = package_mod_project(&source_root, source_root.join("dist"));
+
+        assert!(matches!(
+            result,
+            Err(ModDiscoveryError::UnsafeInstallNamespace(_))
+        ));
+        assert!(!source_root.join("dist").exists());
+
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn package_mod_project_rejects_unsafe_version_path_component() {
+        let source_root = temp_mod_dir("project_package_unsafe_version");
+        let output_root = temp_mod_dir("project_package_unsafe_version_output");
+        let mut manifest = manifest("example.package");
+        manifest.version = "../escape".to_string();
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let result = package_mod_project(&source_root, &output_root);
+
+        assert_eq!(
+            result,
+            Err(ModDiscoveryError::UnsafePackageVersion(
+                "../escape".to_string()
+            ))
+        );
+        assert!(!output_root.exists());
+
+        let _ = fs::remove_dir_all(source_root);
     }
 
     #[test]

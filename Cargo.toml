@@ -3,7 +3,8 @@ members = [
   "apps/desktop/src-tauri",
   "crates/engine",
   "crates/content",
-  "crates/mod_runtime"
+  "crates/mod_runtime",
+  "crates/mod_cli"
 ]
 resolver = "2"
 

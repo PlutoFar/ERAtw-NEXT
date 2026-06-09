@@ -10,10 +10,13 @@
 - `plan_load_order`：在启用 Mod 集合上执行依赖检查、版本检查、冲突检查、循环依赖检查，并输出稳定加载顺序。
 - `plan_enabled_mods` / `plan_enabled_mods_for_engine`：先应用启用/禁用选择，再对启用集合执行加载计划；被禁用 Mod 单独进入 disabled 列表。
 - `read_manifest_file`：读取单个 `manifest.json`，完成 JSON 解析和 manifest 安全校验。
+- `validate_mod_project` / `validate_mod_project_for_engine`：以 Mod 项目根目录为输入，校验 `manifest.json`、engine 版本和可安装 namespace，输出作者工具可展示的验证报告。
+- `package_mod_project` / `package_mod_project_for_engine`：把验证通过的 Mod 项目复制到发布包目录，输出 `eratw-mod-package.json` 包清单和 `content/` 内容根目录。
 - `plan_mod_install` / `plan_mod_install_for_engine`：读取待安装目录 manifest，校验 engine 版本和安装目标 namespace，生成创建安装目录、复制到 staging、移动到目标目录的计划。
 - `install_mod` / `install_mod_for_engine`：执行安装计划，先复制到 `.installing-{namespace}` staging，成功后移动到正式 namespace 目录；失败时清理 staging，目标已存在时拒绝覆盖。
 - `plan_mod_uninstall` / `uninstall_mod`：按 namespace 生成卸载计划，先移动正式目录到 `.uninstalling-{namespace}` staging，再删除 staging，避免半删除状态被发现器当作可加载 Mod。
 - `discover_mods` / `discover_mods_for_engine`：扫描 Mod 根目录的一级子目录，分别返回成功发现的 manifest 和每个失败 manifest 的结构化错误。
+- `eratw-mod` CLI：提供作者侧 `validate` 和 `pack` 命令，作为 Mod SDK 的最小验证/打包入口。
 - Tauri `engine_discover_mods` / `engine_plan_mod_install` / `engine_install_mod` / `engine_plan_mod_uninstall` / `engine_uninstall_mod` / `engine_plan_enabled_mods`：桌面层把发现报告、安装/卸载计划、安装/卸载结果和启用计划转换成前端稳定 DTO，包含可展示的错误类型和消息。
 - 运行时内容包安装成功后会写入 `WorldState.installed_content_packages`，包含 package_id、version、dependencies 和 conflicts；存档外壳据此生成 `mod_dependencies`，为后续 Mod registry 接管启停检查预留稳定入口。
 
@@ -25,6 +28,7 @@
 - 加载顺序先保证依赖在被依赖者之前，再在当前可加载集合内按 `load_order` 和 namespace 排序。
 - Mod 目录发现不会因为单个损坏 manifest 阻塞其他 Mod；坏 manifest 进入 discovery errors，好的 manifest 继续进入后续加载计划。
 - Mod 目录发现会跳过 `.installing-*` 和 `.uninstalling-*` staging 目录，避免异常残留进入加载计划。
+- Mod 打包会拒绝输出到源码目录内部，避免递归复制；包版本也不能包含路径分隔符、盘符分隔符、`.` 或 `..`；`.git`、`node_modules`、`target`、`dist`、`build` 和 staging 目录不会进入发布包。
 - Mod 安装计划只允许把 Mod 安装到安装根目录下的 namespace 子目录；namespace 不能为空，也不能包含路径分隔符、盘符分隔符、`.` 或 `..`。
 - Mod 安装执行不覆盖已存在目标目录；复制失败时清理 staging，避免半安装目录参与后续发现。
 - Mod 卸载执行要求目标目录存在；卸载前清理同名 uninstall staging，再通过移动到 staging 后删除完成卸载。
@@ -51,6 +55,23 @@
   "conflicts": [],
   "capabilities": ["content"]
 }
+```
+
+## CLI 示例
+
+```powershell
+cargo run -p eratw_mod_cli -- validate examples/mods/minimal-character --engine-version 0.1.0-m0
+cargo run -p eratw_mod_cli -- pack examples/mods/minimal-character D:\tmp\eratw-mod-packages --engine-version 0.1.0-m0
+```
+
+`pack` 输出目录结构：
+
+```text
+example.minimal_character-0.1.0/
+  eratw-mod-package.json
+  content/
+    manifest.json
+    ...
 ```
 
 ## 后续
