@@ -112,6 +112,7 @@ export interface DiscoveredModReport {
 export type ModDiscoveryIssueKind =
   | "io"
   | "json"
+  | "unsafe_install_namespace"
   | "missing_namespace"
   | "missing_name"
   | "missing_version"
@@ -132,6 +133,29 @@ export interface ModDiscoveryReport {
   discovered: DiscoveredModReport[];
   errors: ModDiscoveryIssueReport[];
 }
+
+export interface ModInstallPlanReport {
+  source_root: string;
+  install_root: string;
+  target_root: string;
+  manifest_path: string;
+  manifest: ModManifest;
+  actions: ModInstallActionReport[];
+}
+
+export type ModInstallActionReport =
+  | {
+      kind: "create_directory";
+      path: string;
+      from: null;
+      to: null;
+    }
+  | {
+      kind: "copy_directory";
+      path: null;
+      from: string;
+      to: string;
+    };
 
 export interface ModEnablement {
   namespace: string;

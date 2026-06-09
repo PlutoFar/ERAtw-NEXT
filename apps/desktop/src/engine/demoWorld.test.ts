@@ -561,6 +561,50 @@ describe("demo engine adapter", () => {
     });
   });
 
+  it("plans browser mod install operations without copying files", async () => {
+    const client = createBrowserMockEngineClient();
+
+    const plan = await client.planModInstall(
+      "downloads/minimal-character",
+      "mods/installed",
+      "0.1.0-m0",
+    );
+
+    expect(plan).toMatchObject({
+      source_root: "downloads/minimal-character",
+      install_root: "mods/installed",
+      target_root: "mods/installed/example.minimal_character",
+      manifest_path: "downloads/minimal-character/manifest.json",
+      manifest: {
+        namespace: "example.minimal_character",
+      },
+      actions: [
+        {
+          kind: "create_directory",
+          path: "mods/installed",
+          from: null,
+          to: null,
+        },
+        {
+          kind: "copy_directory",
+          path: null,
+          from: "downloads/minimal-character",
+          to: "mods/installed/example.minimal_character",
+        },
+      ],
+    });
+  });
+
+  it("reports browser mod install compatibility errors", async () => {
+    const client = createBrowserMockEngineClient();
+
+    await expect(
+      client.planModInstall("downloads/minimal-character", "mods/installed", "9.9.9"),
+    ).rejects.toMatchObject({
+      kind: "incompatible_engine_version",
+    });
+  });
+
   it("plans browser enabled mods from discovered manifests", async () => {
     const client = createBrowserMockEngineClient();
     const discovery = await client.discoverMods("examples/mods", "0.1.0-m0");

@@ -126,6 +126,22 @@ pub struct ModDiscoveryIssue {
     pub error: ModDiscoveryError,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModInstallPlan {
+    pub source_root: PathBuf,
+    pub install_root: PathBuf,
+    pub target_root: PathBuf,
+    pub manifest_path: PathBuf,
+    pub manifest: ModManifest,
+    pub actions: Vec<ModInstallAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModInstallAction {
+    CreateDirectory { path: PathBuf },
+    CopyDirectory { from: PathBuf, to: PathBuf },
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ModValidationError {
     #[error("namespace is required")]
@@ -165,6 +181,8 @@ pub enum ModDiscoveryError {
     Io(String),
     #[error("mod manifest json error: {0}")]
     Json(String),
+    #[error("unsafe mod install namespace: {0}")]
+    UnsafeInstallNamespace(String),
     #[error(transparent)]
     Validation(#[from] ModValidationError),
 }
@@ -296,6 +314,47 @@ pub fn read_manifest_file(path: impl AsRef<Path>) -> Result<ModManifest, ModDisc
     let manifest: ModManifest = serde_json::from_str(&encoded)?;
     validate_manifest(&manifest)?;
     Ok(manifest)
+}
+
+pub fn plan_mod_install(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+) -> Result<ModInstallPlan, ModDiscoveryError> {
+    plan_mod_install_for_engine(source_root, install_root, None)
+}
+
+pub fn plan_mod_install_for_engine(
+    source_root: impl AsRef<Path>,
+    install_root: impl AsRef<Path>,
+    engine_version: Option<&str>,
+) -> Result<ModInstallPlan, ModDiscoveryError> {
+    let source_root = source_root.as_ref();
+    let install_root = install_root.as_ref();
+    let manifest_path = source_root.join("manifest.json");
+    let manifest = read_manifest_file(&manifest_path).and_then(|manifest| {
+        if let Some(engine_version) = engine_version {
+            validate_manifest_for_engine(&manifest, engine_version)?;
+        }
+        Ok(manifest)
+    })?;
+    let target_root = install_root.join(safe_install_namespace(&manifest.namespace)?);
+
+    Ok(ModInstallPlan {
+        source_root: source_root.to_path_buf(),
+        install_root: install_root.to_path_buf(),
+        target_root: target_root.clone(),
+        manifest_path,
+        manifest,
+        actions: vec![
+            ModInstallAction::CreateDirectory {
+                path: install_root.to_path_buf(),
+            },
+            ModInstallAction::CopyDirectory {
+                from: source_root.to_path_buf(),
+                to: target_root,
+            },
+        ],
+    })
 }
 
 pub fn discover_mods(root: impl AsRef<Path>) -> ModDiscoveryReport {
@@ -506,6 +565,22 @@ fn requested_enablement(
         }
     }
     Ok(requested)
+}
+
+fn safe_install_namespace(namespace: &str) -> Result<&str, ModDiscoveryError> {
+    let namespace = namespace.trim();
+    if namespace.is_empty()
+        || namespace == "."
+        || namespace == ".."
+        || namespace.contains('/')
+        || namespace.contains('\\')
+        || namespace.contains(':')
+    {
+        return Err(ModDiscoveryError::UnsafeInstallNamespace(
+            namespace.to_string(),
+        ));
+    }
+    Ok(namespace)
 }
 
 fn next_ready_namespace(
@@ -876,6 +951,100 @@ mod tests {
                 }
             ))
         );
+    }
+
+    #[test]
+    fn mod_install_plan_reads_manifest_and_targets_namespace_directory() {
+        let source_root = temp_mod_dir("install_source");
+        let install_root = temp_mod_dir("install_root");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.installable")).unwrap(),
+        )
+        .unwrap();
+
+        let plan =
+            plan_mod_install_for_engine(&source_root, &install_root, Some("0.1.0-m0")).unwrap();
+
+        assert_eq!(plan.source_root, source_root);
+        assert_eq!(plan.install_root, install_root);
+        assert_eq!(
+            plan.target_root,
+            plan.install_root.join("example.installable")
+        );
+        assert_eq!(
+            plan.actions,
+            vec![
+                ModInstallAction::CreateDirectory {
+                    path: plan.install_root.clone(),
+                },
+                ModInstallAction::CopyDirectory {
+                    from: plan.source_root.clone(),
+                    to: plan.target_root.clone(),
+                },
+            ]
+        );
+
+        let _ = fs::remove_dir_all(plan.source_root);
+    }
+
+    #[test]
+    fn mod_install_plan_rejects_incompatible_engine_version() {
+        let source_root = temp_mod_dir("install_engine");
+        let install_root = temp_mod_dir("install_root_engine");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.installable")).unwrap(),
+        )
+        .unwrap();
+
+        let result = plan_mod_install_for_engine(&source_root, &install_root, Some("9.9.9"));
+
+        assert!(matches!(
+            result,
+            Err(ModDiscoveryError::Validation(
+                ModValidationError::IncompatibleEngineVersion { .. }
+            ))
+        ));
+
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn mod_install_plan_rejects_unsafe_namespace_targets() {
+        let source_root = temp_mod_dir("install_unsafe");
+        let install_root = temp_mod_dir("install_root_unsafe");
+        let mut manifest = manifest("example.safe");
+        manifest.namespace = "example/unsafe".to_string();
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let result = plan_mod_install(&source_root, &install_root);
+
+        assert_eq!(
+            result,
+            Err(ModDiscoveryError::UnsafeInstallNamespace(
+                "example/unsafe".to_string()
+            ))
+        );
+
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn mod_install_plan_reports_missing_manifest_as_io_error() {
+        let source_root = temp_mod_dir("install_missing_manifest");
+        let install_root = temp_mod_dir("install_root_missing_manifest");
+
+        let result = plan_mod_install(&source_root, &install_root);
+
+        assert!(matches!(result, Err(ModDiscoveryError::Io(_))));
     }
 
     #[test]

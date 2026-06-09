@@ -5,9 +5,10 @@ use eratw_engine::{
     EngineCommand, WorldState,
 };
 use eratw_mod_runtime::{
-    discover_mods_for_engine, plan_enabled_mods_for_engine, DisabledMod, DiscoveredMod,
-    ModDiscoveryError, ModDiscoveryIssue, ModDiscoveryReport, ModEnablement, ModEnablementPlan,
-    ModLoadError, ModManifest, ModValidationError,
+    discover_mods_for_engine, plan_enabled_mods_for_engine, plan_mod_install_for_engine,
+    DisabledMod, DiscoveredMod, ModDiscoveryError, ModDiscoveryIssue, ModDiscoveryReport,
+    ModEnablement, ModEnablementPlan, ModInstallAction, ModInstallPlan, ModLoadError, ModManifest,
+    ModValidationError,
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -39,6 +40,34 @@ struct ModDiscoveryReportDto {
     root_path: String,
     discovered: Vec<DiscoveredModReport>,
     errors: Vec<ModDiscoveryIssueReport>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModInstallRequest {
+    #[serde(alias = "sourceRoot")]
+    source_root: String,
+    #[serde(alias = "installRoot")]
+    install_root: String,
+    #[serde(alias = "engineVersion")]
+    engine_version: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct ModInstallPlanReport {
+    source_root: String,
+    install_root: String,
+    target_root: String,
+    manifest_path: String,
+    manifest: ModManifest,
+    actions: Vec<ModInstallActionReport>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct ModInstallActionReport {
+    kind: String,
+    from: Option<String>,
+    path: Option<String>,
+    to: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,6 +147,23 @@ fn engine_inspect_resources(
 #[tauri::command]
 fn engine_discover_mods(root: String, engine_version: Option<String>) -> ModDiscoveryReportDto {
     discover_mods_for_engine(root, engine_version.as_deref()).into()
+}
+
+#[tauri::command]
+fn engine_plan_mod_install(
+    request: ModInstallRequest,
+) -> Result<ModInstallPlanReport, ModDiscoveryIssueReport> {
+    plan_mod_install_for_engine(
+        request.source_root,
+        request.install_root,
+        request.engine_version.as_deref(),
+    )
+    .map(Into::into)
+    .map_err(|error| ModDiscoveryIssueReport {
+        path: String::new(),
+        kind: mod_discovery_error_kind(&error).to_string(),
+        message: error.to_string(),
+    })
 }
 
 #[tauri::command]
@@ -233,6 +279,38 @@ impl From<ModDiscoveryIssue> for ModDiscoveryIssueReport {
     }
 }
 
+impl From<ModInstallPlan> for ModInstallPlanReport {
+    fn from(plan: ModInstallPlan) -> Self {
+        Self {
+            source_root: plan.source_root.to_string_lossy().to_string(),
+            install_root: plan.install_root.to_string_lossy().to_string(),
+            target_root: plan.target_root.to_string_lossy().to_string(),
+            manifest_path: plan.manifest_path.to_string_lossy().to_string(),
+            manifest: plan.manifest,
+            actions: plan.actions.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<ModInstallAction> for ModInstallActionReport {
+    fn from(action: ModInstallAction) -> Self {
+        match action {
+            ModInstallAction::CreateDirectory { path } => Self {
+                kind: "create_directory".to_string(),
+                from: None,
+                path: Some(path.to_string_lossy().to_string()),
+                to: None,
+            },
+            ModInstallAction::CopyDirectory { from, to } => Self {
+                kind: "copy_directory".to_string(),
+                from: Some(from.to_string_lossy().to_string()),
+                path: None,
+                to: Some(to.to_string_lossy().to_string()),
+            },
+        }
+    }
+}
+
 impl From<ModEnablementPlan> for ModEnablementPlanReport {
     fn from(plan: ModEnablementPlan) -> Self {
         Self {
@@ -277,6 +355,7 @@ fn mod_discovery_error_kind(error: &ModDiscoveryError) -> &'static str {
     match error {
         ModDiscoveryError::Io(_) => "io",
         ModDiscoveryError::Json(_) => "json",
+        ModDiscoveryError::UnsafeInstallNamespace(_) => "unsafe_install_namespace",
         ModDiscoveryError::Validation(error) => mod_validation_error_kind(error),
     }
 }
@@ -351,6 +430,57 @@ mod tests {
         assert_eq!(report.errors[0].kind, "json");
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn engine_plan_mod_install_returns_frontend_plan() {
+        let source_root = temp_mod_root("install_command_source");
+        let install_root = temp_mod_root("install_command_target");
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest("example.installable")).unwrap(),
+        )
+        .unwrap();
+
+        let report = engine_plan_mod_install(ModInstallRequest {
+            source_root: source_root.to_string_lossy().to_string(),
+            install_root: install_root.to_string_lossy().to_string(),
+            engine_version: Some("0.1.0-m0".to_string()),
+        })
+        .unwrap();
+
+        assert_eq!(report.manifest.namespace, "example.installable");
+        assert!(report.target_root.ends_with("example.installable"));
+        assert_eq!(report.actions[0].kind, "create_directory");
+        assert_eq!(report.actions[1].kind, "copy_directory");
+
+        let _ = fs::remove_dir_all(source_root);
+    }
+
+    #[test]
+    fn engine_plan_mod_install_reports_frontend_error_kind() {
+        let source_root = temp_mod_root("install_command_error");
+        let install_root = temp_mod_root("install_command_target_error");
+        let mut manifest = manifest("example.safe");
+        manifest.namespace = "example/unsafe".to_string();
+        fs::create_dir_all(&source_root).unwrap();
+        fs::write(
+            source_root.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let report = engine_plan_mod_install(ModInstallRequest {
+            source_root: source_root.to_string_lossy().to_string(),
+            install_root: install_root.to_string_lossy().to_string(),
+            engine_version: None,
+        })
+        .unwrap_err();
+
+        assert_eq!(report.kind, "unsafe_install_namespace");
+
+        let _ = fs::remove_dir_all(source_root);
     }
 
     #[test]
@@ -446,6 +576,7 @@ pub fn run() {
             engine_plan_resources,
             engine_inspect_resources,
             engine_discover_mods,
+            engine_plan_mod_install,
             engine_plan_enabled_mods,
             engine_save_preview,
             engine_save_slot,

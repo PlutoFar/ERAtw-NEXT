@@ -6,6 +6,7 @@ import type {
   ModDiscoveryReport,
   ModEnablement,
   ModEnablementPlanReport,
+  ModInstallPlanReport,
   ModLoadErrorReport,
   ModManifest,
   ResourceAsset,
@@ -22,6 +23,11 @@ export interface EngineClient {
   planResources(root: string): Promise<ResourceResolutionReport>;
   inspectResources(root: string): Promise<ResourceResolutionReport>;
   discoverMods(root: string, engineVersion?: string | null): Promise<ModDiscoveryReport>;
+  planModInstall(
+    sourceRoot: string,
+    installRoot: string,
+    engineVersion?: string | null,
+  ): Promise<ModInstallPlanReport>;
   planEnabledMods(
     manifests: ModManifest[],
     enablement: ModEnablement[],
@@ -50,6 +56,14 @@ export const createTauriEngineClient = (): EngineClient => ({
     invoke<ModDiscoveryReport>("engine_discover_mods", {
       root,
       engineVersion,
+    }),
+  planModInstall: (sourceRoot, installRoot, engineVersion = null) =>
+    invoke<ModInstallPlanReport>("engine_plan_mod_install", {
+      request: {
+        sourceRoot,
+        installRoot,
+        engineVersion,
+      },
     }),
   planEnabledMods: (manifests, enablement, engineVersion = null) =>
     invoke<ModEnablementPlanReport>("engine_plan_enabled_mods", {
@@ -229,6 +243,59 @@ const discoverBrowserMods = (
       },
     ],
     errors: [],
+  };
+};
+
+const isSafeInstallNamespace = (namespace: string) =>
+  namespace.trim().length > 0 &&
+  namespace !== "." &&
+  namespace !== ".." &&
+  !namespace.includes("/") &&
+  !namespace.includes("\\") &&
+  !namespace.includes(":");
+
+const planBrowserModInstall = (
+  sourceRoot: string,
+  installRoot: string,
+  engineVersion: string | null | undefined,
+): ModInstallPlanReport => {
+  const manifest = sampleBrowserModManifest();
+  if (engineVersion && manifest.engine_version !== engineVersion) {
+    throw {
+      path: "",
+      kind: "incompatible_engine_version",
+      message: `mod engine version is incompatible: ${manifest.namespace} expected ${manifest.engine_version} found ${engineVersion}`,
+    };
+  }
+  if (!isSafeInstallNamespace(manifest.namespace)) {
+    throw {
+      path: "",
+      kind: "unsafe_install_namespace",
+      message: `unsafe mod install namespace: ${manifest.namespace}`,
+    };
+  }
+
+  const targetRoot = joinModPath(installRoot, manifest.namespace);
+  return {
+    source_root: sourceRoot,
+    install_root: installRoot,
+    target_root: targetRoot,
+    manifest_path: joinModPath(sourceRoot, "manifest.json"),
+    manifest,
+    actions: [
+      {
+        kind: "create_directory",
+        path: installRoot,
+        from: null,
+        to: null,
+      },
+      {
+        kind: "copy_directory",
+        path: null,
+        from: sourceRoot,
+        to: targetRoot,
+      },
+    ],
   };
 };
 
@@ -719,6 +786,11 @@ export const createBrowserMockEngineClient = (): EngineClient => {
     },
     async discoverMods(root, engineVersion = null) {
       return structuredClone(discoverBrowserMods(root, engineVersion));
+    },
+    async planModInstall(sourceRoot, installRoot, engineVersion = null) {
+      return structuredClone(
+        planBrowserModInstall(sourceRoot, installRoot, engineVersion),
+      );
     },
     async planEnabledMods(manifests, enablement, engineVersion = null) {
       return structuredClone(planBrowserEnabledMods(manifests, enablement, engineVersion));

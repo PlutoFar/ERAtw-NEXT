@@ -21,6 +21,7 @@ M0 proves the new project can stand alone:
 - Mod manifest discovery reports good and broken local Mod directories independently
 - Desktop engine API exposes Mod discovery reports to the frontend contract
 - Mod enablement planning keeps disabled Mods out of load order and reports dependency failures
+- Mod install planning validates target namespace and emits planned filesystem actions
 
 ## Development
 
