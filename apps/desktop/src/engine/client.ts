@@ -96,6 +96,11 @@ export interface EngineClient {
     engineVersion?: string | null,
     authorizedUnsafeCapabilities?: ModCapability[],
   ): Promise<ModEnablementPlanReport>;
+  loadModEnablement(installRoot: string): Promise<ModEnablement[]>;
+  saveModEnablement(
+    installRoot: string,
+    enablement: ModEnablement[],
+  ): Promise<ModEnablement[]>;
   savePreview(slotId: string, savedAtUnixMs: number): Promise<SaveEnvelope>;
   saveSlot(slotId: string, savedAtUnixMs: number): Promise<SaveSlotReport>;
   recoverSlot(slotId: string, recoveredAtUnixMs: number): Promise<SaveRecoveryReport>;
@@ -232,6 +237,17 @@ export const createTauriEngineClient = (): EngineClient => ({
         enablement,
         engineVersion,
         authorizedUnsafeCapabilities,
+      },
+    }),
+  loadModEnablement: (installRoot) =>
+    invoke<ModEnablement[]>("engine_load_mod_enablement", {
+      installRoot,
+    }),
+  saveModEnablement: (installRoot, enablement) =>
+    invoke<ModEnablement[]>("engine_save_mod_enablement", {
+      request: {
+        installRoot,
+        enablement,
       },
     }),
   savePreview: (slotId, savedAtUnixMs) =>
@@ -1348,6 +1364,77 @@ const orderBrowserEnabledMods = (
   return ordered;
 };
 
+const BROWSER_MOD_ENABLEMENT_STORAGE_KEY = "eratw-next:mod-enablement:v1";
+
+type BrowserModEnablementSettings = {
+  install_roots: Record<string, ModEnablement[]>;
+};
+
+const emptyBrowserModEnablementSettings = (): BrowserModEnablementSettings => ({
+  install_roots: {},
+});
+
+const canUseLocalStorage = () =>
+  typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+
+const normalizeBrowserModEnablement = (enablement: ModEnablement[]) => {
+  const byNamespace = new Map<string, ModEnablement>();
+  for (const entry of enablement) {
+    const namespace = entry.namespace.trim();
+    if (namespace) {
+      byNamespace.set(namespace, { namespace, enabled: entry.enabled });
+    }
+  }
+
+  return [...byNamespace.values()].sort((left, right) =>
+    left.namespace.localeCompare(right.namespace),
+  );
+};
+
+const readBrowserModEnablementSettings = () => {
+  if (!canUseLocalStorage()) {
+    return emptyBrowserModEnablementSettings();
+  }
+
+  const encoded = window.localStorage.getItem(BROWSER_MOD_ENABLEMENT_STORAGE_KEY);
+  if (!encoded) {
+    return emptyBrowserModEnablementSettings();
+  }
+
+  try {
+    const value = JSON.parse(encoded) as Partial<BrowserModEnablementSettings>;
+    const installRoots: Record<string, ModEnablement[]> = {};
+    for (const [root, enablement] of Object.entries(value.install_roots ?? {})) {
+      if (Array.isArray(enablement)) {
+        installRoots[root] = normalizeBrowserModEnablement(
+          enablement.filter(
+            (entry): entry is ModEnablement =>
+              typeof entry?.namespace === "string" &&
+              typeof entry.enabled === "boolean",
+          ),
+        );
+      }
+    }
+
+    return { install_roots: installRoots };
+  } catch {
+    return emptyBrowserModEnablementSettings();
+  }
+};
+
+const writeBrowserModEnablementSettings = (
+  settings: BrowserModEnablementSettings,
+) => {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+
+  window.localStorage.setItem(
+    BROWSER_MOD_ENABLEMENT_STORAGE_KEY,
+    JSON.stringify(settings),
+  );
+};
+
 const normalizeContentPackageDependency = (
   dependency: ContentPackage["manifest"]["dependencies"][number],
 ) =>
@@ -1995,6 +2082,17 @@ export const createBrowserMockEngineClient = (): EngineClient => {
           authorizedUnsafeCapabilities,
         ),
       );
+    },
+    async loadModEnablement(installRoot) {
+      const settings = readBrowserModEnablementSettings();
+      return structuredClone(settings.install_roots[installRoot] ?? []);
+    },
+    async saveModEnablement(installRoot, enablement) {
+      const settings = readBrowserModEnablementSettings();
+      const normalized = normalizeBrowserModEnablement(enablement);
+      settings.install_roots[installRoot] = normalized;
+      writeBrowserModEnablementSettings(settings);
+      return structuredClone(normalized);
     },
     async savePreview(slotId, savedAtUnixMs) {
       return saveEnvelopeForBrowserWorld(slotId, savedAtUnixMs, world);

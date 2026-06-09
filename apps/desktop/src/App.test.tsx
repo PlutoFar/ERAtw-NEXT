@@ -2,10 +2,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 import { createBrowserMockEngineClient } from "./engine/client";
-import { useEngine } from "./engine/useEngine";
+import { DEFAULT_MOD_INSTALL_ROOT, useEngine } from "./engine/useEngine";
 
 describe("App", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     useEngine.setState({
       client: createBrowserMockEngineClient(),
       world: null,
@@ -232,6 +233,24 @@ describe("App", () => {
         within(plan).getByText(/禁用：example\.minimal_character/),
       ).toBeInTheDocument();
     });
+  });
+
+  it("restores persisted mod enablement for installed mods", async () => {
+    await useEngine.getState().client.saveModEnablement(DEFAULT_MOD_INSTALL_ROOT, [
+      { namespace: "example.minimal_character", enabled: false },
+    ]);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Mod 预检/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "安装 Mod 包" }));
+
+    const toggle = await screen.findByRole("checkbox", {
+      name: "启用 example.minimal_character",
+    });
+    const plan = screen.getByLabelText("mod enablement plan");
+
+    expect(toggle).not.toBeChecked();
+    expect(within(plan).getByText(/禁用：example\.minimal_character/)).toBeInTheDocument();
   });
 
   it("dispatches relationship command through the engine store", async () => {

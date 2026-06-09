@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createBrowserMockEngineClient } from "./client";
 import {
   applyDemoCommand,
@@ -9,6 +9,10 @@ import {
 import { createSampleContentPackage } from "./sampleContentPackage";
 
 describe("demo engine adapter", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it("creates deterministic demo state", () => {
     expect(createDemoWorld()).toEqual(createDemoWorld());
   });
@@ -1258,6 +1262,20 @@ describe("demo engine adapter", () => {
       "example.minimal_character",
     ]);
     expect(plan.disabled).toEqual([]);
+  });
+
+  it("persists browser mod enablement by install root", async () => {
+    const client = createBrowserMockEngineClient();
+
+    await client.saveModEnablement("mods/installed", [
+      { namespace: "example.minimal_character", enabled: false },
+    ]);
+    const reloadedClient = createBrowserMockEngineClient();
+
+    expect(await reloadedClient.loadModEnablement("mods/installed")).toEqual([
+      { namespace: "example.minimal_character", enabled: false },
+    ]);
+    expect(await reloadedClient.loadModEnablement("examples/mods")).toEqual([]);
   });
 
   it("reports browser enabled mod dependency errors", async () => {

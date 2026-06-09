@@ -145,6 +145,10 @@ const createMockClient = (
       throw new Error("not used");
     }),
     planEnabledMods: vi.fn(async () => ({ enabled: [], disabled: [] })),
+    loadModEnablement: vi.fn(async () => []),
+    saveModEnablement: vi.fn(async (_installRoot, enablement) =>
+      structuredClone(enablement),
+    ),
     savePreview: vi.fn(async () => {
       throw new Error("not used");
     }),
@@ -208,6 +212,46 @@ describe("useEngine", () => {
     const installOrder = vi.mocked(client.installContentPackage).mock
       .invocationCallOrder[0];
     expect(preflightOrder).toBeLessThan(installOrder);
+  });
+
+  it("loads persisted mod enablement with the initial world snapshot", async () => {
+    const world = createDemoWorld();
+    const calls = {
+      preflightRegistries: [] as ModRegistry[],
+      installRegistries: [] as ModRegistry[],
+    };
+    const client = createMockClient(world, calls);
+    vi.mocked(client.loadModEnablement).mockResolvedValue([
+      { namespace: "example.minimal_character", enabled: false },
+    ]);
+    useEngine.setState({ client });
+
+    await useEngine.getState().load();
+
+    expect(client.loadModEnablement).toHaveBeenCalledWith("mods/installed");
+    expect(useEngine.getState().world?.engine_version).toBe("0.1.0-m0");
+    expect(useEngine.getState().modEnablement).toEqual([
+      { namespace: "example.minimal_character", enabled: false },
+    ]);
+  });
+
+  it("keeps the initial world snapshot when mod enablement settings fail", async () => {
+    const world = createDemoWorld();
+    const calls = {
+      preflightRegistries: [] as ModRegistry[],
+      installRegistries: [] as ModRegistry[],
+    };
+    const client = createMockClient(world, calls);
+    vi.mocked(client.loadModEnablement).mockRejectedValue(
+      new Error("settings json is invalid"),
+    );
+    useEngine.setState({ client });
+
+    await useEngine.getState().load();
+
+    expect(useEngine.getState().world?.engine_version).toBe("0.1.0-m0");
+    expect(useEngine.getState().modEnablement).toEqual([]);
+    expect(useEngine.getState().error).toContain("settings json is invalid");
   });
 
   it("recovers a save slot and updates the active world", async () => {
@@ -396,6 +440,7 @@ describe("useEngine", () => {
 
     await useEngine.getState().refreshInstalledMods("mods/installed");
 
+    expect(client.loadModEnablement).toHaveBeenCalledWith("mods/installed");
     expect(client.discoverMods).toHaveBeenCalledWith(
       "mods/installed",
       "0.1.0-m0",
@@ -472,6 +517,9 @@ describe("useEngine", () => {
       .getState()
       .setModEnabled("example.minimal_character", false, "mods/installed");
 
+    expect(client.saveModEnablement).toHaveBeenCalledWith("mods/installed", [
+      { namespace: "example.minimal_character", enabled: false },
+    ]);
     expect(useEngine.getState().modEnablement).toEqual([
       { namespace: "example.minimal_character", enabled: false },
     ]);

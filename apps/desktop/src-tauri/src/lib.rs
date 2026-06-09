@@ -29,7 +29,9 @@ use eratw_mod_runtime::{
     ModUninstallReport, ModValidationError,
 };
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -194,6 +196,19 @@ struct ModEnablementRequest {
     engine_version: Option<String>,
     #[serde(default, alias = "authorizedUnsafeCapabilities")]
     authorized_unsafe_capabilities: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModEnablementSettingsRequest {
+    #[serde(alias = "installRoot")]
+    install_root: String,
+    enablement: Vec<ModEnablement>,
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct ModEnablementSettings {
+    #[serde(default)]
+    install_roots: BTreeMap<String, Vec<ModEnablement>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -482,6 +497,35 @@ fn engine_plan_enabled_mods(
 }
 
 #[tauri::command]
+fn engine_load_mod_enablement(
+    app: tauri::AppHandle,
+    install_root: String,
+) -> Result<Vec<ModEnablement>, String> {
+    let install_root = normalized_mod_enablement_install_root(&install_root)?;
+    let settings = read_mod_enablement_settings_path(&mod_enablement_settings_path(&app)?)?;
+    Ok(settings
+        .install_roots
+        .get(&install_root)
+        .cloned()
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+fn engine_save_mod_enablement(
+    app: tauri::AppHandle,
+    request: ModEnablementSettingsRequest,
+) -> Result<Vec<ModEnablement>, String> {
+    let install_root = normalized_mod_enablement_install_root(&request.install_root)?;
+    let path = mod_enablement_settings_path(&app)?;
+    let mut settings = read_mod_enablement_settings_path(&path)?;
+    settings
+        .install_roots
+        .insert(install_root, request.enablement.clone());
+    write_mod_enablement_settings_path(&path, &settings)?;
+    Ok(request.enablement)
+}
+
+#[tauri::command]
 fn engine_save_preview(
     slot_id: String,
     saved_at_unix_ms: u64,
@@ -591,6 +635,48 @@ fn save_path_for_slot(app: &tauri::AppHandle, slot_id: &str) -> Result<PathBuf, 
         .map_err(|error| error.to_string())?
         .join("saves");
     Ok(save_dir.join(format!("{sanitized}.json")))
+}
+
+fn mod_enablement_settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("settings")
+        .join("mod_enablement.json"))
+}
+
+fn normalized_mod_enablement_install_root(install_root: &str) -> Result<String, String> {
+    let install_root = install_root.trim();
+    if install_root.is_empty() {
+        Err("mod install root is required".to_string())
+    } else {
+        Ok(install_root.to_string())
+    }
+}
+
+fn read_mod_enablement_settings_path(path: &Path) -> Result<ModEnablementSettings, String> {
+    let encoded = match fs::read(path) {
+        Ok(encoded) => encoded,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ModEnablementSettings::default());
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+
+    serde_json::from_slice(&encoded).map_err(|error| error.to_string())
+}
+
+fn write_mod_enablement_settings_path(
+    path: &Path,
+    settings: &ModEnablementSettings,
+) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "mod enablement settings path has no parent".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let encoded = serde_json::to_vec_pretty(settings).map_err(|error| error.to_string())?;
+    fs::write(path, encoded).map_err(|error| error.to_string())
 }
 
 fn sanitize_slot_id(slot_id: &str) -> Result<String, String> {
@@ -1374,6 +1460,37 @@ mod tests {
     }
 
     #[test]
+    fn mod_enablement_settings_round_trips_install_roots() {
+        let root = temp_mod_root("mod_enablement_settings");
+        let path = root.join("settings/mod_enablement.json");
+
+        let missing = read_mod_enablement_settings_path(&path).unwrap();
+        assert!(missing.install_roots.is_empty());
+
+        let mut settings = ModEnablementSettings::default();
+        settings.install_roots.insert(
+            "mods/installed".to_string(),
+            vec![ModEnablement {
+                namespace: "example.minimal_character".to_string(),
+                enabled: false,
+            }],
+        );
+
+        write_mod_enablement_settings_path(&path, &settings).unwrap();
+        let loaded = read_mod_enablement_settings_path(&path).unwrap();
+
+        assert_eq!(
+            loaded.install_roots["mods/installed"],
+            vec![ModEnablement {
+                namespace: "example.minimal_character".to_string(),
+                enabled: false,
+            }]
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn preflight_load_slot_checks_save_dependencies_against_enabled_registry() {
         let save_root = temp_mod_root("save_preflight_slot");
         let mod_root = temp_mod_root("save_preflight_mods");
@@ -1495,6 +1612,8 @@ pub fn run() {
             engine_plan_mod_uninstall,
             engine_uninstall_mod,
             engine_plan_enabled_mods,
+            engine_load_mod_enablement,
+            engine_save_mod_enablement,
             engine_save_preview,
             engine_save_slot,
             engine_recover_slot,
