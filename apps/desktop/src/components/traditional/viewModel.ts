@@ -21,9 +21,11 @@ export interface AsciiMapHotspot {
 }
 
 export interface AsciiMapModel {
+  gridRows: string[][];
   lines: string[];
   hotspots: AsciiMapHotspot[];
   maxColumns: number;
+  rowCount: number;
 }
 
 export const seasonLabels = {
@@ -134,9 +136,11 @@ export const normalizeMapRunText = (text: string) => {
 export const buildAsciiMapModel = (area: TextMapArea | undefined): AsciiMapModel => {
   if (!area) {
     return {
+      gridRows: [["N", "O", " ", "T", "E", "X", "T", " ", "M", "A", "P", " ", "D", "A", "T", "A"]],
       lines: ["NO TEXT MAP DATA"],
       hotspots: [],
       maxColumns: 16,
+      rowCount: 1,
     };
   }
 
@@ -167,9 +171,13 @@ export const buildAsciiMapModel = (area: TextMapArea | undefined): AsciiMapModel
       .join("");
   });
 
+  const maxColumns = Math.max(1, ...lines.map(charLength));
+
   return {
+    gridRows: lines.map((line) => Array.from(line)),
     lines,
     hotspots,
-    maxColumns: Math.max(1, ...lines.map(charLength)),
+    maxColumns,
+    rowCount: lines.length,
   };
 };

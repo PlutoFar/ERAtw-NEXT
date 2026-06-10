@@ -56,6 +56,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [pinnedLocationId, setPinnedLocationId] = useState<string | undefined>();
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | undefined>();
+  const [characterPanelOpen, setCharacterPanelOpen] = useState(false);
   const [dismissedDialogueToken, setDismissedDialogueToken] = useState<string | null>(
     null,
   );
@@ -219,6 +220,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
     >
       <GameHud
         currentLocation={currentLocation}
+        onOpenCharacters={() => setCharacterPanelOpen(true)}
         onPause={onPause}
         playerCharacter={playerCharacter}
         selectedCharacter={selectedCharacter}
@@ -345,30 +347,35 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
           </details>
         </main>
 
-        <div className="game-dock">
-          <CharacterDock
-            currentLocation={currentLocation}
-            loading={services.loading}
-            onAdjustRelationship={adjustRelationship}
-            onRollMood={rollMood}
-            onSelectCharacter={setSelectedCharacterId}
-            onStartDialogue={startDialogue}
-            relationship={selectedCharacterRelationship}
-            selectedCharacter={selectedCharacter}
-            world={world}
-          />
-          <LocationDrawer
-            currentLocation={currentLocation}
-            loading={services.loading}
-            location={inspectedLocation}
-            onClose={() => setInspectedLocationId(undefined)}
-            onMove={moveTo}
-            onPin={pinLocation}
-            onSwitchArea={switchAreaFromLocation}
-            pinnedLocationId={pinnedLocationId}
-            textMap={textMap}
-            world={world}
-          />
+        <div className="floating-panel-stack">
+          {characterPanelOpen ? (
+            <CharacterDock
+              currentLocation={currentLocation}
+              loading={services.loading}
+              onAdjustRelationship={adjustRelationship}
+              onClose={() => setCharacterPanelOpen(false)}
+              onRollMood={rollMood}
+              onSelectCharacter={setSelectedCharacterId}
+              onStartDialogue={startDialogue}
+              relationship={selectedCharacterRelationship}
+              selectedCharacter={selectedCharacter}
+              world={world}
+            />
+          ) : null}
+          {inspectedLocation ? (
+            <LocationDrawer
+              currentLocation={currentLocation}
+              loading={services.loading}
+              location={inspectedLocation}
+              onClose={() => setInspectedLocationId(undefined)}
+              onMove={moveTo}
+              onPin={pinLocation}
+              onSwitchArea={switchAreaFromLocation}
+              pinnedLocationId={pinnedLocationId}
+              textMap={textMap}
+              world={world}
+            />
+          ) : null}
         </div>
       </div>
 

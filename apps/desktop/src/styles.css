@@ -83,6 +83,44 @@ button:disabled {
   padding: clamp(22px, 5vh, 54px) clamp(12px, 4vw, 48px);
 }
 
+.title-subscreen {
+  background: #000;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: calc(100vh - 28px);
+  padding: clamp(18px, 4vh, 46px) clamp(12px, 4vw, 52px);
+}
+
+.menu-screen-header {
+  align-items: center;
+  border-bottom: 1px solid #66807a;
+  display: flex;
+  gap: 18px;
+  padding-bottom: 14px;
+}
+
+.menu-screen-header span {
+  color: #f0d890;
+}
+
+.menu-screen-header h1 {
+  color: #7dff82;
+  font-size: 32px;
+  letter-spacing: 0;
+  line-height: 1;
+  margin: 4px 0 0;
+}
+
+.menu-screen-body {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+  max-width: 980px;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 28px;
+}
+
 .title-mark {
   align-self: center;
   border-top: 1px solid #6fb07a;
@@ -189,6 +227,11 @@ button:disabled {
   white-space: nowrap;
 }
 
+.hud-status-button {
+  color: #e8e8e8;
+  min-height: 22px;
+}
+
 .hud-pause,
 .icon-button {
   justify-content: center;
@@ -196,9 +239,8 @@ button:disabled {
 }
 
 .game-layout {
-  display: grid;
+  display: block;
   gap: 14px;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   min-height: 0;
   padding: 12px 0;
 }
@@ -265,7 +307,8 @@ button:disabled {
 }
 
 .ascii-map-viewport {
-  --ascii-line: 1.18em;
+  --ascii-cell: 1em;
+  --ascii-line: 1.15em;
 
   background: #020302;
   border-bottom: 1px solid #354f4b;
@@ -275,7 +318,7 @@ button:disabled {
     "Microsoft YaHei Mono", "Microsoft YaHei", SimSun, "Noto Sans Mono CJK SC",
     "Noto Sans CJK SC", Consolas, "MS Gothic", monospace;
   font-feature-settings: "fwid" 1;
-  font-size: calc(14px * var(--ascii-font-scale));
+  font-size: calc(20px * var(--ascii-font-scale));
   font-variant-east-asian: full-width;
   height: 100%;
   line-height: var(--ascii-line);
@@ -284,33 +327,67 @@ button:disabled {
   position: relative;
 }
 
-.ascii-map-text {
-  color: #d8d8d8;
-  display: block;
-  line-height: var(--ascii-line);
+.ascii-map-source {
+  height: 1px;
   margin: 0;
-  min-width: calc(var(--ascii-columns) * 1em);
-  padding: 10px;
+  opacity: 0;
+  overflow: hidden;
   pointer-events: none;
+  position: absolute;
+  width: 1px;
+}
+
+.ascii-map-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--ascii-columns), var(--ascii-cell));
+  grid-template-rows: repeat(var(--ascii-rows), var(--ascii-line));
+  min-height: calc(var(--ascii-rows) * var(--ascii-line) + 20px);
+  min-width: calc(var(--ascii-columns) * var(--ascii-cell) + 20px);
+  padding: 10px;
+  width: max-content;
+}
+
+.ascii-map-row {
+  display: contents;
+}
+
+.ascii-map-cell {
+  align-items: center;
+  color: #e4e4e4;
+  display: inline-flex;
+  height: var(--ascii-line);
+  justify-content: center;
+  line-height: 1;
+  overflow: visible;
   white-space: pre;
+  width: var(--ascii-cell);
+}
+
+.ascii-map-cell.space {
+  color: transparent;
 }
 
 .ascii-map-hotspots {
-  inset: 10px;
-  min-width: calc(var(--ascii-columns) * 1em);
+  height: calc(var(--ascii-rows) * var(--ascii-line) + 20px);
+  left: 0;
+  min-width: calc(var(--ascii-columns) * var(--ascii-cell) + 20px);
+  pointer-events: none;
   position: absolute;
+  top: 0;
+  width: max-content;
 }
 
 .ascii-map-hotspot {
   background: rgb(127 215 255 / 0%);
   border: 1px solid transparent;
   height: var(--ascii-line);
-  left: calc(var(--hotspot-column) * 1em);
+  left: calc(10px + var(--hotspot-column) * var(--ascii-cell));
   min-height: 0;
   padding: 0;
+  pointer-events: auto;
   position: absolute;
-  top: calc(var(--hotspot-row) * var(--ascii-line));
-  width: calc(var(--hotspot-width) * 1em);
+  top: calc(10px + var(--hotspot-row) * var(--ascii-line));
+  width: calc(var(--hotspot-width) * var(--ascii-cell));
 }
 
 .ascii-map-hotspot:hover,
@@ -414,23 +491,29 @@ button:disabled {
   color: #9fb4c8;
 }
 
-.game-dock {
-  border-left: 1px solid #354f4b;
+.floating-panel-stack {
+  align-items: end;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 0;
-  min-width: 0;
-  overflow: auto;
-  padding-left: 14px;
+  pointer-events: none;
+  position: absolute;
+  right: 18px;
+  top: 96px;
+  z-index: 45;
 }
 
 .character-dock,
 .location-drawer {
-  border-top: 1px solid #66807a;
+  background: #030503;
+  border: 1px solid #66807a;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 72%);
   display: grid;
   gap: 10px;
-  padding-top: 10px;
+  max-width: min(360px, calc(100vw - 36px));
+  padding: 12px;
+  pointer-events: auto;
+  width: 340px;
 }
 
 .panel-heading {
@@ -557,9 +640,15 @@ button:disabled {
   z-index: 35;
 }
 
-.pause-overlay,
+.pause-overlay {
+  background: #000;
+  inset: 0;
+  position: fixed;
+  z-index: 70;
+}
+
 .dialogue-layer {
-  background: rgb(0 0 0 / 78%);
+  background: rgb(0 0 0 / 92%);
   inset: 0;
   position: fixed;
   z-index: 70;
@@ -567,17 +656,18 @@ button:disabled {
 
 .pause-menu {
   display: grid;
-  gap: 24px;
-  grid-template-columns: 220px minmax(320px, 680px);
-  height: min(76vh, 680px);
-  margin: 10vh auto 0;
-  max-width: min(92vw, 980px);
+  gap: 28px;
+  grid-template-columns: 260px minmax(360px, 760px);
+  height: calc(100vh - 80px);
+  margin: 40px auto 0;
+  max-width: min(92vw, 1120px);
 }
 
 .pause-menu-list {
   border-right: 1px solid #66807a;
   display: grid;
   gap: 8px;
+  grid-auto-rows: max-content;
   padding-right: 20px;
 }
 
@@ -610,14 +700,45 @@ button:disabled {
 }
 
 .save-slot-panel {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 12px;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+}
+
+.save-slot-panel button {
+  align-items: start;
+  border: 1px solid #354f4b;
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  min-height: 96px;
+  padding: 12px;
 }
 
 .save-slot-panel button.active-slot {
+  border-color: #f0d890;
   color: #f0d890;
   font-weight: 700;
+}
+
+.save-slot-panel button strong {
+  font-size: 18px;
+}
+
+.save-slot-panel button span {
+  color: #9fb4c8;
+}
+
+.save-slot-summary {
+  border-top: 1px solid #354f4b;
+  display: grid;
+  gap: 4px;
+  padding-top: 10px;
+}
+
+.save-slot-summary span,
+.save-slot-summary small {
+  color: #9fb4c8;
 }
 
 .slot-text,

@@ -51,7 +51,7 @@ export const PauseMenu = ({
 
         <div className="pause-panel">
           {panel === "save" || panel === "load" ? (
-            <SaveLoadPanel services={services} />
+            <SaveLoadPanel mode={panel} services={services} />
           ) : null}
           {panel === "mod" ? <ModPanel services={services} /> : null}
           {panel === "settings" ? <SettingsPanel /> : null}

@@ -21,12 +21,18 @@ interface AsciiMapViewportProps {
 type MapStyle = CSSProperties & {
   "--ascii-columns": number;
   "--ascii-font-scale": number;
+  "--ascii-rows": number;
 };
 
 type HotspotStyle = CSSProperties & {
   "--hotspot-column": number;
   "--hotspot-row": number;
   "--hotspot-width": number;
+};
+
+type CellStyle = CSSProperties & {
+  gridColumn: number;
+  gridRow: number;
 };
 
 export const AsciiMapViewport = ({
@@ -47,13 +53,45 @@ export const AsciiMapViewport = ({
   const style: MapStyle = {
     "--ascii-columns": model.maxColumns,
     "--ascii-font-scale": zoom,
+    "--ascii-rows": model.rowCount,
   };
 
   return (
     <div className="ascii-map-viewport" style={style}>
-      <pre className="ascii-map-text" aria-label="era text map">
+      <pre className="ascii-map-source" aria-hidden="true">
         {model.lines.join("\n")}
       </pre>
+      <div
+        className="ascii-map-grid"
+        aria-label="era text map"
+        data-row-count={model.rowCount}
+        data-column-count={model.maxColumns}
+      >
+        {model.gridRows.map((row, rowIndex) => (
+          <div className="ascii-map-row" key={`${area?.id ?? "missing"}:${rowIndex}`}>
+            {row.map((character, columnIndex) => (
+              <span
+                className={
+                  character === " " || character === "　"
+                    ? "ascii-map-cell space"
+                    : "ascii-map-cell"
+                }
+                style={
+                  {
+                    gridColumn: columnIndex + 1,
+                    gridRow: rowIndex + 1,
+                  } satisfies CellStyle
+                }
+                data-map-row={rowIndex}
+                data-map-column={columnIndex}
+                key={`${rowIndex}:${columnIndex}`}
+              >
+                {character === " " || character === "　" ? "\u00a0" : character}
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
       <div className="ascii-map-hotspots" aria-label="text map hotspots">
         {model.hotspots.map((hotspot) => {
           const locationId =

@@ -30,9 +30,22 @@ interface PanelServicesProps {
   services: ShellServices;
 }
 
-export const SaveLoadPanel = ({ services }: PanelServicesProps) => (
-  <section className="menu-panel" aria-label="save load panel">
-    <h2>存取档</h2>
+interface SaveLoadPanelProps extends PanelServicesProps {
+  mode?: "save" | "load" | "manage";
+}
+
+const saveLoadTitles = {
+  load: "读取存档",
+  manage: "存取档",
+  save: "保存游戏",
+};
+
+export const SaveLoadPanel = ({
+  mode = "manage",
+  services,
+}: SaveLoadPanelProps) => (
+  <section className="menu-panel save-load-panel" aria-label="save load panel">
+    <h2>{saveLoadTitles[mode]}</h2>
     <div className="save-slot-panel" aria-label="save slots">
       {SAVE_SLOTS.map((slotId, index) => (
         <button
@@ -42,12 +55,24 @@ export const SaveLoadPanel = ({ services }: PanelServicesProps) => (
           onClick={() => services.setSelectedSlotId(slotId)}
           disabled={services.loading}
           aria-pressed={services.selectedSlotId === slotId}
+          aria-label={`槽位 ${index + 1}`}
         >
-          槽位 {index + 1}
+          <strong>SLOT {String(index + 1).padStart(2, "0")}</strong>
+          <span>{slotId}</span>
         </button>
       ))}
     </div>
-    <p className="slot-text">当前槽位：{services.selectedSlotId}</p>
+    <div className="save-slot-summary">
+      <span>当前槽位</span>
+      <strong>{services.selectedSlotId}</strong>
+      <small>
+        {services.lastLoadPreflight?.slot_id === services.selectedSlotId
+          ? services.lastLoadPreflight.ready
+            ? "预检通过"
+            : "预检阻止"
+          : "未预检"}
+      </small>
+    </div>
     <div className="menu-action-grid">
       <button
         type="button"

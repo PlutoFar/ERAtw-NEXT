@@ -1,4 +1,4 @@
-import { Boxes, Play, Settings } from "lucide-react";
+import { ArrowLeft, Boxes, Play, Settings } from "lucide-react";
 import { useState } from "react";
 import type { ShellServices } from "./shellTypes";
 import { ModPanel, SaveLoadPanel, SettingsPanel, StatusMessages } from "./ShellPanels";
@@ -17,6 +17,36 @@ export const TitleScreen = ({ onEnterGame, services }: TitleScreenProps) => {
     void services.loadNewWorld();
     onEnterGame();
   };
+
+  if (panel !== "main") {
+    const title = panel === "load" ? "读取" : panel === "mod" ? "Mod" : "设置";
+
+    return (
+      <section className="title-subscreen" aria-label={`${panel} screen`}>
+        <header className="menu-screen-header">
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => setPanel("main")}
+            aria-label="返回标题菜单"
+          >
+            <ArrowLeft size={20} aria-hidden="true" />
+          </button>
+          <div>
+            <span>ERAtw-NEXT</span>
+            <h1>{title}</h1>
+          </div>
+        </header>
+
+        <div className="menu-screen-body">
+          {panel === "load" ? <SaveLoadPanel mode="load" services={services} /> : null}
+          {panel === "mod" ? <ModPanel services={services} /> : null}
+          {panel === "settings" ? <SettingsPanel /> : null}
+          <StatusMessages services={services} />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="title-screen" aria-label="title screen">
@@ -43,14 +73,7 @@ export const TitleScreen = ({ onEnterGame, services }: TitleScreenProps) => {
           <Settings size={18} aria-hidden="true" /> 设置
         </button>
       </nav>
-
-      <div className="title-panel">
-        {panel === "main" ? <StatusMessages services={services} /> : null}
-        {panel === "load" ? <SaveLoadPanel services={services} /> : null}
-        {panel === "mod" ? <ModPanel services={services} /> : null}
-        {panel === "settings" ? <SettingsPanel /> : null}
-        {panel !== "main" ? <StatusMessages services={services} /> : null}
-      </div>
+      <StatusMessages services={services} />
     </section>
   );
 };

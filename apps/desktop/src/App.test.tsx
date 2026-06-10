@@ -48,14 +48,16 @@ describe("App", () => {
     expect(screen.getByLabelText("quick actions")).toBeInTheDocument();
   });
 
-  it("renders ASCII map text as a pre with separate overlay hotspots", async () => {
+  it("renders ASCII map text as fixed cells with separate overlay hotspots", async () => {
     await enterGame();
 
     const map = screen.getByLabelText("era text map");
-    expect(map.tagName).toBe("PRE");
+    expect(map).toHaveClass("ascii-map-grid");
     expect(within(map).queryByRole("button")).not.toBeInTheDocument();
     expect(map.textContent).toContain("广场");
     expect(map.textContent).not.toContain("広场");
+    expect(map.querySelectorAll(".ascii-map-cell").length).toBeGreaterThan(0);
+    expect(map).toHaveAttribute("data-column-count");
 
     const hotspots = screen.getByLabelText("text map hotspots");
     expect(within(hotspots).getByRole("button", { name: "人里的门" })).toHaveAttribute(
@@ -75,6 +77,7 @@ describe("App", () => {
     expect(model.lines.map((line) => Array.from(line).length)).toEqual(sourceLengths);
     expect(model.hotspots.find((hotspot) => hotspot.locationId === "school_gate"))
       .toMatchObject({ label: "人里的门", locationId: "school_gate" });
+    expect(model.gridRows[0]).toHaveLength(sourceLengths[0]);
   });
 
   it("opens location details from a hotspot and moves by double click", async () => {
@@ -117,6 +120,7 @@ describe("App", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     const pauseMenu = await screen.findByLabelText("pause menu");
     expect(within(pauseMenu).getByRole("button", { name: /继续游戏/ })).toBeInTheDocument();
+    expect(pauseMenu).toHaveClass("pause-overlay");
 
     fireEvent.click(within(screen.getByLabelText("save load panel")).getByRole("button", {
       name: /保存/,
@@ -146,7 +150,8 @@ describe("App", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     const saveLoadPanel = await screen.findByLabelText("save load panel");
     fireEvent.click(within(saveLoadPanel).getByRole("button", { name: "槽位 2" }));
-    expect(within(saveLoadPanel).getByText("当前槽位：slot_2")).toBeInTheDocument();
+    expect(within(saveLoadPanel).getByText("当前槽位")).toBeInTheDocument();
+    expect(within(saveLoadPanel).getAllByText("slot_2").length).toBeGreaterThan(0);
     fireEvent.click(within(saveLoadPanel).getByRole("button", { name: /保存/ }));
     await waitFor(() => {
       expect(screen.getByText(/browser-memory:\/\/slot_2.json/)).toBeInTheDocument();
@@ -180,6 +185,7 @@ describe("App", () => {
   it("shows current-location characters and a stable portrait fallback", async () => {
     await enterGame();
 
+    fireEvent.click(screen.getByRole("button", { name: "打开人物面板" }));
     const dock = screen.getByLabelText("current location characters");
     expect(within(dock).getAllByText("示例角色").length).toBeGreaterThan(0);
     expect(within(dock).getByLabelText("character portrait")).toBeInTheDocument();
@@ -258,6 +264,17 @@ describe("App", () => {
       expect(within(screen.getByLabelText("installed mods")).getByText("未发现已安装 Mod。"))
         .toBeInTheDocument();
     });
+  });
+
+  it("opens title load as a dedicated screen", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "读取" }));
+
+    expect(screen.getByLabelText("load screen")).toBeInTheDocument();
+    expect(screen.queryByLabelText("title screen")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("save load panel")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回标题菜单" })).toBeInTheDocument();
   });
 
   it("restores persisted mod enablement for installed mods", async () => {

@@ -1,4 +1,4 @@
-import { MessageCircle, RefreshCw, Sparkles, UserRound } from "lucide-react";
+import { MessageCircle, RefreshCw, Sparkles, UserRound, X } from "lucide-react";
 import type { Character, Location, Relationship, WorldState } from "../../types";
 import {
   canRenderImagePath,
@@ -12,6 +12,7 @@ interface CharacterDockProps {
   currentLocation: Location | undefined;
   loading: boolean;
   onAdjustRelationship: () => void;
+  onClose: () => void;
   onRollMood: () => void;
   onStartDialogue: () => void;
   onSelectCharacter: (characterId: string) => void;
@@ -24,6 +25,7 @@ export const CharacterDock = ({
   currentLocation,
   loading,
   onAdjustRelationship,
+  onClose,
   onRollMood,
   onStartDialogue,
   onSelectCharacter,
@@ -44,6 +46,9 @@ export const CharacterDock = ({
             <UserRound size={17} aria-hidden="true" /> 人物
           </h2>
         </div>
+        <button type="button" className="icon-button" onClick={onClose} aria-label="关闭人物面板">
+          <X size={17} aria-hidden="true" />
+        </button>
       </div>
 
       {occupants.length > 0 ? (

@@ -11,6 +11,7 @@ import {
 
 interface GameHudProps {
   currentLocation: Location | undefined;
+  onOpenCharacters: () => void;
   onPause: () => void;
   playerCharacter: Character | undefined;
   selectedCharacter: Character | undefined;
@@ -20,6 +21,7 @@ interface GameHudProps {
 
 export const GameHud = ({
   currentLocation,
+  onOpenCharacters,
   onPause,
   playerCharacter,
   selectedCharacter,
@@ -45,10 +47,15 @@ export const GameHud = ({
         <span>
           <MapPinned size={16} aria-hidden="true" /> {locationName(currentLocation)}
         </span>
-        <span>
+        <button
+          type="button"
+          className="hud-status-button"
+          onClick={onOpenCharacters}
+          aria-label="打开人物面板"
+        >
           <UserRound size={16} aria-hidden="true" />{" "}
           {selectedCharacter ? characterName(selectedCharacter) : `${occupants.length} 人`}
-        </span>
+        </button>
         <span>
           体力 {playerCharacter?.state.energy ?? "--"} / 心情{" "}
           {playerCharacter?.state.mood ?? "--"}
