@@ -85,8 +85,9 @@ describe("App", () => {
 
     const viewport = document.querySelector(".ascii-map-viewport");
     expect(viewport).toHaveAttribute("data-map-renderer", "semantic");
-    expect(viewport).toHaveAttribute("data-semantic-renderer", "css-village");
+    expect(viewport).toHaveAttribute("data-semantic-renderer", "svg-village");
     expect(viewport?.getAttribute("data-image-prompt")).toContain("Human Village");
+    expect(screen.getByLabelText("human village svg map")).toBeInTheDocument();
 
     const map = screen.getByLabelText("era text map");
     expect(map).toHaveClass("ascii-map-grid");
@@ -108,9 +109,13 @@ describe("App", () => {
     expect(map.textContent).not.toContain("现在位置");
     expect(map.textContent).not.toContain("颜色说明");
     expect(map.textContent).not.toContain("提示");
-    expect(document.querySelectorAll(".semantic-map-feature.road").length).toBeGreaterThan(0);
-    expect(document.querySelectorAll(".semantic-map-feature.building").length).toBeGreaterThan(0);
-    expect(document.querySelectorAll(".semantic-map-feature.trees").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".semantic-svg-road").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".semantic-svg-building").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".semantic-svg-river").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".semantic-svg-trees").length).toBeGreaterThan(0);
+    const plazaLabel = document.querySelector('.semantic-svg-label[data-location-id="garden"]');
+    expect(plazaLabel).toHaveTextContent("02 广场");
+    expect(plazaLabel).toHaveAttribute("transform", "translate(48 29)");
     expect(Number(map.getAttribute("data-column-count"))).toBeGreaterThan(90);
     expect(Number(map.getAttribute("data-row-count"))).toBeGreaterThan(50);
 
@@ -146,7 +151,7 @@ describe("App", () => {
       .toMatchObject({ label: "人里的门", locationId: "school_gate" });
     expect(model.hotspots.map((hotspot) => hotspot.locationId)).toContain("club_room");
     expect(model.labels.map((label) => label.text)).toContain("瞭望楼");
-    expect(model.semanticLayout?.renderer).toBe("css-village");
+    expect(model.semanticLayout?.renderer).toBe("svg-village");
     expect(model.semanticLayout?.imagePrompt).toContain("no text baked into the image");
     expect(model.hotspots.length).toBeGreaterThan(20);
     expect(model.rowCount).toBeGreaterThan(50);

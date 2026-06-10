@@ -13,6 +13,7 @@ const humanVillageFeatures: SemanticMapFeature[] = [
   { key: "south-woods", kind: "trees", row: 49, column: 4, width: 88, height: 9 },
   { key: "west-woods", kind: "trees", row: 6, column: 0, width: 10, height: 44 },
   { key: "east-woods", kind: "trees", row: 6, column: 86, width: 10, height: 44 },
+  { key: "south-stream", kind: "river", row: 50, column: 5, width: 84, height: 5 },
   { key: "north-road", kind: "road", row: 12, column: 9, width: 78, height: 5 },
   { key: "main-road", kind: "road", row: 7, column: 46, width: 7, height: 47 },
   { key: "market-road", kind: "road", row: 27, column: 9, width: 78, height: 6 },
@@ -80,8 +81,8 @@ const placementByLegacyPlaceId: Record<number, HumanVillagePlacement> = {
 export const humanVillageSemanticMap: SemanticMapLayout = {
   columns: 96,
   imagePrompt:
-    "Top-down readable game map of Touhou Project Human Village, black terminal-inspired UI mood, walled rural Japanese village at night, south village gate connected to a north-south main street, cross streets, central plaza, Hieda residence and Akyuu private room in the northwest, Suzunaan bookstore and Terakoya in the east, Geidontei tavern in the west, compact merchant street with inn, flower shop, grocery, cafe, liquor store, restaurant, sweets shop and bathhouse, long house district near the south, forest boundary around the village, clear roads and building footprints, no text baked into the image, designed for overlay labels and clickable hotspots",
-  renderer: "css-village",
+    "Top-down readable game map of Touhou Project Human Village, dark terminal-inspired game UI mood, walled rural Japanese village at night, south village gate connected to a north-south main street, cross streets, central plaza, Hieda residence and Akyuu private room in the northwest, Suzunaan bookstore and Terakoya in the east, Geidontei tavern in the west, compact merchant street with inn, flower shop, grocery, cafe, liquor store, restaurant, sweets shop and bathhouse, long house district near the south, forest boundary and a narrow stream at the village edge, clean road hierarchy and building footprints, no text baked into the image, designed for SVG/bitmap background with overlay labels and clickable hotspots",
+  renderer: "svg-village",
   rows: 58,
   features: humanVillageFeatures,
 };

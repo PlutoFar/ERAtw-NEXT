@@ -45,7 +45,16 @@ export interface AsciiMapLabel {
 
 export interface SemanticMapFeature {
   key: string;
-  kind: "boundary" | "building" | "gate" | "landmark" | "plaza" | "road" | "trees" | "water";
+  kind:
+    | "boundary"
+    | "building"
+    | "gate"
+    | "landmark"
+    | "plaza"
+    | "river"
+    | "road"
+    | "trees"
+    | "water";
   label?: string;
   row: number;
   column: number;
@@ -56,7 +65,7 @@ export interface SemanticMapFeature {
 export interface SemanticMapLayout {
   columns: number;
   imagePrompt: string;
-  renderer: "css-village";
+  renderer: "svg-village";
   rows: number;
   features: SemanticMapFeature[];
 }
