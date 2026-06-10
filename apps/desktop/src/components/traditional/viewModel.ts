@@ -28,6 +28,12 @@ export interface AsciiMapModel {
   rowCount: number;
 }
 
+export interface LocationLegendGroup {
+  id: string;
+  title: string;
+  locations: Location[];
+}
+
 export const seasonLabels = {
   spring: "春",
   summer: "夏",
@@ -116,6 +122,76 @@ export const visibleLocationsForTextMap = (
 ) => {
   const locationIds = mapLocationIds(textMap);
   return world.locations.filter((location) => locationIds.has(location.id));
+};
+
+interface LocationLegendGroupDefinition {
+  areaIds?: ReadonlySet<string>;
+  id: string;
+  legacyPlaceIds?: ReadonlySet<number>;
+  title: string;
+}
+
+const legendGroupDefinitions: LocationLegendGroupDefinition[] = [
+  {
+    id: "street",
+    title: "街区 / 出入口",
+    legacyPlaceIds: new Set([201, 202, 203, 204, 205, 206, 207]),
+  },
+  {
+    id: "shop",
+    title: "商店 / 设施",
+    legacyPlaceIds: new Set([211, 212, 215, 216, 217, 218, 223, 225, 227, 228]),
+  },
+  {
+    id: "public",
+    title: "公共 / 文化",
+    legacyPlaceIds: new Set([213, 219, 220, 221, 222, 224, 226, 229]),
+  },
+  {
+    id: "row-house",
+    title: "长屋 / 住居",
+    areaIds: new Set(["sato-row-house"]),
+  },
+  {
+    id: "geidontei",
+    title: "鲵吞亭",
+    areaIds: new Set(["sato-geidontei"]),
+  },
+] satisfies LocationLegendGroupDefinition[];
+
+export const groupLocationLegendLocations = (
+  locations: Location[],
+): LocationLegendGroup[] => {
+  const remaining = new Set(locations.map((location) => location.id));
+  const groups = legendGroupDefinitions
+    .map((definition) => {
+      const groupedLocations = locations.filter((location) => {
+        const byLegacyId =
+          definition.legacyPlaceIds !== undefined &&
+          location.legacy_place_id !== null &&
+          location.legacy_place_id !== undefined &&
+          definition.legacyPlaceIds.has(location.legacy_place_id);
+        const byArea =
+          definition.areaIds !== undefined &&
+          location.map_area_id !== null &&
+          location.map_area_id !== undefined &&
+          definition.areaIds.has(location.map_area_id);
+        if (byLegacyId || byArea) {
+          remaining.delete(location.id);
+          return true;
+        }
+        return false;
+      });
+      return { id: definition.id, title: definition.title, locations: groupedLocations };
+    })
+    .filter((group) => group.locations.length > 0);
+
+  const otherLocations = locations.filter((location) => remaining.has(location.id));
+  if (otherLocations.length > 0) {
+    groups.push({ id: "other", title: "其他", locations: otherLocations });
+  }
+
+  return groups;
 };
 
 const charLength = (value: string) => Array.from(value).length;

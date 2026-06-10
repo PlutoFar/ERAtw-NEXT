@@ -52,6 +52,7 @@ button:disabled {
     linear-gradient(180deg, rgb(12 22 18 / 74%), rgb(0 0 0 / 0%) 28%),
     #000;
   color: #e8e8e8;
+  height: 100vh;
   min-height: 100vh;
   overflow: hidden;
   padding: 14px;
@@ -180,7 +181,8 @@ button:disabled {
 .game-screen {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  min-height: calc(100vh - 28px);
+  height: calc(100vh - 28px);
+  min-height: 0;
   min-width: 0;
   position: relative;
 }
@@ -241,16 +243,20 @@ button:disabled {
 .game-layout {
   display: block;
   gap: 14px;
+  height: 100%;
   min-height: 0;
-  padding: 12px 0;
+  overflow: hidden;
+  padding: 12px 0 0;
 }
 
 .map-screen {
   display: grid;
   gap: 8px;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .map-toolbar {
@@ -303,12 +309,13 @@ button:disabled {
 .map-stage {
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
   position: relative;
 }
 
 .ascii-map-viewport {
   --ascii-cell: 1em;
-  --ascii-line: 1.15em;
+  --ascii-line: 1.16em;
 
   background: #020302;
   border-bottom: 1px solid #354f4b;
@@ -318,11 +325,11 @@ button:disabled {
     "Microsoft YaHei Mono", "Microsoft YaHei", SimSun, "Noto Sans Mono CJK SC",
     "Noto Sans CJK SC", Consolas, "MS Gothic", monospace;
   font-feature-settings: "fwid" 1;
-  font-size: calc(20px * var(--ascii-font-scale));
+  font-size: calc(14px * var(--ascii-font-scale));
   font-variant-east-asian: full-width;
   height: 100%;
   line-height: var(--ascii-line);
-  min-height: 420px;
+  min-height: 0;
   overflow: auto;
   position: relative;
 }
@@ -353,7 +360,7 @@ button:disabled {
 
 .ascii-map-cell {
   align-items: center;
-  color: #e4e4e4;
+  color: #d8d8d8;
   display: inline-flex;
   height: var(--ascii-line);
   justify-content: center;
@@ -365,6 +372,31 @@ button:disabled {
 
 .ascii-map-cell.space {
   color: transparent;
+}
+
+.ascii-map-cell.cell-structure {
+  color: #8c8c8c;
+}
+
+.ascii-map-cell.cell-forest {
+  color: #6f8d44;
+}
+
+.ascii-map-cell.cell-water {
+  color: #5db8db;
+}
+
+.ascii-map-cell.cell-marker {
+  color: #c9b458;
+}
+
+.ascii-map-cell.cell-waypoint {
+  color: #f0d890;
+}
+
+.ascii-map-cell.cell-location {
+  color: #7fd7ff;
+  font-weight: 700;
 }
 
 .ascii-map-hotspots {
@@ -452,7 +484,7 @@ button:disabled {
 .map-legend {
   border-top: 1px solid #354f4b;
   min-width: 0;
-  padding-top: 7px;
+  padding-top: 6px;
 }
 
 .map-legend summary {
@@ -464,13 +496,44 @@ button:disabled {
   min-height: 26px;
 }
 
+.location-legend-groups {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  max-height: 178px;
+  overflow: auto;
+  padding-top: 7px;
+}
+
+.location-legend-group {
+  border-left: 1px solid #354f4b;
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding-left: 8px;
+}
+
+.location-legend-group h3 {
+  align-items: center;
+  color: #f0d890;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+  margin: 0;
+}
+
+.location-legend-group h3 small {
+  color: #9fb4c8;
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .location-legend-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
-  max-height: 130px;
-  overflow: auto;
-  padding-top: 8px;
+  gap: 4px 8px;
+  min-width: 0;
 }
 
 .location-legend-list button.current,
@@ -489,6 +552,11 @@ button:disabled {
 
 .location-legend-list small {
   color: #9fb4c8;
+}
+
+.empty-legend-text {
+  color: #9fb4c8;
+  margin: 0;
 }
 
 .floating-panel-stack {

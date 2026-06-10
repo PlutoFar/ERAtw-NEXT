@@ -22,6 +22,7 @@ import {
   areaName,
   characterName,
   charactersAtLocation,
+  groupLocationLegendLocations,
   locationName,
   locationSymbol,
   terrainName,
@@ -101,6 +102,10 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
       String(location.legacy_place_id ?? "").includes(query)
     );
   });
+  const legendGroups = useMemo(
+    () => groupLocationLegendLocations(filteredLocations),
+    [filteredLocations],
+  );
   const dialogueToken =
     world.active_dialogue.length > 0
       ? `${world.active_dialogue_scene_id ?? "dialogue"}:${
@@ -249,7 +254,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setZoom((value) => Math.max(0.86, value - 0.08))}
+                onClick={() => setZoom((value) => Math.max(0.78, value - 0.08))}
                 aria-label="缩小地图"
               >
                 <ZoomOut size={17} aria-hidden="true" />
@@ -257,7 +262,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setZoom((value) => Math.min(1.24, value + 0.08))}
+                onClick={() => setZoom((value) => Math.min(1.18, value + 0.08))}
                 aria-label="放大地图"
               >
                 <ZoomIn size={17} aria-hidden="true" />
@@ -318,31 +323,54 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
             <summary>
               <MapPinned size={16} aria-hidden="true" /> 图例 / 地点
             </summary>
-            <div className="location-legend-list">
-              {filteredLocations.map((location) => {
-                const occupants = charactersAtLocation(world, location.id);
-                return (
-                  <button
-                    key={location.id}
-                    type="button"
-                    className={location.id === currentLocation?.id ? "current" : undefined}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      inspectLocation(location.id);
-                    }}
-                    onDoubleClick={() => moveTo(location.id)}
-                    onContextMenu={(event) => openContextMenu(event, location.id)}
-                    disabled={services.loading}
-                    aria-label={`查看 ${locationName(location)}`}
-                  >
-                    <span className="location-symbol">{locationSymbol(location)}</span>
-                    <span>{locationName(location)}</span>
-                    {occupants.length > 0 ? (
-                      <small>{occupants.map((item) => characterName(item)).join("、")}</small>
-                    ) : null}
-                  </button>
-                );
-              })}
+            <div className="location-legend-groups">
+              {legendGroups.map((group) => (
+                <section
+                  className="location-legend-group"
+                  key={group.id}
+                  aria-label={group.title}
+                >
+                  <h3>
+                    <span>{group.title}</span>
+                    <small>{group.locations.length}</small>
+                  </h3>
+                  <div className="location-legend-list">
+                    {group.locations.map((location) => {
+                      const occupants = charactersAtLocation(world, location.id);
+                      return (
+                        <button
+                          key={location.id}
+                          type="button"
+                          className={
+                            location.id === currentLocation?.id ? "current" : undefined
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            inspectLocation(location.id);
+                          }}
+                          onDoubleClick={() => moveTo(location.id)}
+                          onContextMenu={(event) => openContextMenu(event, location.id)}
+                          disabled={services.loading}
+                          aria-label={`查看 ${locationName(location)}`}
+                        >
+                          <span className="location-symbol">
+                            {locationSymbol(location)}
+                          </span>
+                          <span>{locationName(location)}</span>
+                          {occupants.length > 0 ? (
+                            <small>
+                              {occupants.map((item) => characterName(item)).join("、")}
+                            </small>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+              {legendGroups.length === 0 ? (
+                <p className="empty-legend-text">没有匹配地点</p>
+              ) : null}
             </div>
           </details>
         </main>

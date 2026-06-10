@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App";
-import { buildAsciiMapModel } from "./components/traditional/viewModel";
+import {
+  buildAsciiMapModel,
+  groupLocationLegendLocations,
+} from "./components/traditional/viewModel";
 import { createBrowserMockEngineClient } from "./engine/client";
 import { createDemoWorld } from "./engine/demoWorld";
 import { DEFAULT_MOD_INSTALL_ROOT, useEngine } from "./engine/useEngine";
@@ -55,14 +58,20 @@ describe("App", () => {
     expect(map).toHaveClass("ascii-map-grid");
     expect(within(map).queryByRole("button")).not.toBeInTheDocument();
     expect(map.textContent).toContain("广场");
+    expect(map.textContent).toContain("稗田邸");
     expect(map.textContent).not.toContain("広场");
     expect(map.querySelectorAll(".ascii-map-cell").length).toBeGreaterThan(0);
-    expect(map).toHaveAttribute("data-column-count");
+    expect(Number(map.getAttribute("data-column-count"))).toBeGreaterThan(110);
+    expect(Number(map.getAttribute("data-row-count"))).toBeGreaterThan(50);
 
     const hotspots = screen.getByLabelText("text map hotspots");
     expect(within(hotspots).getByRole("button", { name: "人里的门" })).toHaveAttribute(
       "data-location-id",
       "school_gate",
+    );
+    expect(within(hotspots).getByRole("button", { name: "南大街" })).toHaveAttribute(
+      "data-location-id",
+      "club_room",
     );
   });
 
@@ -78,6 +87,29 @@ describe("App", () => {
     expect(model.hotspots.find((hotspot) => hotspot.locationId === "school_gate"))
       .toMatchObject({ label: "人里的门", locationId: "school_gate" });
     expect(model.gridRows[0]).toHaveLength(sourceLengths[0]);
+    expect(model.hotspots.map((hotspot) => hotspot.locationId)).toContain("club_room");
+    expect(model.hotspots.length).toBeGreaterThan(20);
+    expect(model.rowCount).toBeGreaterThan(50);
+    expect(model.maxColumns).toBeGreaterThan(110);
+  });
+
+  it("groups the location legend instead of rendering one flat list", async () => {
+    await enterGame();
+
+    fireEvent.click(screen.getByText(/图例 \/ 地点/));
+    const legend = screen.getByLabelText("location legend");
+    expect(within(legend).getByRole("heading", { name: /街区 \/ 出入口/ }))
+      .toBeInTheDocument();
+    expect(within(legend).getByRole("heading", { name: /商店 \/ 设施/ }))
+      .toBeInTheDocument();
+    expect(within(legend).getByRole("heading", { name: /长屋 \/ 住居/ }))
+      .toBeInTheDocument();
+
+    const world = createDemoWorld();
+    const groups = groupLocationLegendLocations(world.locations);
+    expect(groups.map((group) => group.title)).toEqual(
+      expect.arrayContaining(["街区 / 出入口", "商店 / 设施", "长屋 / 住居"]),
+    );
   });
 
   it("opens location details from a hotspot and moves by double click", async () => {
@@ -169,7 +201,10 @@ describe("App", () => {
     });
 
     fireEvent.keyDown(window, { key: "Escape" });
-    const loadPanel = await screen.findByLabelText("save load panel");
+    const pauseMenu = await screen.findByLabelText("pause menu");
+    fireEvent.click(within(pauseMenu).getByRole("button", { name: "读取" }));
+    const loadPanel = screen.getByLabelText("save load panel");
+    expect(within(loadPanel).queryByRole("button", { name: /保存/ })).not.toBeInTheDocument();
     fireEvent.click(within(loadPanel).getByRole("button", { name: "预检读取" }));
     await waitFor(() => {
       expect(screen.getByText(/读档预检：可读取/)).toBeInTheDocument();
@@ -180,6 +215,18 @@ describe("App", () => {
     await waitFor(() => {
       expect(within(screen.getByLabelText("game hud")).getByText("广场")).toBeInTheDocument();
     });
+  }, 10_000);
+
+  it("opens title load as a standalone load screen", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "读取" }));
+    const loadScreen = await screen.findByLabelText("load screen");
+    const loadPanel = within(loadScreen).getByLabelText("save load panel");
+
+    expect(within(loadPanel).getByRole("heading", { name: "读取存档" })).toBeInTheDocument();
+    expect(within(loadPanel).getByRole("button", { name: "预检读取" })).toBeInTheDocument();
+    expect(within(loadPanel).queryByRole("button", { name: /保存/ })).not.toBeInTheDocument();
   });
 
   it("shows current-location characters and a stable portrait fallback", async () => {

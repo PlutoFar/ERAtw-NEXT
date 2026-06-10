@@ -35,6 +35,28 @@ type CellStyle = CSSProperties & {
   gridRow: number;
 };
 
+const cellToneClass = (character: string) => {
+  if (/[0-9]/.test(character)) {
+    return "cell-location";
+  }
+  if ("■□全合┃│└┘┌┐─━═＝+＋".includes(character)) {
+    return "cell-structure";
+  }
+  if ("木森林".includes(character)) {
+    return "cell-forest";
+  }
+  if ("~≈♨".includes(character)) {
+    return "cell-water";
+  }
+  if ("◇◆○●＠".includes(character)) {
+    return "cell-marker";
+  }
+  if ("東西南北门門龍龙".includes(character)) {
+    return "cell-waypoint";
+  }
+  return "";
+};
+
 export const AsciiMapViewport = ({
   area,
   currentLocationId,
@@ -71,10 +93,13 @@ export const AsciiMapViewport = ({
           <div className="ascii-map-row" key={`${area?.id ?? "missing"}:${rowIndex}`}>
             {row.map((character, columnIndex) => (
               <span
+                aria-hidden="true"
                 className={
                   character === " " || character === "　"
                     ? "ascii-map-cell space"
-                    : "ascii-map-cell"
+                    : ["ascii-map-cell", cellToneClass(character)]
+                        .filter(Boolean)
+                        .join(" ")
                 }
                 style={
                   {

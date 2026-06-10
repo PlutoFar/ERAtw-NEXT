@@ -43,71 +43,83 @@ const saveLoadTitles = {
 export const SaveLoadPanel = ({
   mode = "manage",
   services,
-}: SaveLoadPanelProps) => (
-  <section className="menu-panel save-load-panel" aria-label="save load panel">
-    <h2>{saveLoadTitles[mode]}</h2>
-    <div className="save-slot-panel" aria-label="save slots">
-      {SAVE_SLOTS.map((slotId, index) => (
-        <button
-          key={slotId}
-          type="button"
-          className={services.selectedSlotId === slotId ? "active-slot" : undefined}
-          onClick={() => services.setSelectedSlotId(slotId)}
-          disabled={services.loading}
-          aria-pressed={services.selectedSlotId === slotId}
-          aria-label={`槽位 ${index + 1}`}
-        >
-          <strong>SLOT {String(index + 1).padStart(2, "0")}</strong>
-          <span>{slotId}</span>
-        </button>
-      ))}
-    </div>
-    <div className="save-slot-summary">
-      <span>当前槽位</span>
-      <strong>{services.selectedSlotId}</strong>
-      <small>
-        {services.lastLoadPreflight?.slot_id === services.selectedSlotId
-          ? services.lastLoadPreflight.ready
-            ? "预检通过"
-            : "预检阻止"
-          : "未预检"}
-      </small>
-    </div>
-    <div className="menu-action-grid">
-      <button
-        type="button"
-        onClick={() => services.saveSlot(services.selectedSlotId)}
-        disabled={services.loading}
-      >
-        <Save size={16} aria-hidden="true" /> 保存
-      </button>
-      <button
-        type="button"
-        onClick={() => services.preflightLoadSlot(services.selectedSlotId)}
-        disabled={services.loading}
-      >
-        预检读取
-      </button>
-      {services.lastLoadPreflight?.slot_id === services.selectedSlotId &&
-      services.lastLoadPreflight.ready ? (
-        <button
-          type="button"
-          onClick={() => services.loadSlot(services.selectedSlotId)}
-          disabled={services.loading}
-        >
-          确认读取
-        </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={() => services.recoverSlot(services.selectedSlotId)}
-        disabled={services.loading}
-      >
-        <RotateCcw size={16} aria-hidden="true" /> 恢复
-      </button>
-    </div>
-  </section>
-);
+}: SaveLoadPanelProps) => {
+  const canSave = mode === "save" || mode === "manage";
+  const canLoad = mode === "load" || mode === "manage";
+
+  return (
+    <section className="menu-panel save-load-panel" aria-label="save load panel">
+      <h2>{saveLoadTitles[mode]}</h2>
+      <div className="save-slot-panel" aria-label="save slots">
+        {SAVE_SLOTS.map((slotId, index) => (
+          <button
+            key={slotId}
+            type="button"
+            className={services.selectedSlotId === slotId ? "active-slot" : undefined}
+            onClick={() => services.setSelectedSlotId(slotId)}
+            disabled={services.loading}
+            aria-pressed={services.selectedSlotId === slotId}
+            aria-label={`槽位 ${index + 1}`}
+          >
+            <strong>SLOT {String(index + 1).padStart(2, "0")}</strong>
+            <span>{slotId}</span>
+          </button>
+        ))}
+      </div>
+      <div className="save-slot-summary">
+        <span>当前槽位</span>
+        <strong>{services.selectedSlotId}</strong>
+        <small>
+          {services.lastLoadPreflight?.slot_id === services.selectedSlotId
+            ? services.lastLoadPreflight.ready
+              ? "预检通过"
+              : "预检阻止"
+            : "未预检"}
+        </small>
+      </div>
+      <div className="menu-action-grid">
+        {canSave ? (
+          <button
+            type="button"
+            onClick={() => services.saveSlot(services.selectedSlotId)}
+            disabled={services.loading}
+          >
+            <Save size={16} aria-hidden="true" /> 保存
+          </button>
+        ) : null}
+        {canLoad ? (
+          <button
+            type="button"
+            onClick={() => services.preflightLoadSlot(services.selectedSlotId)}
+            disabled={services.loading}
+          >
+            预检读取
+          </button>
+        ) : null}
+        {canLoad &&
+        services.lastLoadPreflight?.slot_id === services.selectedSlotId &&
+        services.lastLoadPreflight.ready ? (
+          <button
+            type="button"
+            onClick={() => services.loadSlot(services.selectedSlotId)}
+            disabled={services.loading}
+          >
+            确认读取
+          </button>
+        ) : null}
+        {canLoad ? (
+          <button
+            type="button"
+            onClick={() => services.recoverSlot(services.selectedSlotId)}
+            disabled={services.loading}
+          >
+            <RotateCcw size={16} aria-hidden="true" /> 恢复
+          </button>
+        ) : null}
+      </div>
+    </section>
+  );
+};
 
 export const ModPanel = ({ services }: PanelServicesProps) => (
   <section className="menu-panel" aria-label="mod panel">
