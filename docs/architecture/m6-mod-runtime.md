@@ -26,7 +26,7 @@
 - `preflight_resource_loads`：在内容包安装、发布或运行前检查资源文件完整性，报告缺失文件、不安全路径、hash 不匹配和 IO 错误。
 - `eratw-mod` CLI：提供作者侧 `new`、`validate`、`pack`、`check-package`、`preflight-install-package` 和 `install-package` 命令，作为 Mod SDK 的最小模板/验证/打包/发布检查/预检/安装入口；`check-package` 会展示资源发布审计 error/warning 计数；`--allow-capability <capability>` 用于显式授权受信 Mod 的高危能力。
 - Tauri `engine_discover_mods` / `engine_plan_mod_install` / `engine_install_mod` / `engine_preflight_mod_package_install` / `engine_install_mod_package` / `engine_plan_mod_uninstall` / `engine_uninstall_mod` / `engine_plan_enabled_mods` / `engine_load_mod_enablement` / `engine_save_mod_enablement` / `engine_preflight_load_slot` / `engine_preflight_content_package_install`：桌面层把发现报告、安装/卸载计划、安装预检报告、安装/卸载结果、启用计划、启用设置、存档依赖预检和内容包安装预检转换成前端稳定 DTO，包含可展示的错误类型和消息；内容包安装请求可带 `ModRegistry` 作为依赖/冲突来源；安装/启用/预检请求可带 `authorizedUnsafeCapabilities`，未知授权返回 `unknown_capability`。
-- 前端 engine store 的内容包安装入口会先从当前世界的已安装内容包生成启用 `ModRegistry`，执行内容包预检，预检通过后再带同一 registry 调用安装；Mod 包预检入口会调用 `engine_preflight_mod_package_install` 并在侧栏展示 ready/error/warning、目标路径和资源发布 warning，ready 后可继续调用 `engine_install_mod_package` 安装包内 `content/`；安装成功后会用安装根目录重新执行 `engine_discover_mods` 刷新已安装 Mod 列表，并读取该安装根目录持久化的启用选择，再把已发现 manifest 与有效选择交给 `engine_plan_enabled_mods` 生成启用顺序和禁用列表；切换启用状态会先保存选择再重新规划；已安装列表可调用 `engine_uninstall_mod` 卸载单个 Mod，卸载后清理对应启用选择、刷新发现结果和启用计划，后续真实 Mod 管理 UI 复用这些 registry-aware 与 preflight 入口。
+- 前端 engine store 的内容包安装入口会先从当前世界的已安装内容包生成启用 `ModRegistry`，执行内容包预检，预检通过后再带同一 registry 调用安装；Mod 包预检入口会调用 `engine_preflight_mod_package_install` 并在侧栏展示 ready/error/warning、目标路径和资源发布 warning，ready 后可继续调用 `engine_install_mod_package` 安装包内 `content/`；安装成功后会用安装根目录重新执行 `engine_discover_mods` 刷新已安装 Mod 列表，并读取该安装根目录持久化的启用选择，再把已发现 manifest 与有效选择交给 `engine_plan_enabled_mods` 生成启用顺序和禁用列表；切换启用状态会先保存选择再重新规划；已安装列表会先调用 `engine_plan_mod_uninstall` 展示目标、staging 和动作清单，用户确认后再调用 `engine_uninstall_mod` 卸载单个 Mod，卸载后清理对应启用选择、刷新发现结果和启用计划，后续真实 Mod 管理 UI 复用这些 registry-aware 与 preflight 入口。
 - 运行时内容包安装成功后会写入 `WorldState.installed_content_packages`，包含 package_id、version、dependencies 和 conflicts；存档外壳据此生成 `mod_dependencies`，读档前可用当前启用的 `ModRegistry` 严格检查缺失必需 Mod；内容包安装也提供 registry-aware 入口，桌面 API 可直接把当前启用 registry 作为依赖和冲突来源。
 
 ## 安全默认值
@@ -47,7 +47,7 @@
 - 内容包安装预检不修改 `WorldState`，能在正式安装前报告 schema、registry 依赖/冲突和引用错误。
 - 前端内容包安装流程默认先预检再安装，并保证预检和安装使用同一个 registry 快照，避免 UI 直连旧的 world-derived 安装路径。
 - 资源预检不修改文件系统，缺失、不安全路径、hash 不匹配和 IO 错误都作为 blocking issue；报告仍包含 fallback，UI 可据此降级显示。
-- Mod 卸载执行要求目标目录存在；卸载前清理同名 uninstall staging，再通过移动到 staging 后删除完成卸载；删除 staging 失败时会尝试回滚到原 target，避免已安装 Mod 只剩 `.uninstalling-*` 残留。桌面侧卸载入口会展示卸载结果，并在卸载后移除对应启用配置，避免被卸载 Mod 在下一次规划中残留。
+- Mod 卸载执行要求目标目录存在；卸载前清理同名 uninstall staging，再通过移动到 staging 后删除完成卸载；删除 staging 失败时会尝试回滚到原 target，避免已安装 Mod 只剩 `.uninstalling-*` 残留。桌面侧卸载入口会先展示卸载计划，确认执行后展示卸载结果，并在卸载后移除对应启用配置，避免被卸载 Mod 在下一次规划中残留。
 - 禁用 Mod 不进入加载顺序；如果启用 Mod 依赖被禁用的必需 Mod，启用计划返回缺失依赖错误。
 - Mod 启用选择按安装根目录持久化；Tauri 写入 app data 下 `settings/mod_enablement.json`，浏览器 mock 使用 `localStorage` 的同形状配置。前端规划前会过滤未被当前发现结果覆盖的旧选择，避免外部删除 Mod 后旧配置触发未知启用项错误。
 - 存档读取兼容路径仍允许存档世界自带的内容包记录通过；读档预检路径使用外部 `ModRegistry` 严格检查，能在真正载入前报告缺失或版本不匹配的必需 Mod。
@@ -112,4 +112,4 @@ example.minimal_character-0.1.0/
 
 ## 后续
 
-- 增加卸载确认/批量管理、资源缺失自动恢复和真实 Mod 管理 UI。
+- 增加批量管理、资源缺失自动恢复和真实 Mod 管理 UI。

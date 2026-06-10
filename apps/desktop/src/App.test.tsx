@@ -17,6 +17,7 @@ describe("App", () => {
       lastRecovery: null,
       lastModPackagePreflight: null,
       lastModInstall: null,
+      lastModUninstallPlan: null,
       lastModUninstall: null,
       lastInstalledMods: null,
       modEnablement: [],
@@ -264,6 +265,15 @@ describe("App", () => {
       name: "卸载 example.minimal_character",
     });
     fireEvent.click(uninstallButton);
+
+    const uninstallPlan = await screen.findByLabelText("mod uninstall plan");
+    expect(within(uninstallPlan).getByText("卸载预检")).toBeInTheDocument();
+    expect(
+      within(uninstallPlan).getByText(/目标：mods\/installed\/example\.minimal_character/),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("mod uninstall result")).not.toBeInTheDocument();
+
+    fireEvent.click(within(uninstallPlan).getByRole("button", { name: /确认卸载/ }));
 
     await waitFor(() => {
       const uninstallResult = screen.getByLabelText("mod uninstall result");

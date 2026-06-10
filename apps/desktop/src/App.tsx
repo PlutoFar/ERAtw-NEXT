@@ -14,7 +14,7 @@ import { DEFAULT_MOD_INSTALL_ROOT, useEngine } from "./engine/useEngine";
 import { visibleChoices } from "./engine/demoWorld";
 import { createSampleContentPackage } from "./engine/sampleContentPackage";
 import { TraditionalView } from "./components/TraditionalView";
-import type { Location, WorldState } from "./types";
+import type { Location, ModInstallActionReport, WorldState } from "./types";
 
 const ModernMap = lazy(() =>
   import("./components/ModernMap").then((module) => ({
@@ -66,6 +66,23 @@ const formatScheduledEventTime = (world: WorldState) => {
   ).padStart(2, "0")}`;
 };
 
+const modInstallActionLabels: Record<ModInstallActionReport["kind"], string> = {
+  create_directory: "创建目录",
+  copy_directory: "复制目录",
+  move_directory: "移动目录",
+  delete_directory: "删除目录",
+};
+
+const formatModInstallActionTarget = (action: ModInstallActionReport) => {
+  if (action.path) {
+    return action.path;
+  }
+  if (action.from && action.to) {
+    return `${action.from} -> ${action.to}`;
+  }
+  return "无路径";
+};
+
 const SAVE_SLOTS = ["slot_1", "slot_2", "slot_3"] as const;
 
 export const App = () => {
@@ -77,6 +94,7 @@ export const App = () => {
     lastRecovery,
     lastSave,
     lastModInstall,
+    lastModUninstallPlan,
     lastModUninstall,
     lastInstalledMods,
     lastModEnablementPlan,
@@ -88,6 +106,7 @@ export const App = () => {
     preflightLoadSlot,
     preflightModPackageInstall,
     installModPackage,
+    planModUninstall,
     refreshInstalledMods,
     setModEnabled,
     uninstallInstalledMod,
@@ -464,7 +483,7 @@ export const App = () => {
                           type="button"
                           className="mod-uninstall-button"
                           onClick={() =>
-                            uninstallInstalledMod(
+                            planModUninstall(
                               DEFAULT_MOD_INSTALL_ROOT,
                               entry.manifest.namespace,
                             )
@@ -485,6 +504,39 @@ export const App = () => {
               ) : (
                 <p className="empty-text">未发现已安装 Mod。</p>
               )}
+              {lastModUninstallPlan ? (
+                <div className="mod-uninstall-plan" aria-label="mod uninstall plan">
+                  <h3>卸载预检</h3>
+                  <p className="preflight-error-text">
+                    待卸载：{lastModUninstallPlan.namespace}
+                    <br />
+                    目标：{lastModUninstallPlan.target_root}
+                    <br />
+                    临时目录：{lastModUninstallPlan.staging_root}
+                  </p>
+                  <ul className="mod-preflight-issues">
+                    {lastModUninstallPlan.actions.map((action, index) => (
+                      <li key={`${action.kind}:${index}`}>
+                        <strong>{modInstallActionLabels[action.kind]}</strong>
+                        <span>{formatModInstallActionTarget(action)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    className="mod-danger-button"
+                    onClick={() =>
+                      uninstallInstalledMod(
+                        lastModUninstallPlan.install_root,
+                        lastModUninstallPlan.namespace,
+                      )
+                    }
+                    disabled={loading}
+                  >
+                    <Trash2 size={15} /> 确认卸载
+                  </button>
+                </div>
+              ) : null}
               {lastModEnablementPlan ? (
                 <div
                   className="mod-enablement-plan"

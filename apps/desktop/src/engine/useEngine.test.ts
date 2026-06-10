@@ -172,6 +172,7 @@ describe("useEngine", () => {
       lastRecovery: null,
       lastModPackagePreflight: null,
       lastModInstall: null,
+      lastModUninstallPlan: null,
       lastModUninstall: null,
       lastInstalledMods: null,
       modEnablement: [],
@@ -536,6 +537,49 @@ describe("useEngine", () => {
     );
     expect(useEngine.getState().lastModEnablementPlan?.disabled[0].reason).toBe(
       "user_disabled",
+    );
+  });
+
+  it("plans a mod uninstall before execution", async () => {
+    const world = createDemoWorld();
+    const calls = {
+      preflightRegistries: [] as ModRegistry[],
+      installRegistries: [] as ModRegistry[],
+    };
+    const client = createMockClient(world, calls);
+    vi.mocked(client.planModUninstall).mockResolvedValue({
+      install_root: "mods/installed",
+      target_root: "mods/installed/example.minimal_character",
+      staging_root: "mods/installed/.uninstalling-example.minimal_character",
+      namespace: "example.minimal_character",
+      actions: [
+        {
+          kind: "move_directory",
+          path: null,
+          from: "mods/installed/example.minimal_character",
+          to: "mods/installed/.uninstalling-example.minimal_character",
+        },
+        {
+          kind: "delete_directory",
+          path: "mods/installed/.uninstalling-example.minimal_character",
+          from: null,
+          to: null,
+        },
+      ],
+    });
+    useEngine.setState({ client, world });
+
+    await useEngine
+      .getState()
+      .planModUninstall("mods/installed", "example.minimal_character");
+
+    expect(client.planModUninstall).toHaveBeenCalledWith(
+      "mods/installed",
+      "example.minimal_character",
+    );
+    expect(client.uninstallMod).not.toHaveBeenCalled();
+    expect(useEngine.getState().lastModUninstallPlan?.target_root).toBe(
+      "mods/installed/example.minimal_character",
     );
   });
 

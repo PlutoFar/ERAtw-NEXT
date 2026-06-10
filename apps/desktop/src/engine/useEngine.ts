@@ -9,6 +9,7 @@ import type {
   ModInstallPreflightReport,
   ModInstallReport,
   ModRegistry,
+  ModUninstallPlanReport,
   ModUninstallReport,
   SavePreflightReport,
   SaveRecoveryReport,
@@ -26,6 +27,7 @@ interface EngineStore {
   lastRecovery: SaveRecoveryReport | null;
   lastModPackagePreflight: ModInstallPreflightReport | null;
   lastModInstall: ModInstallReport | null;
+  lastModUninstallPlan: ModUninstallPlanReport | null;
   lastModUninstall: ModUninstallReport | null;
   lastInstalledMods: ModDiscoveryReport | null;
   modEnablement: ModEnablement[];
@@ -38,6 +40,7 @@ interface EngineStore {
     installRoot: string,
   ) => Promise<void>;
   installModPackage: (packageRoot: string, installRoot: string) => Promise<void>;
+  planModUninstall: (installRoot: string, namespace: string) => Promise<void>;
   uninstallInstalledMod: (installRoot: string, namespace: string) => Promise<void>;
   refreshInstalledMods: (installRoot: string) => Promise<void>;
   planInstalledMods: (installRoot: string) => Promise<void>;
@@ -147,6 +150,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
   lastRecovery: null,
   lastModPackagePreflight: null,
   lastModInstall: null,
+  lastModUninstallPlan: null,
   lastModUninstall: null,
   lastInstalledMods: null,
   modEnablement: [],
@@ -209,6 +213,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
       set({
         lastModPackagePreflight,
         lastModInstall: null,
+        lastModUninstallPlan: null,
         lastModUninstall: null,
         loading: false,
       });
@@ -260,6 +265,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
       set({
         lastModPackagePreflight: preflight,
         lastModInstall,
+        lastModUninstallPlan: null,
         lastModUninstall: null,
         lastInstalledMods,
         modEnablement,
@@ -269,6 +275,22 @@ export const useEngine = create<EngineStore>((set, get) => ({
       });
     } catch (error) {
       set({ error: String(error), lastModInstall: null, loading: false });
+    }
+  },
+  async planModUninstall(installRoot, namespace) {
+    set({ loading: true, error: null });
+    try {
+      const lastModUninstallPlan = await get().client.planModUninstall(
+        installRoot,
+        namespace,
+      );
+      set({
+        lastModUninstallPlan,
+        lastModUninstall: null,
+        loading: false,
+      });
+    } catch (error) {
+      set({ error: String(error), lastModUninstallPlan: null, loading: false });
     }
   },
   async uninstallInstalledMod(installRoot, namespace) {
@@ -297,6 +319,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
         );
       set({
         lastModInstall: null,
+        lastModUninstallPlan: null,
         lastModUninstall,
         lastInstalledMods,
         modEnablement: savedModEnablement,
@@ -327,6 +350,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
         lastInstalledMods,
         modEnablement,
         lastModEnablementPlan,
+        lastModUninstallPlan: null,
         error: settingsError,
         loading: false,
       });
@@ -358,6 +382,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
         lastInstalledMods,
         modEnablement,
         lastModEnablementPlan,
+        lastModUninstallPlan: null,
         error: settingsError,
         loading: false,
       });
@@ -388,6 +413,7 @@ export const useEngine = create<EngineStore>((set, get) => ({
         modEnablement: normalizeModEnablement(savedModEnablement),
         lastInstalledMods,
         lastModEnablementPlan,
+        lastModUninstallPlan: null,
         loading: false,
       });
     } catch (error) {
