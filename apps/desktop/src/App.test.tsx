@@ -29,14 +29,14 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByText("ERAtw-NEXT")).toBeInTheDocument();
-    expect(screen.getByLabelText("ASCII map")).toBeInTheDocument();
+    expect(screen.getByLabelText("era text map")).toBeInTheDocument();
     expect(screen.getByText("示例角色")).toBeInTheDocument();
   });
 
   it("loads the modern Pixi map only after selecting modern mode", async () => {
     render(<App />);
 
-    expect(await screen.findByLabelText("ASCII map")).toBeInTheDocument();
+    expect(await screen.findByLabelText("era text map")).toBeInTheDocument();
     expect(screen.queryByLabelText("modern map canvas")).not.toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: "现代" }), {
@@ -50,7 +50,7 @@ describe("App", () => {
   it("dispatches dialogue command through the engine store", async () => {
     render(<App />);
 
-    const dialogueButton = await screen.findByRole("button", { name: /对话/ });
+    const dialogueButton = await screen.findByRole("button", { name: /\[100\] 对话/ });
     fireEvent.click(dialogueButton);
 
     await waitFor(() => {
@@ -82,9 +82,10 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "槽位 2" }));
     expect(screen.getByText("当前槽位：slot_2")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /移动/ }));
+    fireEvent.click(screen.getByRole("button", { name: /\[400\] 移动/ }));
+    fireEvent.click(screen.getByRole("button", { name: /\[02\] 广场/ }));
     await waitFor(() => {
-      expect(screen.getByText("庭园")).toBeInTheDocument();
+      expect(screen.getAllByText("广场").length).toBeGreaterThan(0);
     });
 
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -92,9 +93,9 @@ describe("App", () => {
       expect(screen.getByText(/browser-memory:\/\/slot_2.json/)).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /移动/ }));
+    fireEvent.click(screen.getByRole("button", { name: /\[01\] 人里的門/ }));
     await waitFor(() => {
-      expect(screen.getByText("校门")).toBeInTheDocument();
+      expect(screen.getAllByText("人里的門").length).toBeGreaterThan(0);
     });
 
     fireEvent.click(screen.getByRole("button", { name: "预检读取" }));
@@ -105,7 +106,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "确认读取" }));
     await waitFor(() => {
-      expect(screen.getByText("庭园")).toBeInTheDocument();
+      expect(screen.getAllByText("广场").length).toBeGreaterThan(0);
     });
   });
 
@@ -119,7 +120,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /休息/ }));
     await waitFor(() => {
-      expect(screen.getByText(/08:30/)).toBeInTheDocument();
+      expect(screen.getAllByText(/08:30/).length).toBeGreaterThan(0);
     });
 
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -129,15 +130,15 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /休息/ }));
     await waitFor(() => {
-      expect(screen.getByText(/09:00/)).toBeInTheDocument();
+      expect(screen.getAllByText(/09:00/).length).toBeGreaterThan(0);
     });
 
     fireEvent.click(screen.getByRole("button", { name: /恢复/ }));
 
     await waitFor(() => {
       expect(screen.getByText(/已恢复：browser-memory:\/\/slot_1.json/)).toBeInTheDocument();
-      expect(screen.getByText(/08:00/)).toBeInTheDocument();
-      expect(screen.queryByText(/09:00/)).not.toBeInTheDocument();
+      expect(screen.getAllByText(/08:00/).length).toBeGreaterThan(0);
+      expect(screen.queryAllByText(/09:00/)).toHaveLength(0);
     });
   });
 
@@ -306,7 +307,7 @@ describe("App", () => {
   it("shows dialogue choices only when conditions pass", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /对话/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /\[100\] 对话/ }));
 
     await waitFor(() => {
       expect(screen.getByText("询问新引擎")).toBeInTheDocument();

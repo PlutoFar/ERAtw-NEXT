@@ -4,9 +4,7 @@ import {
   Boxes,
   Clock3,
   CloudSun,
-  Dices,
   MessageSquareText,
-  MoveRight,
   RotateCcw,
   Trash2,
 } from "lucide-react";
@@ -164,7 +162,7 @@ export const App = () => {
           </Tabs.List>
 
           <Tabs.Content value="traditional" className="mode-panel">
-            <TraditionalView world={world} />
+            <TraditionalView world={world} dispatch={dispatch} loading={loading} />
           </Tabs.Content>
           <Tabs.Content value="modern" className="mode-panel">
             <Suspense
@@ -207,65 +205,6 @@ export const App = () => {
           </section>
 
           <section className="command-panel">
-            <button
-              type="button"
-              onClick={() => dispatch({ type: "advance_time", minutes: 30 })}
-              disabled={loading}
-            >
-              <Clock3 size={17} /> 休息
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                dispatch({
-                  type: "move_character",
-                  character_id: character.id,
-                  location_id:
-                    character.location_id === "school_gate" ? "garden" : "school_gate",
-                })
-              }
-              disabled={loading}
-            >
-              <MoveRight size={17} /> 移动
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                dispatch({ type: "start_dialogue", scene_id: "demo_morning" })
-              }
-              disabled={loading}
-            >
-              <MessageSquareText size={17} /> 对话
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                dispatch({
-                  type: "roll_character_mood",
-                  character_id: character.id,
-                  min_delta: -5,
-                  max_delta: 5,
-                })
-              }
-              disabled={loading}
-            >
-              <Dices size={17} /> 随机心情
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                dispatch({
-                  type: "adjust_relationship",
-                  source_character_id: "player",
-                  target_character_id: character.id,
-                  affinity_delta: 1,
-                  trust_delta: 1,
-                })
-              }
-              disabled={loading}
-            >
-              <MessageSquareText size={17} /> 交流
-            </button>
             <button
               type="button"
               onClick={() => installContentPackage(createSampleContentPackage())}

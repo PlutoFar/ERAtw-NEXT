@@ -1595,6 +1595,84 @@ const validateBrowserContentPackage = (
 ): ContentIssue[] => {
   const issues: ContentIssue[] = [];
 
+  const textMapIds = new Set<string>();
+  for (const textMap of packageData.text_maps ?? []) {
+    const target = textMap.id.trim() ? textMap.id : "text_map";
+    if (!textMap.id.trim()) {
+      issues.push({ code: "empty_text_map_id", target: "text_map" });
+    } else if (textMapIds.has(textMap.id)) {
+      issues.push({ code: "duplicate_text_map_id", target: textMap.id });
+    }
+    textMapIds.add(textMap.id);
+
+    if (!textMap.name.trim()) {
+      issues.push({ code: "empty_text_map_name", target });
+    }
+    if (!textMap.default_area_id.trim()) {
+      issues.push({ code: "empty_text_map_default_area", target });
+    }
+
+    const areaIds = new Set<string>();
+    for (const area of textMap.areas) {
+      if (!area.id.trim()) {
+        issues.push({ code: "empty_text_map_area_id", target });
+      } else if (areaIds.has(area.id)) {
+        issues.push({
+          code: "duplicate_text_map_area_id",
+          target: `${target}:${area.id}`,
+        });
+      }
+      areaIds.add(area.id);
+      if (!area.name.trim()) {
+        issues.push({ code: "empty_text_map_area_name", target });
+      }
+    }
+
+    if (textMap.default_area_id.trim() && !areaIds.has(textMap.default_area_id)) {
+      issues.push({ code: "missing_text_map_default_area", target });
+    }
+
+    for (const location of textMap.locations) {
+      if (!location.location_id.trim()) {
+        issues.push({ code: "empty_text_map_action_target", target });
+      }
+      if (location.area_id !== null && !areaIds.has(location.area_id)) {
+        issues.push({ code: "missing_text_map_area_reference", target });
+      }
+    }
+
+    for (const area of textMap.areas) {
+      area.rows.forEach((row, rowIndex) => {
+        row.runs.forEach((run, runIndex) => {
+          const action = run.action;
+          if (!action) {
+            return;
+          }
+          const actionTarget = `${target}:${area.id}:${rowIndex}:${runIndex}`;
+          if (action.type === "move_to_location" && !action.location_id.trim()) {
+            issues.push({
+              code: "empty_text_map_action_target",
+              target: actionTarget,
+            });
+          }
+          if (action.type === "switch_area") {
+            if (!action.area_id.trim()) {
+              issues.push({
+                code: "empty_text_map_action_target",
+                target: actionTarget,
+              });
+            } else if (!areaIds.has(action.area_id)) {
+              issues.push({
+                code: "missing_text_map_area_reference",
+                target: actionTarget,
+              });
+            }
+          }
+        });
+      });
+    }
+  }
+
   for (const scene of packageData.dialogue_scenes) {
     for (const node of scene.nodes) {
       if (node.text.trim()) {
@@ -1729,6 +1807,7 @@ const installPackageIntoBrowserWorld = (
 
   const sceneIds = new Set(world.dialogue_scenes.map((scene) => scene.id));
   const locationIds = new Set(world.locations.map((location) => location.id));
+  const textMapIds = new Set(world.text_maps.map((textMap) => textMap.id));
   const characterIds = new Set(world.characters.map((character) => character.id));
   const relationshipIds = new Set(
     world.relationships.map((relationship) =>
@@ -1750,6 +1829,27 @@ const installPackageIntoBrowserWorld = (
       return world;
     }
     locationIds.add(location.id);
+  }
+
+  for (const textMap of packageData.text_maps ?? []) {
+    if (!textMap.id.trim() || textMapIds.has(textMap.id)) {
+      return world;
+    }
+    if (
+      textMap.locations.some((location) => !locationIds.has(location.location_id)) ||
+      textMap.areas.some((area) =>
+        area.rows.some((row) =>
+          row.runs.some(
+            (run) =>
+              run.action?.type === "move_to_location" &&
+              !locationIds.has(run.action.location_id),
+          ),
+        ),
+      )
+    ) {
+      return world;
+    }
+    textMapIds.add(textMap.id);
   }
 
   for (const character of packageData.characters) {
@@ -1859,6 +1959,10 @@ const installPackageIntoBrowserWorld = (
     resources: [...world.resources, ...structuredClone(packageData.resources)].sort(
       (left, right) => left.resource_id.localeCompare(right.resource_id),
     ),
+    text_maps: [
+      ...world.text_maps,
+      ...structuredClone(packageData.text_maps ?? []),
+    ],
     dialogue_scenes: [
       ...world.dialogue_scenes,
       ...structuredClone(packageData.dialogue_scenes),

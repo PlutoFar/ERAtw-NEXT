@@ -20,7 +20,67 @@ export interface Location {
   name: string;
   ascii_symbol: string;
   terrain: string;
+  legacy_place_id?: number | null;
+  map_id?: string | null;
+  map_area_id?: string | null;
+  move_minutes?: number | null;
 }
+
+export interface TextMap {
+  id: string;
+  name: string;
+  default_area_id: string;
+  areas: TextMapArea[];
+  locations: TextMapLocation[];
+}
+
+export interface TextMapLocation {
+  location_id: string;
+  legacy_place_id: number | null;
+  area_id: string | null;
+}
+
+export interface TextMapArea {
+  id: string;
+  name: string;
+  kind: TextMapAreaKind;
+  rows: TextMapRow[];
+}
+
+export type TextMapAreaKind = "base" | "outing";
+
+export interface TextMapRow {
+  runs: TextMapRun[];
+}
+
+export interface TextMapRun {
+  text: string;
+  color: string | null;
+  color_token: string | null;
+  action: TextMapAction | null;
+}
+
+export type TextMapAction =
+  | {
+      type: "move_to_location";
+      label: string;
+      value: string;
+      location_id: string;
+      title: string | null;
+    }
+  | {
+      type: "switch_area";
+      label: string;
+      value: string;
+      area_id: string;
+      title: string | null;
+    }
+  | {
+      type: "back";
+      label: string;
+      value: string;
+      title: string | null;
+    };
 
 export interface CharacterState {
   energy: number;
@@ -514,6 +574,7 @@ export interface WorldState {
   installed_content_packages: InstalledContentPackage[];
   clock: WorldClock;
   locations: Location[];
+  text_maps: TextMap[];
   characters: Character[];
   resources: ResourceAsset[];
   relationships: Relationship[];
@@ -591,6 +652,7 @@ export interface ContentPackageDependencyObject {
 export interface ContentPackage {
   manifest: ContentPackageManifest;
   locations: Location[];
+  text_maps: TextMap[];
   characters: Character[];
   relationships: Relationship[];
   resources: ResourceAsset[];
@@ -621,6 +683,16 @@ export type ContentIssueCode =
   | "duplicate_relationship"
   | "empty_resource_id"
   | "duplicate_resource_id"
+  | "empty_text_map_id"
+  | "duplicate_text_map_id"
+  | "empty_text_map_name"
+  | "empty_text_map_default_area"
+  | "empty_text_map_area_id"
+  | "duplicate_text_map_area_id"
+  | "empty_text_map_area_name"
+  | "missing_text_map_default_area"
+  | "empty_text_map_action_target"
+  | "missing_text_map_area_reference"
   | "empty_resource_path"
   | "unsafe_resource_path"
   | "empty_resource_license"
@@ -664,11 +736,13 @@ export type ContentInstallPreflightIssueCode =
   | "duplicate_character"
   | "duplicate_relationship"
   | "duplicate_resource"
+  | "duplicate_text_map"
   | "duplicate_content_package"
   | "missing_content_package_dependency"
   | "content_package_dependency_version_mismatch"
   | "content_package_conflict"
   | "missing_location_reference"
+  | "missing_text_map_location_reference"
   | "missing_character_reference"
   | "missing_relationship_reference"
   | "missing_dialogue_resource"

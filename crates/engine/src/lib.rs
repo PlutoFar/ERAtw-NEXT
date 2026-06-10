@@ -84,6 +84,92 @@ pub struct Location {
     pub name: String,
     pub ascii_symbol: char,
     pub terrain: String,
+    #[serde(default)]
+    pub legacy_place_id: Option<u16>,
+    #[serde(default)]
+    pub map_id: Option<String>,
+    #[serde(default)]
+    pub map_area_id: Option<String>,
+    #[serde(default)]
+    pub move_minutes: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextMap {
+    pub id: String,
+    pub name: String,
+    pub default_area_id: String,
+    #[serde(default)]
+    pub areas: Vec<TextMapArea>,
+    #[serde(default)]
+    pub locations: Vec<TextMapLocation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextMapLocation {
+    pub location_id: String,
+    #[serde(default)]
+    pub legacy_place_id: Option<u16>,
+    #[serde(default)]
+    pub area_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextMapArea {
+    pub id: String,
+    pub name: String,
+    pub kind: TextMapAreaKind,
+    #[serde(default)]
+    pub rows: Vec<TextMapRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextMapAreaKind {
+    Base,
+    Outing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextMapRow {
+    #[serde(default)]
+    pub runs: Vec<TextMapRun>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextMapRun {
+    pub text: String,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub color_token: Option<String>,
+    #[serde(default)]
+    pub action: Option<TextMapAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TextMapAction {
+    MoveToLocation {
+        label: String,
+        value: String,
+        location_id: String,
+        #[serde(default)]
+        title: Option<String>,
+    },
+    SwitchArea {
+        label: String,
+        value: String,
+        area_id: String,
+        #[serde(default)]
+        title: Option<String>,
+    },
+    Back {
+        label: String,
+        value: String,
+        #[serde(default)]
+        title: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -382,6 +468,8 @@ pub struct WorldState {
     pub installed_content_packages: Vec<InstalledContentPackage>,
     pub clock: WorldClock,
     pub locations: Vec<Location>,
+    #[serde(default)]
+    pub text_maps: Vec<TextMap>,
     pub characters: Vec<Character>,
     #[serde(default)]
     pub resources: Vec<ResourceAsset>,
@@ -474,6 +562,9 @@ pub enum EngineError {
 
 impl WorldState {
     pub fn bootstrap_demo() -> Self {
+        let locations = demo_sato_locations();
+        let text_maps = vec![demo_sato_text_map(&locations)];
+
         Self {
             engine_version: ENGINE_VERSION.to_string(),
             installed_content_packages: Vec::new(),
@@ -484,26 +575,8 @@ impl WorldState {
                 season: Season::Spring,
                 weather: Weather::Clear,
             },
-            locations: vec![
-                Location {
-                    id: "school_gate".to_string(),
-                    name: "校门".to_string(),
-                    ascii_symbol: '門',
-                    terrain: "street".to_string(),
-                },
-                Location {
-                    id: "club_room".to_string(),
-                    name: "社团室".to_string(),
-                    ascii_symbol: '部',
-                    terrain: "interior".to_string(),
-                },
-                Location {
-                    id: "garden".to_string(),
-                    name: "庭园".to_string(),
-                    ascii_symbol: '庭',
-                    terrain: "grass".to_string(),
-                },
-            ],
+            locations,
+            text_maps,
             characters: vec![Character {
                 id: "demo_heroine".to_string(),
                 display_name: "示例角色".to_string(),
@@ -1254,6 +1327,544 @@ mod u64_string {
     }
 }
 
+fn demo_sato_locations() -> Vec<Location> {
+    demo_sato_location_specs()
+        .into_iter()
+        .map(
+            |(legacy_place_id, id, name, symbol, terrain, area_id)| Location {
+                id: id.to_string(),
+                name: name.to_string(),
+                ascii_symbol: symbol,
+                terrain: terrain.to_string(),
+                legacy_place_id: Some(legacy_place_id),
+                map_id: Some("legacy.sato".to_string()),
+                map_area_id: Some(area_id.to_string()),
+                move_minutes: Some(5),
+            },
+        )
+        .collect()
+}
+
+fn demo_sato_location_specs() -> Vec<(
+    u16,
+    &'static str,
+    &'static str,
+    char,
+    &'static str,
+    &'static str,
+)> {
+    vec![
+        (201, "school_gate", "人里的門", '門', "street", "sato-main"),
+        (202, "garden", "广场", '◇', "street", "sato-main"),
+        (203, "club_room", "南大街", '南', "street", "sato-main"),
+        (
+            204,
+            "legacy.sato.204",
+            "東大街",
+            '東',
+            "street",
+            "sato-main",
+        ),
+        (
+            205,
+            "legacy.sato.205",
+            "北大街",
+            '北',
+            "street",
+            "sato-main",
+        ),
+        (
+            206,
+            "legacy.sato.206",
+            "西大街",
+            '西',
+            "street",
+            "sato-main",
+        ),
+        (
+            207,
+            "legacy.sato.207",
+            "索道站",
+            '龍',
+            "street",
+            "sato-main",
+        ),
+        (
+            208,
+            "legacy.sato.208",
+            "雷鼓的房間",
+            '雷',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            209,
+            "legacy.sato.209",
+            "八橋的房間",
+            '八',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            210,
+            "legacy.sato.210",
+            "弁弁的房間",
+            '弁',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            211,
+            "legacy.sato.211",
+            "酒屋",
+            '酒',
+            "interior",
+            "sato-main",
+        ),
+        (
+            212,
+            "legacy.sato.212",
+            "咖啡館",
+            '咖',
+            "interior",
+            "sato-main",
+        ),
+        (
+            213,
+            "legacy.sato.213",
+            "鈴奈庵",
+            '鈴',
+            "interior",
+            "sato-suzunaan",
+        ),
+        (
+            214,
+            "legacy.sato.214",
+            "長屋前",
+            '長',
+            "street",
+            "sato-row-house",
+        ),
+        (
+            215,
+            "legacy.sato.215",
+            "花屋",
+            '花',
+            "interior",
+            "sato-main",
+        ),
+        (
+            216,
+            "legacy.sato.216",
+            "食料品店",
+            '食',
+            "interior",
+            "sato-main",
+        ),
+        (
+            217,
+            "legacy.sato.217",
+            "甘味処",
+            '甘',
+            "interior",
+            "sato-main",
+        ),
+        (
+            218,
+            "legacy.sato.218",
+            "料理屋",
+            '料',
+            "interior",
+            "sato-main",
+        ),
+        (
+            219,
+            "legacy.sato.219",
+            "集会所",
+            '集',
+            "interior",
+            "sato-main",
+        ),
+        (
+            220,
+            "legacy.sato.220",
+            "瞭望樓",
+            '瞭',
+            "interior",
+            "sato-main",
+        ),
+        (
+            221,
+            "legacy.sato.221",
+            "稗田邸",
+            '稗',
+            "interior",
+            "sato-main",
+        ),
+        (
+            222,
+            "legacy.sato.222",
+            "寺子屋",
+            '寺',
+            "interior",
+            "sato-main",
+        ),
+        (
+            223,
+            "legacy.sato.223",
+            "銭湯",
+            '湯',
+            "interior",
+            "sato-main",
+        ),
+        (
+            224,
+            "legacy.sato.224",
+            "慧音的房間",
+            '慧',
+            "interior",
+            "sato-main",
+        ),
+        (
+            225,
+            "legacy.sato.225",
+            "宿屋",
+            '宿',
+            "interior",
+            "sato-main",
+        ),
+        (
+            226,
+            "legacy.sato.226",
+            "小鈴私室",
+            '鈴',
+            "interior",
+            "sato-suzunaan",
+        ),
+        (
+            227,
+            "legacy.sato.227",
+            "八百屋",
+            '八',
+            "interior",
+            "sato-main",
+        ),
+        (
+            228,
+            "legacy.sato.228",
+            "貸切浴場",
+            '♨',
+            "interior",
+            "sato-main",
+        ),
+        (
+            229,
+            "legacy.sato.229",
+            "阿求私室",
+            '阿',
+            "interior",
+            "sato-main",
+        ),
+        (
+            230,
+            "legacy.sato.230",
+            "空的部屋",
+            '空',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            231,
+            "legacy.sato.231",
+            "蛮奇的房間",
+            '蛮',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            232,
+            "legacy.sato.232",
+            "蓮子的房間",
+            '蓮',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            233,
+            "legacy.sato.233",
+            "梅莉的房間",
+            '梅',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            234,
+            "legacy.sato.234",
+            "雪的房間",
+            '雪',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            235,
+            "legacy.sato.235",
+            "舞的房間",
+            '舞',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            236,
+            "legacy.sato.236",
+            "厠",
+            '厠',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            237,
+            "legacy.sato.237",
+            "公用水井",
+            '井',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            238,
+            "legacy.sato.238",
+            "鯢呑亭",
+            '鯢',
+            "interior",
+            "sato-geidontei",
+        ),
+        (
+            239,
+            "legacy.sato.239",
+            "美宵的房間",
+            '美',
+            "interior",
+            "sato-geidontei",
+        ),
+        (
+            241,
+            "legacy.sato.241",
+            "空的部屋",
+            '空',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            242,
+            "legacy.sato.242",
+            "麟的房間",
+            '麟',
+            "interior",
+            "sato-row-house",
+        ),
+        (
+            243,
+            "legacy.sato.243",
+            "空的部屋",
+            '空',
+            "interior",
+            "sato-row-house",
+        ),
+    ]
+}
+
+fn demo_sato_text_map(locations: &[Location]) -> TextMap {
+    TextMap {
+        id: "legacy.sato".to_string(),
+        name: "人里".to_string(),
+        default_area_id: "sato-main".to_string(),
+        locations: locations
+            .iter()
+            .map(|location| TextMapLocation {
+                location_id: location.id.clone(),
+                legacy_place_id: location.legacy_place_id,
+                area_id: location.map_area_id.clone(),
+            })
+            .collect(),
+        areas: vec![
+            TextMapArea {
+                id: "sato-main".to_string(),
+                name: "人里".to_string(),
+                kind: TextMapAreaKind::Base,
+                rows: demo_text_rows(&[
+                    "　||■■■■■■■||　　　■|＝＝|　　□■　　　■■■■■■■■■■■■■■■■■■■■",
+                    "　||■　| 稗田邸■||　　　■|＝＝|索道□■　　　■　　　■　　■　　　■ 慧音 ■└─┘■",
+                    "　||■29| 　21　■||　　　■■■■──■■　　　■■■■■■■■■■■■　24　│寺子屋■",
+                    "　||■■■─■■■||　　　　　　　　　　　　北　　　　　　　　　　　　■■─■■　22　■",
+                    "　□＝＝●　●＝＝□　　　　　　　　　　　　05　　　　　　　　　　　　　　　　│　　□■",
+                    "　　　　　　　　　　　　■■■■■■■■　　　　□＋□■■■──■■■　　　　■□　□■",
+                    "　　　　　　　　　　　　■　　■　　　■　　　07＋龍＋■　 集会所 　■　　　　■□　□■",
+                    "■■■■■■■■■■　　■■■■■■■■　　　　□＋□■　　 19 　　■　　　　■■─■■",
+                    "■　　■ ┃鯢呑 □■　　■＼／||櫓■　　　　　　　　　■■─■■─■■　　　　　　　　　",
+                    "■　　■ ┃ 38　□■　　■／＼■20■　　　　　　　　　■□　　　　　│　　　　　　　　　",
+                    "■■■■■■─■■■　　■■■■─■　　　　　　　　　■■■■■■■■　　■■■■■■●",
+                    "　　　　　　　　　　 西 　　　　　　　　　 広场 　　　　　　　　　　　 東 ■銭湯■ 28 ■",
+                    "　　　　　　　　　　 06 　　　　　　　　　　◇　　　　　　　　　　　　 04 │ 23 │ ♨ ■",
+                    "　　　　　　　　　　　　　　　　　　　　　　02　　　　　　　　　　　　　　■　　■━━■",
+                    "■■■──■　□□□　　■■─■■■　　　　　　　　　■──■■──■　　■　　│　　■",
+                    "■□□ 宿 ■　■■■　　■＠花屋　│　　　　　　　　　■○ 八百屋 ○■　　■　　■ ♨ ■",
+                    "■　　 25 ■　■　│　　■＠ 15 　■　　　　　　　　　■□□ 27 □□■　　■■■■■■■",
+                    "■■■　　■　■■■長屋■■■■■■─■■　　　■■■■■■■■■■■　　　　　　　　　",
+                    "■　│　　■　■　│ 14 ■□□ 食料品 　│　　　■　 咖啡館 □■　　■　　　　　　　　　",
+                    "■■■　　■　■■■　　■□□　 16 　　■　南　│　　 12 　□■甘味■　　■■■■■■■",
+                    "■　│　　■　■　│　　■■■■■■■■■　03　■■■■■■■■ 17 │　　■鈴奈庵　┃■",
+                    "■■■　　■　■■■　　■○○　酒屋　　■　　　■　 料理屋 □■　　■　　│　13　□┃■",
+                    "■　│　　■　■　│　　■○○　 11 　　│　　　│　　 18 　□■□□■　　■□□□　┃■",
+                    "■■■　　■　■■■　　■■■■■■■■■　　　■■■■■■■■■■■　　■■■■■■■",
+                    "■　│　　■　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　",
+                    "■■■■■■■■■■■■■■■■■■■■●　01　●■■■■■■■■■■■■■■■■■■■",
+                    "　　　　　　　　　　　　　　　　　　　　　　#e　　　　　　　　　　　　　　　　　　　　　",
+                ]),
+            },
+            TextMapArea {
+                id: "sato-row-house".to_string(),
+                name: "長屋".to_string(),
+                kind: TextMapAreaKind::Base,
+                rows: demo_text_rows(&[
+                    "■＝■■■■＝■■■＝■■■＝■■■＝■■■＝■■　　　　　　　　　",
+                    "■　　　┃ 雷鼓 ┃ 八橋 ┃ 弁弁 ┃　雪　┃　舞　■　　　　　　　　　",
+                    "■　43　┃　08　┃　09　┃　10　┃　34　┃　35　■　　　　　　　　　",
+                    "■■■■■■■■■■■■■■■■■■■■■■■■■　　厠　　 井戸 　",
+                    "■　麟　┃　　  ┃　　　┃ 蛮奇 ┃ 蓮子 ┃ 梅莉 ■　■■■　┏━┓　",
+                    "■　42　┃　41　┃　30　┃　31　┃　32　┃　33　■　■36■　┃□┃　",
+                    "■■＝■■■＝■■■＝■■■＝■■■＝■■■＝■■　　　　　　37　　",
+                    "　　　　　　　　　　　　14　　　　　　　　　　　　　　　　　",
+                    "　←南大街　　　　　　　　　　　　　　　　　　　　西大街→　",
+                    "　　　03　　　　　　　　01　　　　　　　　02　　　　06　　　",
+                    "　　　　　　　　　　人里的門↓　　　　　 広场→↓ 　　　　　",
+                ]),
+            },
+            TextMapArea {
+                id: "sato-suzunaan".to_string(),
+                name: "鈴奈庵".to_string(),
+                kind: TextMapAreaKind::Base,
+                rows: demo_text_rows(&[
+                    "　　　■■■■■■■■■■■■■■■■■■■■■■■　■■■■■■",
+                    "　　　■┌───────────┘　□□■　　　　■　■呂#Aﾛ日ﾛ■",
+                    "　　　■　┌───┐　││　││　　　　■　　　　■／■#A呂日#A■",
+                    "　東　│　└───┘　└┘　└┘　　□　■　　　　■／　■■■■■■",
+                    "　04　│　┌───┐　┌┐　┌┐　13□　■■■─■／",
+                    "　　　■└───────────┐　□□■　　　　│",
+                    "　　　■■■■■■■■■■■■■■■■■■■■■■■",
+                ]),
+            },
+            TextMapArea {
+                id: "sato-geidontei".to_string(),
+                name: "鯢呑亭".to_string(),
+                kind: TextMapAreaKind::Base,
+                rows: demo_text_rows(&[
+                    "　■■■■■■　■■■■■■■■■■■■■■■■■■■■　",
+                    "　■□□　　■　■└────┘　│○　　　||#B#B　#B#B■",
+                    "　■　 39 　＼　■　　　○　　　│○　　　||#B#B　#B#B■",
+                    "　■#f#j#g　■＼■─■　　　　　│○ 38 　||　　　　　■",
+                    "　■■□□■■　■＼■○○○○○　　　　　||#B#B　#B#B■",
+                    "　　　　　　　　■■■■■■■■■■＝＝■■■■■■■■　",
+                    "　　　　　　　　　　　　　　　┃鯢┃　　　　　　　　　　　",
+                    "　　　　　　　　　　　　　　　　　　 西 　　　　広场→　",
+                    "　　　　　　　　　　　　　　　　　　 06 　　　　　02　　",
+                ]),
+            },
+            TextMapArea {
+                id: "sato-outing".to_string(),
+                name: "人里外出".to_string(),
+                kind: TextMapAreaKind::Outing,
+                rows: demo_text_rows(&[
+                    "□＝＝＝＝＝＝三＝＝＝三三＝＝＝三＝＝＝＝＝□",
+                    "||┏日━／＼━ ,川川川川,  ,川川川川, ━━━━━┓||",
+                    "||┃・| ・п・ |／＼三三= 　..川川川　 | 04 ｜林┃||",
+                    "□：┼┼┼┼┼┼┼┼┼┼-01-┼┼┼┼-02=三三= 林：□",
+                    "||┃|_二二06二二 =三三三=　=三三三三=  =三三= 林┃||",
+                    "||┃林二二┃二二 =三三三 03=三三三三=  =三三= 林┃||",
+                    "||▲▲|__|┃　 07 ￣￣￣╦══╦￣￣￣　　￣　林┃||",
+                    "□＝＝＝＝＝＝三＝＝＝三三＝＝＝三＝＝＝＝＝□",
+                ]),
+            },
+        ],
+    }
+}
+
+fn demo_text_rows(rows: &[&str]) -> Vec<TextMapRow> {
+    rows.iter().map(|row| demo_text_row(row)).collect()
+}
+
+fn demo_text_row(row: &str) -> TextMapRow {
+    let mut runs = Vec::new();
+    let mut buffer = String::new();
+    let chars: Vec<char> = row.chars().collect();
+    let mut index = 0;
+
+    while index < chars.len() {
+        if index + 1 < chars.len()
+            && chars[index].is_ascii_digit()
+            && chars[index + 1].is_ascii_digit()
+        {
+            if !buffer.is_empty() {
+                runs.push(TextMapRun {
+                    text: std::mem::take(&mut buffer),
+                    color: None,
+                    color_token: None,
+                    action: None,
+                });
+            }
+
+            let label = format!("{}{}", chars[index], chars[index + 1]);
+            let legacy_place_id = 200 + label.parse::<u16>().unwrap_or_default();
+            let title = demo_sato_legacy_place_name(legacy_place_id).to_string();
+            runs.push(TextMapRun {
+                text: label.clone(),
+                color: Some("#7fd7ff".to_string()),
+                color_token: Some("legacy_button".to_string()),
+                action: Some(TextMapAction::MoveToLocation {
+                    label: label.clone(),
+                    value: legacy_place_id.to_string(),
+                    location_id: demo_sato_location_id(legacy_place_id).to_string(),
+                    title: Some(title),
+                }),
+            });
+            index += 2;
+        } else {
+            buffer.push(chars[index]);
+            index += 1;
+        }
+    }
+
+    if !buffer.is_empty() {
+        runs.push(TextMapRun {
+            text: buffer,
+            color: None,
+            color_token: None,
+            action: None,
+        });
+    }
+
+    TextMapRow { runs }
+}
+
+fn demo_sato_location_id(legacy_place_id: u16) -> &'static str {
+    match legacy_place_id {
+        201 => "school_gate",
+        202 => "garden",
+        203 => "club_room",
+        _ => demo_sato_location_specs()
+            .into_iter()
+            .find(|(candidate, _, _, _, _, _)| *candidate == legacy_place_id)
+            .map(|(_, id, _, _, _, _)| id)
+            .unwrap_or("legacy.sato.201"),
+    }
+}
+
+fn demo_sato_legacy_place_name(legacy_place_id: u16) -> &'static str {
+    demo_sato_location_specs()
+        .into_iter()
+        .find(|(candidate, _, _, _, _, _)| *candidate == legacy_place_id)
+        .map(|(_, _, name, _, _, _)| name)
+        .unwrap_or("人里")
+}
+
 fn demo_dialogue_scenes() -> Vec<DialogueScene> {
     vec![DialogueScene {
         id: "demo_morning".to_string(),
@@ -1789,6 +2400,42 @@ mod tests {
         let decoded: WorldState = serde_json::from_value(value).unwrap();
 
         assert!(decoded.resources.is_empty());
+    }
+
+    #[test]
+    fn missing_text_maps_deserializes_as_empty_list() {
+        let mut value = serde_json::to_value(WorldState::bootstrap_demo()).unwrap();
+        value.as_object_mut().unwrap().remove("text_maps");
+
+        let decoded: WorldState = serde_json::from_value(value).unwrap();
+
+        assert!(decoded.text_maps.is_empty());
+    }
+
+    #[test]
+    fn bootstrap_demo_includes_sato_text_map() {
+        let world = WorldState::bootstrap_demo();
+        let map = world
+            .text_maps
+            .iter()
+            .find(|map| map.id == "legacy.sato")
+            .unwrap();
+
+        assert_eq!(map.name, "人里");
+        assert!(map.areas.iter().any(|area| area.id == "sato-main"));
+        assert!(map.areas.iter().any(|area| area.id == "sato-outing"));
+        assert!(map
+            .areas
+            .iter()
+            .flat_map(|area| &area.rows)
+            .flat_map(|row| &row.runs)
+            .any(|run| {
+                matches!(
+                    &run.action,
+                    Some(TextMapAction::MoveToLocation { location_id, .. })
+                        if location_id == "garden"
+                )
+            }));
     }
 
     #[test]

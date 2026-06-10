@@ -17,6 +17,7 @@ export const createSampleContentPackage = (): ContentPackage => ({
       terrain: "interior",
     },
   ],
+  text_maps: [],
   characters: [
     {
       id: "sample_guest",

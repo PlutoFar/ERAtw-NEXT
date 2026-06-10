@@ -1,7 +1,7 @@
 use eratw_engine::{
     resource::is_safe_resource_source_path, Character, ContentPackageDependency, DialogueCondition,
     DialogueEffect, DialogueScene, InstalledContentPackage, Location, Relationship, ResourceAsset,
-    ScheduledEvent, ScheduledEventKind, WorldState,
+    ScheduledEvent, ScheduledEventKind, TextMap, TextMapAction, WorldState,
 };
 use eratw_mod_runtime::{ModRegistry, ModRegistryEntry};
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,8 @@ pub struct ContentPackage {
     #[serde(default)]
     pub locations: Vec<Location>,
     #[serde(default)]
+    pub text_maps: Vec<TextMap>,
+    #[serde(default)]
     pub characters: Vec<Character>,
     #[serde(default)]
     pub relationships: Vec<Relationship>,
@@ -60,6 +62,7 @@ impl ContentPackage {
 
         validate_manifest(&self.manifest, &mut report)?;
         validate_locations(&self.locations, &mut report);
+        validate_text_maps(&self.text_maps, &mut report);
         validate_characters(&self.characters, &mut report);
         validate_relationships(&self.relationships, &mut report);
         validate_resources(&self.resources, &mut report);
@@ -81,6 +84,7 @@ impl ContentPackage {
     ) -> Result<WorldState, ContentInstallError> {
         ensure_content_package_installable(self, &world, registry)?;
         merge_locations(&mut world, self.locations.clone())?;
+        merge_text_maps(&mut world, self.text_maps.clone())?;
         merge_characters(&mut world, self.characters.clone())?;
         merge_relationships(&mut world, self.relationships.clone())?;
         merge_resources(&mut world, self.resources.clone())?;
@@ -136,11 +140,13 @@ pub enum ContentInstallPreflightIssueCode {
     DuplicateCharacter,
     DuplicateRelationship,
     DuplicateResource,
+    DuplicateTextMap,
     DuplicateContentPackage,
     MissingContentPackageDependency,
     ContentPackageDependencyVersionMismatch,
     ContentPackageConflict,
     MissingLocationReference,
+    MissingTextMapLocationReference,
     MissingCharacterReference,
     MissingRelationshipReference,
     MissingDialogueResource,
@@ -196,6 +202,16 @@ pub enum ContentIssueCode {
     DuplicateRelationship,
     EmptyResourceId,
     DuplicateResourceId,
+    EmptyTextMapId,
+    DuplicateTextMapId,
+    EmptyTextMapName,
+    EmptyTextMapDefaultArea,
+    EmptyTextMapAreaId,
+    DuplicateTextMapAreaId,
+    EmptyTextMapAreaName,
+    MissingTextMapDefaultArea,
+    EmptyTextMapActionTarget,
+    MissingTextMapAreaReference,
     EmptyResourcePath,
     UnsafeResourcePath,
     EmptyResourceLicense,
@@ -250,6 +266,8 @@ pub enum ContentInstallError {
     },
     #[error("resource already exists: {0}")]
     DuplicateResource(String),
+    #[error("text map already exists: {0}")]
+    DuplicateTextMap(String),
     #[error("content package already installed: {namespace}:{package_id}")]
     DuplicateContentPackage {
         namespace: String,
@@ -274,6 +292,8 @@ pub enum ContentInstallError {
     },
     #[error("location reference is missing: {target} -> {location_id}")]
     MissingLocationReference { target: String, location_id: String },
+    #[error("text map location reference is missing: {target} -> {location_id}")]
+    MissingTextMapLocationReference { target: String, location_id: String },
     #[error("character reference is missing: {target} -> {character_id}")]
     MissingCharacterReference {
         target: String,
@@ -362,6 +382,8 @@ fn ensure_content_package_installable(
 
     let mut staged = world.clone();
     merge_locations(&mut staged, package.locations.clone())?;
+    merge_text_maps(&mut staged, package.text_maps.clone())?;
+    ensure_text_map_references_exist(&staged, &package.text_maps)?;
     merge_characters(&mut staged, package.characters.clone())?;
     merge_relationships(&mut staged, package.relationships.clone())?;
     merge_resources(&mut staged, package.resources.clone())?;
@@ -403,6 +425,9 @@ fn preflight_issue_code(error: &ContentInstallError) -> ContentInstallPreflightI
         ContentInstallError::DuplicateResource(_) => {
             ContentInstallPreflightIssueCode::DuplicateResource
         }
+        ContentInstallError::DuplicateTextMap(_) => {
+            ContentInstallPreflightIssueCode::DuplicateTextMap
+        }
         ContentInstallError::DuplicateContentPackage { .. } => {
             ContentInstallPreflightIssueCode::DuplicateContentPackage
         }
@@ -417,6 +442,9 @@ fn preflight_issue_code(error: &ContentInstallError) -> ContentInstallPreflightI
         }
         ContentInstallError::MissingLocationReference { .. } => {
             ContentInstallPreflightIssueCode::MissingLocationReference
+        }
+        ContentInstallError::MissingTextMapLocationReference { .. } => {
+            ContentInstallPreflightIssueCode::MissingTextMapLocationReference
         }
         ContentInstallError::MissingCharacterReference { .. } => {
             ContentInstallPreflightIssueCode::MissingCharacterReference
@@ -528,6 +556,99 @@ fn validate_locations(locations: &[Location], report: &mut ContentValidationRepo
 
         if location.terrain.trim().is_empty() {
             report.push(ContentIssueCode::EmptyLocationTerrain, &target);
+        }
+    }
+}
+
+fn validate_text_maps(text_maps: &[TextMap], report: &mut ContentValidationReport) {
+    let mut map_ids = BTreeSet::new();
+
+    for text_map in text_maps {
+        let target = if text_map.id.trim().is_empty() {
+            "text_map".to_string()
+        } else {
+            text_map.id.clone()
+        };
+
+        if text_map.id.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyTextMapId, "text_map");
+        } else if !map_ids.insert(text_map.id.as_str()) {
+            report.push(ContentIssueCode::DuplicateTextMapId, &text_map.id);
+        }
+
+        if text_map.name.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyTextMapName, &target);
+        }
+
+        if text_map.default_area_id.trim().is_empty() {
+            report.push(ContentIssueCode::EmptyTextMapDefaultArea, &target);
+        }
+
+        let mut area_ids = BTreeSet::new();
+        for area in &text_map.areas {
+            let area_target = format!("{}:{}", target, area.id);
+            if area.id.trim().is_empty() {
+                report.push(ContentIssueCode::EmptyTextMapAreaId, &target);
+            } else if !area_ids.insert(area.id.as_str()) {
+                report.push(ContentIssueCode::DuplicateTextMapAreaId, area_target);
+            }
+
+            if area.name.trim().is_empty() {
+                report.push(ContentIssueCode::EmptyTextMapAreaName, &target);
+            }
+        }
+
+        if !text_map.default_area_id.trim().is_empty()
+            && !area_ids.contains(text_map.default_area_id.as_str())
+        {
+            report.push(ContentIssueCode::MissingTextMapDefaultArea, &target);
+        }
+
+        for location in &text_map.locations {
+            if location.location_id.trim().is_empty() {
+                report.push(ContentIssueCode::EmptyTextMapActionTarget, &target);
+            }
+            if location
+                .area_id
+                .as_ref()
+                .is_some_and(|area_id| !area_ids.contains(area_id.as_str()))
+            {
+                report.push(ContentIssueCode::MissingTextMapAreaReference, &target);
+            }
+        }
+
+        validate_text_map_actions(text_map, &area_ids, report);
+    }
+}
+
+fn validate_text_map_actions(
+    text_map: &TextMap,
+    area_ids: &BTreeSet<&str>,
+    report: &mut ContentValidationReport,
+) {
+    for area in &text_map.areas {
+        for (row_index, row) in area.rows.iter().enumerate() {
+            for (run_index, run) in row.runs.iter().enumerate() {
+                let Some(action) = &run.action else {
+                    continue;
+                };
+                let target = format!("{}:{}:{}:{}", text_map.id, area.id, row_index, run_index);
+                match action {
+                    TextMapAction::MoveToLocation { location_id, .. } => {
+                        if location_id.trim().is_empty() {
+                            report.push(ContentIssueCode::EmptyTextMapActionTarget, target);
+                        }
+                    }
+                    TextMapAction::SwitchArea { area_id, .. } => {
+                        if area_id.trim().is_empty() {
+                            report.push(ContentIssueCode::EmptyTextMapActionTarget, target);
+                        } else if !area_ids.contains(area_id.as_str()) {
+                            report.push(ContentIssueCode::MissingTextMapAreaReference, target);
+                        }
+                    }
+                    TextMapAction::Back { .. } => {}
+                }
+            }
         }
     }
 }
@@ -962,6 +1083,55 @@ fn ensure_world_references_exist(world: &WorldState) -> Result<(), ContentInstal
     Ok(())
 }
 
+fn ensure_text_map_references_exist(
+    world: &WorldState,
+    text_maps: &[TextMap],
+) -> Result<(), ContentInstallError> {
+    for text_map in text_maps {
+        for location in &text_map.locations {
+            ensure_text_map_location_ref_exists(
+                world,
+                &format!("text_map:{}:locations", text_map.id),
+                &location.location_id,
+            )?;
+        }
+
+        for area in &text_map.areas {
+            for (row_index, row) in area.rows.iter().enumerate() {
+                for (run_index, run) in row.runs.iter().enumerate() {
+                    if let Some(TextMapAction::MoveToLocation { location_id, .. }) = &run.action {
+                        ensure_text_map_location_ref_exists(
+                            world,
+                            &format!(
+                                "text_map:{}:{}:{}:{}",
+                                text_map.id, area.id, row_index, run_index
+                            ),
+                            location_id,
+                        )?;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn ensure_text_map_location_ref_exists(
+    world: &WorldState,
+    target: &str,
+    location_id: &str,
+) -> Result<(), ContentInstallError> {
+    if location_exists(world, location_id) {
+        Ok(())
+    } else {
+        Err(ContentInstallError::MissingTextMapLocationReference {
+            target: target.to_string(),
+            location_id: location_id.to_string(),
+        })
+    }
+}
+
 fn ensure_dialogue_references_exist(
     world: &WorldState,
     scenes: &[DialogueScene],
@@ -1299,6 +1469,24 @@ fn merge_locations(
     Ok(())
 }
 
+fn merge_text_maps(
+    world: &mut WorldState,
+    text_maps: Vec<TextMap>,
+) -> Result<(), ContentInstallError> {
+    for text_map in &text_maps {
+        if world
+            .text_maps
+            .iter()
+            .any(|existing| existing.id == text_map.id)
+        {
+            return Err(ContentInstallError::DuplicateTextMap(text_map.id.clone()));
+        }
+    }
+
+    world.text_maps.extend(text_maps);
+    Ok(())
+}
+
 fn merge_characters(
     world: &mut WorldState,
     characters: Vec<Character>,
@@ -1513,7 +1701,8 @@ mod tests {
     use super::*;
     use eratw_engine::{
         CharacterState, DialogueChoice, DialogueCondition, DialogueEffect, DialogueNode,
-        ScheduledRepeat, ScheduledTime, Weather,
+        ScheduledRepeat, ScheduledTime, TextMapArea, TextMapAreaKind, TextMapRow, TextMapRun,
+        Weather,
     };
 
     #[test]
@@ -1626,6 +1815,7 @@ mod tests {
         let package = ContentPackage {
             manifest,
             locations: Vec::new(),
+            text_maps: Vec::new(),
             characters: Vec::new(),
             relationships: Vec::new(),
             resources: Vec::new(),
@@ -1658,6 +1848,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.assets"),
             locations: Vec::new(),
+            text_maps: Vec::new(),
             characters: Vec::new(),
             relationships: Vec::new(),
             resources: vec![ResourceAsset {
@@ -2057,6 +2248,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.bad_ref"),
             locations: Vec::new(),
+            text_maps: Vec::new(),
             characters: vec![Character {
                 id: "lost".to_string(),
                 display_name: "Lost".to_string(),
@@ -2240,11 +2432,69 @@ mod tests {
         let package: ContentPackage = serde_json::from_value(value).unwrap();
 
         assert!(package.locations.is_empty());
+        assert!(package.text_maps.is_empty());
         assert!(package.characters.is_empty());
         assert!(package.relationships.is_empty());
         assert!(package.resources.is_empty());
         assert!(package.dialogue_scenes.is_empty());
         assert!(package.scheduled_events.is_empty());
+    }
+
+    #[test]
+    fn text_map_validation_reports_duplicate_ids_and_missing_areas() {
+        let mut first = text_map("sample.map", "school_gate");
+        first.default_area_id = "missing".to_string();
+        let package = ContentPackage {
+            manifest: ContentPackageManifest::new("core", "core.text-map"),
+            locations: Vec::new(),
+            text_maps: vec![first, text_map("sample.map", "school_gate")],
+            characters: Vec::new(),
+            relationships: Vec::new(),
+            resources: Vec::new(),
+            dialogue_scenes: Vec::new(),
+            scheduled_events: Vec::new(),
+        };
+
+        let report = package.validate().unwrap();
+
+        assert_eq!(
+            issue_codes(&report),
+            vec![
+                ContentIssueCode::MissingTextMapDefaultArea,
+                ContentIssueCode::DuplicateTextMapId,
+            ]
+        );
+    }
+
+    #[test]
+    fn install_rejects_existing_text_map_id() {
+        let mut package = package_with("core.duplicate-map", Vec::new(), Vec::new());
+        package.text_maps = vec![text_map("legacy.sato", "school_gate")];
+
+        let result = package.install_into_world(WorldState::bootstrap_demo());
+
+        assert_eq!(
+            result,
+            Err(ContentInstallError::DuplicateTextMap(
+                "legacy.sato".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn install_rejects_text_map_missing_location_reference() {
+        let mut package = package_with("core.bad-map", Vec::new(), Vec::new());
+        package.text_maps = vec![text_map("sample.map", "missing_location")];
+
+        let result = package.install_into_world(WorldState::bootstrap_demo());
+
+        assert_eq!(
+            result,
+            Err(ContentInstallError::MissingTextMapLocationReference {
+                target: "text_map:sample.map:locations".to_string(),
+                location_id: "missing_location".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -2257,14 +2507,23 @@ mod tests {
                     name: "".to_string(),
                     ascii_symbol: '新',
                     terrain: "".to_string(),
+                    legacy_place_id: None,
+                    map_id: None,
+                    map_area_id: None,
+                    move_minutes: None,
                 },
                 Location {
                     id: "new_place".to_string(),
                     name: "重复地点".to_string(),
                     ascii_symbol: '重',
                     terrain: "interior".to_string(),
+                    legacy_place_id: None,
+                    map_id: None,
+                    map_area_id: None,
+                    move_minutes: None,
                 },
             ],
+            text_maps: Vec::new(),
             characters: vec![
                 Character {
                     id: "new_character".to_string(),
@@ -2328,6 +2587,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.assets"),
             locations: Vec::new(),
+            text_maps: Vec::new(),
             characters: Vec::new(),
             relationships: Vec::new(),
             resources: vec![
@@ -2477,6 +2737,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("sample", "sample.scheduled-dialogue"),
             locations: vec![location("sample_room")],
+            text_maps: Vec::new(),
             characters: vec![character("sample_character", "sample_room")],
             relationships: Vec::new(),
             resources: Vec::new(),
@@ -2521,6 +2782,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.assets"),
             locations: Vec::new(),
+            text_maps: Vec::new(),
             characters: Vec::new(),
             relationships: Vec::new(),
             resources: vec![resource_asset("core.assets.heroine.smile")],
@@ -2557,6 +2819,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("sample", "sample.character"),
             locations: vec![location("sample_room")],
+            text_maps: Vec::new(),
             characters: vec![character("sample_character", "sample_room")],
             relationships: vec![Relationship {
                 source_character_id: "player".to_string(),
@@ -2599,6 +2862,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("sample", "sample.bad-character"),
             locations: Vec::new(),
+            text_maps: Vec::new(),
             characters: vec![character("sample_character", "missing_room")],
             relationships: Vec::new(),
             resources: Vec::new(),
@@ -2627,6 +2891,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("sample", "sample.duplicates"),
             locations: vec![location("school_gate")],
+            text_maps: Vec::new(),
             characters: Vec::new(),
             relationships: Vec::new(),
             resources: Vec::new(),
@@ -2663,6 +2928,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("sample", "sample.missing-relationship"),
             locations: vec![location("sample_room")],
+            text_maps: Vec::new(),
             characters: vec![character("sample_character", "sample_room")],
             relationships: Vec::new(),
             resources: Vec::new(),
@@ -2723,6 +2989,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.missing-asset"),
             locations: Vec::new(),
+            text_maps: Vec::new(),
             characters: Vec::new(),
             relationships: Vec::new(),
             resources: Vec::new(),
@@ -2755,6 +3022,7 @@ mod tests {
         let package = ContentPackage {
             manifest: ContentPackageManifest::new("core", "core.duplicate-asset"),
             locations: Vec::new(),
+            text_maps: Vec::new(),
             characters: Vec::new(),
             relationships: Vec::new(),
             resources: vec![resource_asset("core.demo.heroine.neutral")],
@@ -2829,6 +3097,7 @@ mod tests {
         ContentPackage {
             manifest: ContentPackageManifest::new("core", package_id),
             locations: Vec::new(),
+            text_maps: Vec::new(),
             characters: Vec::new(),
             relationships: Vec::new(),
             resources: Vec::new(),
@@ -2914,6 +3183,41 @@ mod tests {
             name: "新增地点".to_string(),
             ascii_symbol: '新',
             terrain: "interior".to_string(),
+            legacy_place_id: None,
+            map_id: None,
+            map_area_id: None,
+            move_minutes: None,
+        }
+    }
+
+    fn text_map(id: &str, location_id: &str) -> TextMap {
+        TextMap {
+            id: id.to_string(),
+            name: "新增地图".to_string(),
+            default_area_id: "main".to_string(),
+            locations: vec![eratw_engine::TextMapLocation {
+                location_id: location_id.to_string(),
+                legacy_place_id: None,
+                area_id: Some("main".to_string()),
+            }],
+            areas: vec![TextMapArea {
+                id: "main".to_string(),
+                name: "主区域".to_string(),
+                kind: TextMapAreaKind::Base,
+                rows: vec![TextMapRow {
+                    runs: vec![TextMapRun {
+                        text: "01".to_string(),
+                        color: None,
+                        color_token: None,
+                        action: Some(TextMapAction::MoveToLocation {
+                            label: "01".to_string(),
+                            value: "201".to_string(),
+                            location_id: location_id.to_string(),
+                            title: None,
+                        }),
+                    }],
+                }],
+            }],
         }
     }
 
