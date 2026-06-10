@@ -4,6 +4,7 @@ import { App } from "./App";
 import {
   buildAsciiMapModel,
   groupLocationLegendLocations,
+  terminalWidth,
 } from "./components/traditional/viewModel";
 import { createBrowserMockEngineClient } from "./engine/client";
 import { createDemoWorld } from "./engine/demoWorld";
@@ -78,20 +79,26 @@ describe("App", () => {
     expect(screen.queryByLabelText("era text map")).not.toBeInTheDocument();
   });
 
-  it("renders ASCII map text as fixed cells with separate overlay hotspots", async () => {
+  it("renders the Human Village as a semantic map with separate overlay hotspots", async () => {
     await enterGame();
     await openMovementMap();
+
+    const viewport = document.querySelector(".ascii-map-viewport");
+    expect(viewport).toHaveAttribute("data-map-renderer", "semantic");
+    expect(viewport).toHaveAttribute("data-semantic-renderer", "css-village");
+    expect(viewport?.getAttribute("data-image-prompt")).toContain("Human Village");
 
     const map = screen.getByLabelText("era text map");
     expect(map).toHaveClass("ascii-map-grid");
     expect(within(map).queryByRole("button")).not.toBeInTheDocument();
-    expect(map.textContent).toContain("广场");
-    expect(map.textContent).toContain("稗田邸");
-    expect(map.textContent).toContain("阿求私室");
-    expect(map.textContent).toContain("慧音房间");
-    expect(map.textContent).toContain("咖啡馆");
-    expect(map.textContent).toContain("包场浴场");
-    expect(map.textContent).toContain("望楼");
+    expect(map.querySelectorAll(".ascii-map-cell")).toHaveLength(0);
+    expect(screen.getAllByText("广场").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("稗田邸").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("阿求私室").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("慧音的房间").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("咖啡馆").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("包场浴场").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("瞭望楼").length).toBeGreaterThan(0);
     expect(map.textContent).not.toContain("広场");
     expect(map.textContent).not.toContain("櫓");
     expect(map.textContent).not.toContain("橹");
@@ -101,12 +108,10 @@ describe("App", () => {
     expect(map.textContent).not.toContain("现在位置");
     expect(map.textContent).not.toContain("颜色说明");
     expect(map.textContent).not.toContain("提示");
-    expect(map.querySelectorAll(".ascii-map-cell").length).toBeGreaterThan(0);
-    expect(map.querySelectorAll(".cell-wall").length).toBeGreaterThan(0);
-    expect(map.querySelectorAll(".cell-road").length).toBeGreaterThan(0);
-    expect(map.querySelectorAll(".cell-building-label").length).toBeGreaterThan(0);
-    expect(map.querySelectorAll(".cell-forest").length).toBeGreaterThan(0);
-    expect(Number(map.getAttribute("data-column-count"))).toBeGreaterThan(110);
+    expect(document.querySelectorAll(".semantic-map-feature.road").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".semantic-map-feature.building").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".semantic-map-feature.trees").length).toBeGreaterThan(0);
+    expect(Number(map.getAttribute("data-column-count"))).toBeGreaterThan(90);
     expect(Number(map.getAttribute("data-row-count"))).toBeGreaterThan(50);
 
     const hotspots = screen.getByLabelText("text map hotspots");
@@ -122,24 +127,30 @@ describe("App", () => {
       "data-location-id",
       "legacy.sato.220",
     );
+    expect(within(hotspots).getByRole("button", { name: "瞭望楼" })).toHaveStyle({
+      "--hotspot-width": "10",
+      "--hotspot-height": "10",
+    });
   });
 
   it("keeps normalized map rows aligned and preserves location ids", () => {
     const world = createDemoWorld();
     const area = world.text_maps[0].areas[0];
     const model = buildAsciiMapModel(area);
-    const sourceLengths = area.rows.map((row) =>
-      row.runs.reduce((total, run) => total + Array.from(run.text).length, 0),
+    const sourceWidths = area.rows.map((row) =>
+      row.runs.reduce((total, run) => total + terminalWidth(run.text), 0),
     );
 
-    expect(model.lines.map((line) => Array.from(line).length)).toEqual(sourceLengths);
+    expect(model.lines.map((line) => terminalWidth(line))).toEqual(sourceWidths);
     expect(model.hotspots.find((hotspot) => hotspot.locationId === "school_gate"))
       .toMatchObject({ label: "人里的门", locationId: "school_gate" });
-    expect(model.gridRows[0]).toHaveLength(sourceLengths[0]);
     expect(model.hotspots.map((hotspot) => hotspot.locationId)).toContain("club_room");
+    expect(model.labels.map((label) => label.text)).toContain("瞭望楼");
+    expect(model.semanticLayout?.renderer).toBe("css-village");
+    expect(model.semanticLayout?.imagePrompt).toContain("no text baked into the image");
     expect(model.hotspots.length).toBeGreaterThan(20);
     expect(model.rowCount).toBeGreaterThan(50);
-    expect(model.maxColumns).toBeGreaterThan(110);
+    expect(model.maxColumns).toBeGreaterThan(90);
     expect(model.lines.join("\n")).not.toContain("现在位置");
     expect(model.lines.join("\n")).not.toContain("颜色说明");
   });

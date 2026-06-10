@@ -8,22 +8,65 @@ import type {
   TextMapArea,
   WorldState,
 } from "../../types";
+import {
+  humanVillagePlacementForLegacyPlaceId,
+  humanVillageSemanticMap,
+  legacyPlaceIdForHotspot,
+} from "./humanVillageMap";
 
 export interface AsciiMapHotspot {
   key: string;
   action: TextMapAction;
   row: number;
   column: number;
+  height: number;
   width: number;
   label: string;
   color: string | null;
   locationId: string | null;
 }
 
+export interface AsciiMapCell {
+  key: string;
+  character: string;
+  row: number;
+  column: number;
+  width: number;
+}
+
+export interface AsciiMapLabel {
+  key: string;
+  locationId: string | null;
+  marker: string;
+  row: number;
+  column: number;
+  text: string;
+}
+
+export interface SemanticMapFeature {
+  key: string;
+  kind: "boundary" | "building" | "gate" | "landmark" | "plaza" | "road" | "trees" | "water";
+  label?: string;
+  row: number;
+  column: number;
+  width: number;
+  height: number;
+}
+
+export interface SemanticMapLayout {
+  columns: number;
+  imagePrompt: string;
+  renderer: "css-village";
+  rows: number;
+  features: SemanticMapFeature[];
+}
+
 export interface AsciiMapModel {
-  gridRows: string[][];
+  cells: AsciiMapCell[];
+  labels: AsciiMapLabel[];
   lines: string[];
   hotspots: AsciiMapHotspot[];
+  semanticLayout: SemanticMapLayout | null;
   maxColumns: number;
   rowCount: number;
 }
@@ -194,66 +237,181 @@ export const groupLocationLegendLocations = (
   return groups;
 };
 
-const charLength = (value: string) => Array.from(value).length;
+const isWideCodePoint = (codePoint: number) =>
+  (codePoint >= 0x1100 && codePoint <= 0x115f) ||
+  codePoint === 0x2329 ||
+  codePoint === 0x232a ||
+  (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
+  (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+  (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+  (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+  (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+  (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+  (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+  (codePoint >= 0x20000 && codePoint <= 0x3fffd);
+
+export const terminalCharWidth = (character: string) => {
+  const codePoint = character.codePointAt(0) ?? 0;
+  if (
+    codePoint === 0 ||
+    codePoint < 0x20 ||
+    (codePoint >= 0x7f && codePoint < 0xa0)
+  ) {
+    return 0;
+  }
+  return isWideCodePoint(codePoint) ? 2 : 1;
+};
+
+export const terminalWidth = (value: string) =>
+  Array.from(value).reduce((total, character) => total + terminalCharWidth(character), 0);
+
+const fitToTerminalWidth = (value: string, expectedWidth: number) => {
+  let width = 0;
+  let fitted = "";
+  for (const character of Array.from(value)) {
+    const characterWidth = terminalCharWidth(character);
+    if (width + characterWidth > expectedWidth) {
+      break;
+    }
+    fitted += character;
+    width += characterWidth;
+  }
+  return `${fitted}${" ".repeat(Math.max(0, expectedWidth - width))}`;
+};
 
 export const normalizeMapRunText = (text: string) => {
-  const expectedLength = charLength(text);
+  const expectedWidth = terminalWidth(text);
   const normalized = displayText(text);
-  const normalizedChars = Array.from(normalized);
-  if (normalizedChars.length === expectedLength) {
+  const normalizedWidth = terminalWidth(normalized);
+  if (normalizedWidth === expectedWidth) {
     return normalized;
   }
-  if (normalizedChars.length > expectedLength) {
-    return normalizedChars.slice(0, expectedLength).join("");
+  return fitToTerminalWidth(normalized, expectedWidth);
+};
+
+const cellsFromText = (text: string, row: number, startColumn: number, keyPrefix: string) => {
+  const cells: AsciiMapCell[] = [];
+  let column = startColumn;
+  for (const [index, character] of Array.from(text).entries()) {
+    const width = Math.max(1, terminalCharWidth(character));
+    cells.push({
+      key: `${keyPrefix}:${index}`,
+      character,
+      row,
+      column,
+      width,
+    });
+    column += width;
   }
-  return `${normalized}${" ".repeat(expectedLength - normalizedChars.length)}`;
+  return cells;
+};
+
+const createHumanVillageSemanticLayout = (
+  hotspots: AsciiMapHotspot[],
+  labels: AsciiMapLabel[],
+) => {
+  const semanticHotspots = hotspots.map((hotspot) => {
+    const position = humanVillagePlacementForLegacyPlaceId(
+      legacyPlaceIdForHotspot(hotspot),
+    );
+    return position
+      ? {
+          ...hotspot,
+          row: position.row,
+          column: position.column,
+          height: position.height,
+          width: position.width,
+        }
+      : hotspot;
+  });
+  const semanticLabels = labels.map((label) => {
+    const legacyPlaceId = Number(label.key.split(":").at(-1));
+    const position = humanVillagePlacementForLegacyPlaceId(legacyPlaceId);
+    return {
+      ...label,
+      row: position ? position.row + Math.max(1, Math.floor(position.height / 2)) : label.row,
+      column: position ? position.column + 1 : label.column,
+    };
+  });
+
+  return {
+    hotspots: semanticHotspots,
+    labels: semanticLabels,
+    layout: humanVillageSemanticMap,
+  };
 };
 
 export const buildAsciiMapModel = (area: TextMapArea | undefined): AsciiMapModel => {
   if (!area) {
     return {
-      gridRows: [["N", "O", " ", "T", "E", "X", "T", " ", "M", "A", "P", " ", "D", "A", "T", "A"]],
+      cells: cellsFromText("NO TEXT MAP DATA", 0, 0, "missing"),
+      labels: [],
       lines: ["NO TEXT MAP DATA"],
       hotspots: [],
-      maxColumns: 16,
+      semanticLayout: null,
+      maxColumns: terminalWidth("NO TEXT MAP DATA"),
       rowCount: 1,
     };
   }
 
+  const cells: AsciiMapCell[] = [];
   const hotspots: AsciiMapHotspot[] = [];
+  const labels: AsciiMapLabel[] = [];
   const lines = area.rows.map((row, rowIndex) => {
     let column = 0;
     return row.runs
       .map((run, runIndex) => {
         const text = normalizeMapRunText(run.text);
-        const width = charLength(text);
+        const width = terminalWidth(text);
         if (run.action) {
           const locationId =
             run.action.type === "move_to_location" ? run.action.location_id : null;
+          const label = displayText(run.action.title ?? run.action.label);
           hotspots.push({
             key: `${area.id}:${rowIndex}:${runIndex}:${run.action.type}:${run.action.value}`,
             action: run.action,
             row: rowIndex,
             column,
+            height: 1,
             width: Math.max(1, width),
-            label: displayText(run.action.title ?? run.action.label),
+            label,
             color: run.color,
             locationId,
           });
+          labels.push({
+            key: `${area.id}:label:${rowIndex}:${runIndex}:${run.action.value}`,
+            locationId,
+            marker: displayText(run.action.label),
+            row: rowIndex,
+            column,
+            text: label,
+          });
         }
+        cells.push(
+          ...cellsFromText(
+            run.action ? " ".repeat(width) : text,
+            rowIndex,
+            column,
+            `${area.id}:${rowIndex}:${runIndex}`,
+          ),
+        );
         column += width;
-        return text;
+        return run.action ? " ".repeat(width) : text;
       })
       .join("");
   });
 
-  const maxColumns = Math.max(1, ...lines.map(charLength));
+  const maxColumns = Math.max(1, ...lines.map(terminalWidth));
+  const semantic =
+    area.id === "sato-main" ? createHumanVillageSemanticLayout(hotspots, labels) : null;
 
   return {
-    gridRows: lines.map((line) => Array.from(line)),
+    cells: semantic ? [] : cells,
+    labels: semantic?.labels ?? labels,
     lines,
-    hotspots,
-    maxColumns,
-    rowCount: lines.length,
+    hotspots: semantic?.hotspots ?? hotspots,
+    semanticLayout: semantic?.layout ?? null,
+    maxColumns: semantic?.layout.columns ?? maxColumns,
+    rowCount: semantic?.layout.rows ?? lines.length,
   };
 };

@@ -26,14 +26,27 @@ type MapStyle = CSSProperties & {
 };
 
 type HotspotStyle = CSSProperties & {
+  "--hotspot-height": number;
   "--hotspot-column": number;
   "--hotspot-row": number;
   "--hotspot-width": number;
 };
 
+type FeatureStyle = CSSProperties & {
+  "--feature-column": number;
+  "--feature-height": number;
+  "--feature-row": number;
+  "--feature-width": number;
+};
+
 type CellStyle = CSSProperties & {
-  gridColumn: number;
+  gridColumn: string;
   gridRow: number;
+};
+
+type LabelStyle = CSSProperties & {
+  "--label-column": number;
+  "--label-row": number;
 };
 
 type CanvasStyle = CSSProperties & {
@@ -154,7 +167,11 @@ export const AsciiMapViewport = ({
 
   return (
     <div
-      className={["ascii-map-viewport", dragging ? "dragging" : ""]
+      className={[
+        "ascii-map-viewport",
+        model.semanticLayout ? "semantic-map" : "",
+        dragging ? "dragging" : "",
+      ]
         .filter(Boolean)
         .join(" ")}
       style={style}
@@ -163,6 +180,9 @@ export const AsciiMapViewport = ({
       data-zoom={zoom.toFixed(2)}
       data-pan-x={Math.round(pan.x)}
       data-pan-y={Math.round(pan.y)}
+      data-map-renderer={model.semanticLayout ? "semantic" : "text"}
+      data-semantic-renderer={model.semanticLayout?.renderer}
+      data-image-prompt={model.semanticLayout?.imagePrompt}
       onPointerDown={(event) => {
         if (event.button !== 0) {
           return;
@@ -217,6 +237,27 @@ export const AsciiMapViewport = ({
         {model.lines.join("\n")}
       </pre>
       <div className="ascii-map-canvas" style={canvasStyle} ref={canvasRef}>
+        {model.semanticLayout ? (
+          <div className="semantic-map-features" aria-hidden="true">
+            {model.semanticLayout.features.map((feature) => {
+              const featureStyle: FeatureStyle = {
+                "--feature-column": feature.column,
+                "--feature-height": feature.height,
+                "--feature-row": feature.row,
+                "--feature-width": feature.width,
+              };
+
+              return (
+                <div
+                  className={`semantic-map-feature ${feature.kind}`}
+                  data-feature-label={feature.label}
+                  key={feature.key}
+                  style={featureStyle}
+                />
+              );
+            })}
+          </div>
+        ) : null}
         <div
           className="ascii-map-grid"
           aria-label="era text map"
@@ -224,33 +265,63 @@ export const AsciiMapViewport = ({
           data-row-count={model.rowCount}
           data-column-count={model.maxColumns}
         >
-          {model.gridRows.map((row, rowIndex) => (
-            <div className="ascii-map-row" key={`${area?.id ?? "missing"}:${rowIndex}`}>
-              {row.map((character, columnIndex) => (
-                <span
-                  aria-hidden="true"
-                  className={
-                    character === " " || character === "　"
-                      ? "ascii-map-cell space"
-                      : ["ascii-map-cell", cellToneClass(character)]
-                          .filter(Boolean)
-                          .join(" ")
-                  }
-                  style={
-                    {
-                      gridColumn: columnIndex + 1,
-                      gridRow: rowIndex + 1,
-                    } satisfies CellStyle
-                  }
-                  data-map-row={rowIndex}
-                  data-map-column={columnIndex}
-                  key={`${rowIndex}:${columnIndex}`}
-                >
-                  {character === " " || character === "　" ? "\u00a0" : character}
-                </span>
-              ))}
-            </div>
+          {model.cells.map((cell) => (
+            <span
+              aria-hidden="true"
+              className={
+                cell.character === " " || cell.character === "　"
+                  ? "ascii-map-cell space"
+                  : ["ascii-map-cell", cellToneClass(cell.character)]
+                      .filter(Boolean)
+                      .join(" ")
+              }
+              style={
+                {
+                  gridColumn: `${cell.column + 1} / span ${cell.width}`,
+                  gridRow: cell.row + 1,
+                } satisfies CellStyle
+              }
+              data-map-row={cell.row}
+              data-map-column={cell.column}
+              data-map-width={cell.width}
+              data-map-character={cell.character}
+              key={cell.key}
+            >
+              {cell.character === " " || cell.character === "　" ? "\u00a0" : cell.character}
+            </span>
           ))}
+        </div>
+        <div className="ascii-map-labels" aria-label="map labels">
+          {model.labels.map((label) => {
+            const isCurrent = label.locationId === currentLocationId;
+            const isSelected = label.locationId === selectedLocationId;
+            const isHovered = label.locationId === hoveredLocationId;
+            const isPinned = label.locationId === pinnedLocationId;
+            const labelStyle: LabelStyle = {
+              "--label-column": label.column,
+              "--label-row": label.row,
+            };
+
+            return (
+              <span
+                className={[
+                  "ascii-map-label",
+                  isCurrent ? "current" : "",
+                  isSelected ? "selected" : "",
+                  isHovered ? "hovered" : "",
+                  isPinned ? "pinned" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                data-location-id={label.locationId ?? undefined}
+                key={label.key}
+                style={labelStyle}
+              >
+                <span className="ascii-map-label-marker">{label.marker}</span>
+                <span className="ascii-map-label-text">{label.text}</span>
+              </span>
+            );
+          })}
         </div>
         <div className="ascii-map-hotspots" aria-label="text map hotspots">
           {model.hotspots.map((hotspot) => {
@@ -263,6 +334,7 @@ export const AsciiMapViewport = ({
             const isHovered = locationId === hoveredLocationId;
             const isPinned = locationId === pinnedLocationId;
             const hotspotStyle: HotspotStyle = {
+              "--hotspot-height": hotspot.height,
               "--hotspot-column": hotspot.column,
               "--hotspot-row": hotspot.row,
               "--hotspot-width": hotspot.width,
