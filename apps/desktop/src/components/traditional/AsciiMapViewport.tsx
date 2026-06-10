@@ -72,13 +72,18 @@ const clamp = (value: number, min: number, max: number) =>
 const featureOrder: Record<SemanticMapFeature["kind"], number> = {
   trees: 0,
   river: 1,
-  road: 2,
-  plaza: 3,
-  water: 4,
-  building: 5,
-  gate: 6,
-  landmark: 7,
-  boundary: 8,
+  canal: 2,
+  road: 3,
+  bridge: 4,
+  field: 5,
+  yard: 6,
+  water: 7,
+  plaza: 8,
+  market: 9,
+  building: 10,
+  gate: 11,
+  landmark: 12,
+  boundary: 13,
 };
 
 const sortedFeatures = (features: SemanticMapFeature[]) =>
@@ -96,6 +101,43 @@ const featureRect = (feature: SemanticMapFeature, inset = 0) => ({
   height: Math.max(0, feature.height - inset * 2),
 });
 
+const featureClassName = (feature: SemanticMapFeature) =>
+  [
+    `semantic-svg-${feature.kind}`,
+    feature.variant ? `variant-${feature.variant}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+const seededOffset = (seed: string, index: number, modulo: number) => {
+  let hash = 0;
+  const value = `${seed}:${index}`;
+  for (const character of value) {
+    hash = (hash * 31 + character.charCodeAt(0)) % 9973;
+  }
+  return (hash % modulo) / modulo;
+};
+
+const roadPath = (feature: SemanticMapFeature, offset = 0) => {
+  const center = featureCenter(feature);
+  const curve = feature.variant === "main" ? 0 : 1.2;
+  if (feature.width >= feature.height) {
+    const startX = feature.column + 0.7;
+    const endX = feature.column + feature.width - 0.7;
+    const y = center.y + offset;
+    return `M ${startX} ${y} C ${startX + feature.width * 0.3} ${
+      y + curve
+    }, ${startX + feature.width * 0.7} ${y - curve}, ${endX} ${y}`;
+  }
+
+  const startY = feature.row + 0.7;
+  const endY = feature.row + feature.height - 0.7;
+  const x = center.x + offset;
+  return `M ${x} ${startY} C ${x - curve} ${startY + feature.height * 0.3}, ${
+    x + curve
+  } ${startY + feature.height * 0.7}, ${x} ${endY}`;
+};
+
 const roofPoints = (feature: SemanticMapFeature) => {
   const x = feature.column;
   const y = feature.row;
@@ -108,9 +150,13 @@ const roofPoints = (feature: SemanticMapFeature) => {
 
 const markerText = (label: AsciiMapLabel) => `${label.marker} ${label.text}`;
 
-const labelWidth = (label: AsciiMapLabel, hotspot: AsciiMapHotspot | undefined) => {
-  const textWidth = terminalWidth(markerText(label)) * 0.72 + 1.8;
-  const minimum = hotspot ? Math.min(7, Math.max(4.6, hotspot.width - 1.2)) : 4.6;
+const labelWidth = (
+  label: AsciiMapLabel,
+  hotspot: AsciiMapHotspot | undefined,
+  visibleText: string,
+) => {
+  const textWidth = terminalWidth(visibleText) * 0.72 + 1.8;
+  const minimum = hotspot ? Math.min(5.2, Math.max(3.2, hotspot.width * 0.36)) : 3.2;
   return Math.min(18, Math.max(minimum, textWidth));
 };
 
@@ -177,38 +223,59 @@ const renderSemanticFeature = (feature: SemanticMapFeature) => {
   const center = featureCenter(feature);
 
   if (feature.kind === "trees") {
+    const treeCount = Math.max(6, Math.round((feature.width * feature.height) / 18));
     return (
-      <rect
-        className="semantic-svg-trees"
-        key={feature.key}
-        {...rect}
-        data-feature-label={feature.label}
-      />
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+        <rect {...rect} rx="2.4" />
+        {Array.from({ length: treeCount }).map((_, index) => {
+          const x = feature.column + 1.2 + seededOffset(feature.key, index, 97) * (feature.width - 2.4);
+          const y = feature.row + 1.2 + seededOffset(feature.key, index + 17, 89) * (feature.height - 2.4);
+          const radius = 0.55 + seededOffset(feature.key, index + 31, 71) * 0.75;
+          return <circle cx={x} cy={y} key={`${feature.key}:tree:${index}`} r={radius} />;
+        })}
+      </g>
     );
   }
 
   if (feature.kind === "boundary") {
+    const x = feature.column;
+    const y = feature.row;
+    const width = feature.width;
+    const height = feature.height;
+    const cut = 7;
+    const wallPath = `M ${x + cut} ${y} H ${x + width - cut} L ${x + width} ${
+      y + cut
+    } V ${y + height - cut} L ${x + width - cut} ${y + height} H ${x + cut} L ${x} ${
+      y + height - cut
+    } V ${y + cut} Z`;
+    const innerPath = `M ${x + cut + 2} ${y + 2} H ${x + width - cut - 2} L ${
+      x + width - 2
+    } ${y + cut + 2} V ${y + height - cut - 2} L ${x + width - cut - 2} ${
+      y + height - 2
+    } H ${x + cut + 2} L ${x + 2} ${y + height - cut - 2} V ${y + cut + 2} Z`;
     return (
-      <rect
-        className="semantic-svg-boundary"
-        key={feature.key}
-        {...rect}
-        data-feature-label={feature.label}
-      />
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+        <path className="wall-shadow" d={wallPath} />
+        <path className="wall-outer" d={wallPath} />
+        <path className="wall-inner" d={innerPath} />
+      </g>
     );
   }
 
   if (feature.kind === "road") {
     const horizontal = feature.width >= feature.height;
+    const roadWidth = Math.max(2.2, Math.min(horizontal ? feature.height : feature.width, 8));
     return (
-      <g className="semantic-svg-road" data-feature-label={feature.label} key={feature.key}>
-        <rect {...rect} rx="0.9" />
-        <line
-          x1={horizontal ? feature.column + 1 : center.x}
-          x2={horizontal ? feature.column + feature.width - 1 : center.x}
-          y1={horizontal ? center.y : feature.row + 1}
-          y2={horizontal ? center.y : feature.row + feature.height - 1}
-        />
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+        <path className="road-edge" d={roadPath(feature)} strokeWidth={roadWidth + 1.35} />
+        <path className="road-bed" d={roadPath(feature)} strokeWidth={roadWidth} />
+        <path className="road-center" d={roadPath(feature)} />
+        {feature.variant === "main" || feature.variant === "market" ? (
+          <>
+            <path className="road-side left" d={roadPath(feature, horizontal ? -roadWidth * 0.34 : -roadWidth * 0.34)} />
+            <path className="road-side right" d={roadPath(feature, horizontal ? roadWidth * 0.34 : roadWidth * 0.34)} />
+          </>
+        ) : null}
       </g>
     );
   }
@@ -218,8 +285,9 @@ const renderSemanticFeature = (feature: SemanticMapFeature) => {
     const endX = feature.column + feature.width;
     const y = feature.row + feature.height / 2;
     return (
-      <g className="semantic-svg-river" data-feature-label={feature.label} key={feature.key}>
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
         <path
+          className="river-bed"
           d={`M ${startX} ${y} C ${startX + feature.width * 0.24} ${
             y - 2.1
           }, ${startX + feature.width * 0.45} ${y + 1.8}, ${
@@ -227,6 +295,7 @@ const renderSemanticFeature = (feature: SemanticMapFeature) => {
           } ${y - 0.6} S ${endX - 8} ${y + 1.8}, ${endX} ${y}`}
         />
         <path
+          className="river-highlight"
           d={`M ${startX + 4} ${y + 1.1} C ${startX + feature.width * 0.35} ${
             y + 2.4
           }, ${startX + feature.width * 0.54} ${y - 1.2}, ${endX - 4} ${
@@ -237,53 +306,204 @@ const renderSemanticFeature = (feature: SemanticMapFeature) => {
     );
   }
 
-  if (feature.kind === "plaza") {
+  if (feature.kind === "canal") {
+    const vertical = feature.height >= feature.width;
+    const x = center.x;
+    const y = center.y;
     return (
-      <g className="semantic-svg-plaza" data-feature-label={feature.label} key={feature.key}>
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
         <rect {...rect} rx="1.2" />
-        <circle cx={center.x} cy={center.y} r={Math.min(feature.width, feature.height) * 0.28} />
+        {vertical ? (
+          <>
+            <path d={`M ${x} ${feature.row + 1} V ${feature.row + feature.height - 1}`} />
+            <path d={`M ${x - 1.1} ${feature.row + 2} V ${feature.row + feature.height - 2}`} />
+            <path d={`M ${x + 1.1} ${feature.row + 2} V ${feature.row + feature.height - 2}`} />
+          </>
+        ) : (
+          <>
+            <path d={`M ${feature.column + 1} ${y} H ${feature.column + feature.width - 1}`} />
+            <path d={`M ${feature.column + 2} ${y - 1.1} H ${feature.column + feature.width - 2}`} />
+            <path d={`M ${feature.column + 2} ${y + 1.1} H ${feature.column + feature.width - 2}`} />
+          </>
+        )}
+      </g>
+    );
+  }
+
+  if (feature.kind === "bridge") {
+    const plankCount = Math.max(3, Math.floor(feature.width / 1.8));
+    return (
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+        <rect {...inner} rx="0.7" />
+        {Array.from({ length: plankCount }).map((_, index) => {
+          const x = feature.column + 1 + index * ((feature.width - 2) / plankCount);
+          return (
+            <line
+              key={`${feature.key}:plank:${index}`}
+              x1={x}
+              x2={x}
+              y1={feature.row + 0.9}
+              y2={feature.row + feature.height - 0.9}
+            />
+          );
+        })}
+        <path d={`M ${feature.column + 1} ${feature.row + 1.1} H ${feature.column + feature.width - 1}`} />
+        <path d={`M ${feature.column + 1} ${feature.row + feature.height - 1.1} H ${feature.column + feature.width - 1}`} />
+      </g>
+    );
+  }
+
+  if (feature.kind === "field") {
+    const rows = Math.max(2, Math.floor(feature.height / 1.8));
+    return (
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+        <rect {...rect} rx="1" />
+        {Array.from({ length: rows }).map((_, index) => {
+          const y = feature.row + 1.2 + index * ((feature.height - 2.4) / Math.max(1, rows - 1));
+          return (
+            <path
+              d={`M ${feature.column + 1} ${y} C ${feature.column + feature.width * 0.35} ${
+                y - 0.4
+              }, ${feature.column + feature.width * 0.65} ${y + 0.4}, ${
+                feature.column + feature.width - 1
+              } ${y}`}
+              key={`${feature.key}:furrow:${index}`}
+            />
+          );
+        })}
+      </g>
+    );
+  }
+
+  if (feature.kind === "yard") {
+    return (
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+        <rect {...rect} rx="1.1" />
+        <path d={`M ${feature.column + 1.2} ${feature.row + 1.2} H ${feature.column + feature.width - 1.2}`} />
+        <path d={`M ${feature.column + 1.2} ${feature.row + feature.height - 1.2} H ${feature.column + feature.width - 1.2}`} />
+        <path d={`M ${feature.column + 1.2} ${feature.row + 1.2} V ${feature.row + feature.height - 1.2}`} />
+        <path d={`M ${feature.column + feature.width - 1.2} ${feature.row + 1.2} V ${feature.row + feature.height - 1.2}`} />
+      </g>
+    );
+  }
+
+  if (feature.kind === "market") {
+    const stallCount = Math.max(4, Math.floor(feature.width / 5));
+    return (
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+        {Array.from({ length: stallCount }).map((_, index) => {
+          const stallWidth = feature.width / stallCount - 0.7;
+          const x = feature.column + index * (feature.width / stallCount) + 0.35;
+          const colorIndex = index % 3;
+          return (
+            <g className={`stall color-${colorIndex}`} key={`${feature.key}:stall:${index}`}>
+              <rect x={x} y={feature.row + 1.1} width={stallWidth} height={feature.height - 2.2} rx="0.35" />
+              <path d={`M ${x - 0.2} ${feature.row + 2.2} H ${x + stallWidth + 0.2}`} />
+            </g>
+          );
+        })}
+      </g>
+    );
+  }
+
+  if (feature.kind === "plaza") {
+    const verticalLines = Math.max(3, Math.floor(feature.width / 4));
+    const horizontalLines = Math.max(3, Math.floor(feature.height / 3));
+    return (
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+        <rect {...rect} rx="1.2" />
+        {Array.from({ length: verticalLines + 1 }).map((_, index) => {
+          const x = feature.column + index * (feature.width / verticalLines);
+          return <path className="plaza-tile" d={`M ${x} ${feature.row + 0.5} V ${feature.row + feature.height - 0.5}`} key={`${feature.key}:v:${index}`} />;
+        })}
+        {Array.from({ length: horizontalLines + 1 }).map((_, index) => {
+          const y = feature.row + index * (feature.height / horizontalLines);
+          return <path className="plaza-tile" d={`M ${feature.column + 0.5} ${y} H ${feature.column + feature.width - 0.5}`} key={`${feature.key}:h:${index}`} />;
+        })}
+        <circle cx={center.x} cy={center.y + 0.4} r={Math.min(feature.width, feature.height) * 0.16} />
         <path d={`M ${feature.column + 2} ${center.y} H ${feature.column + feature.width - 2}`} />
         <path d={`M ${center.x} ${feature.row + 2} V ${feature.row + feature.height - 2}`} />
+        {feature.label ? (
+          <text className="semantic-svg-place-name" textAnchor="middle" dominantBaseline="middle" x={center.x} y={center.y - 3.1}>
+            {feature.label}
+          </text>
+        ) : null}
       </g>
     );
   }
 
   if (feature.kind === "water") {
     return (
-      <g className="semantic-svg-water" data-feature-label={feature.label} key={feature.key}>
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
         <rect {...rect} rx="0.8" />
-        <path d={`M ${feature.column + 1} ${center.y - 1.2} q 2 -1.2 4 0 t 4 0`} />
-        <path d={`M ${feature.column + 1} ${center.y + 1.2} q 2 -1.2 4 0 t 4 0`} />
+        <path d={`M ${feature.column + 1} ${center.y - 1.4} q 2 -1.2 4 0 t 4 0 t 4 0`} />
+        <path d={`M ${feature.column + 1} ${center.y + 1.2} q 2 -1.2 4 0 t 4 0 t 4 0`} />
       </g>
     );
   }
 
   if (feature.kind === "gate") {
+    const horizontal = feature.width >= feature.height;
     return (
-      <g className="semantic-svg-gate" data-feature-label={feature.label} key={feature.key}>
-        <rect {...inner} rx="0.4" />
-        <path d={`M ${feature.column + 1} ${feature.row + 1.2} H ${feature.column + feature.width - 1}`} />
-        <path d={`M ${feature.column + 2.1} ${feature.row + 1.2} V ${feature.row + feature.height - 0.7}`} />
-        <path d={`M ${feature.column + feature.width - 2.1} ${feature.row + 1.2} V ${feature.row + feature.height - 0.7}`} />
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+        <rect {...inner} rx="0.45" />
+        {horizontal ? (
+          <>
+            <path className="gate-roof" d={roofPoints(feature)} />
+            <path d={`M ${feature.column + 2.4} ${feature.row + 2.2} V ${feature.row + feature.height - 0.8}`} />
+            <path d={`M ${feature.column + feature.width - 2.4} ${feature.row + 2.2} V ${feature.row + feature.height - 0.8}`} />
+          </>
+        ) : (
+          <>
+            <path className="gate-roof" d={`M ${feature.column + 1} ${center.y} H ${feature.column + feature.width - 1}`} />
+            <path d={`M ${feature.column + 2} ${feature.row + 1} H ${feature.column + feature.width - 2}`} />
+            <path d={`M ${feature.column + 2} ${feature.row + feature.height - 1} H ${feature.column + feature.width - 2}`} />
+          </>
+        )}
       </g>
     );
   }
 
   if (feature.kind === "landmark") {
+    if (feature.variant === "lantern") {
+      return (
+        <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+          <path d={`M ${center.x} ${feature.row + 1} V ${feature.row + feature.height - 1}`} />
+          <circle cx={center.x} cy={feature.row + feature.height * 0.36} r={Math.min(feature.width, feature.height) * 0.25} />
+          <path d={`M ${center.x - 2.1} ${feature.row + 1.7} H ${center.x + 2.1}`} />
+          <path d={`M ${center.x - 1.5} ${feature.row + feature.height - 1.3} H ${center.x + 1.5}`} />
+        </g>
+      );
+    }
+
     return (
-      <g className="semantic-svg-landmark" data-feature-label={feature.label} key={feature.key}>
+      <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
         <rect {...inner} rx="0.7" />
         <path d={roofPoints(feature)} />
-        <circle cx={center.x} cy={center.y + 0.6} r={Math.min(feature.width, feature.height) * 0.22} />
+        <path d={`M ${feature.column + 1.6} ${feature.row + feature.height - 1} L ${center.x} ${feature.row + 4.2} L ${feature.column + feature.width - 1.6} ${feature.row + feature.height - 1}`} />
+        <path d={`M ${feature.column + 2.4} ${feature.row + feature.height - 2.1} H ${feature.column + feature.width - 2.4}`} />
+        <circle cx={center.x} cy={center.y + 1.2} r={Math.min(feature.width, feature.height) * 0.18} />
       </g>
     );
   }
 
+  const bodyY = feature.row + Math.min(3.8, Math.max(2.2, feature.height * 0.34));
+  const bodyHeight = Math.max(2.4, feature.height - (bodyY - feature.row) - 0.7);
+  const ridgeY = feature.row + Math.min(1.8, feature.height * 0.18);
   return (
-    <g className="semantic-svg-building" data-feature-label={feature.label} key={feature.key}>
-      <rect x={feature.column + 0.5} y={feature.row + 2.3} width={feature.width - 1} height={feature.height - 2.8} rx="0.45" />
-      <path d={roofPoints(feature)} />
-      <rect x={feature.column + 1.2} y={feature.row + 3.2} width={feature.width - 2.4} height={feature.height - 4.4} rx="0.25" />
+    <g className={featureClassName(feature)} data-feature-label={feature.label} key={feature.key}>
+      <rect className="building-shadow" x={feature.column + 0.5} y={bodyY + 0.4} width={feature.width - 0.6} height={bodyHeight} rx="0.45" />
+      <rect className="building-wall" x={feature.column + 0.8} y={bodyY} width={feature.width - 1.6} height={bodyHeight} rx="0.35" />
+      <path className="building-roof" d={roofPoints(feature)} />
+      <path className="roof-ridge" d={`M ${feature.column + 1.8} ${ridgeY} H ${feature.column + feature.width - 1.8}`} />
+      <path className="roof-eave" d={`M ${feature.column + 0.2} ${bodyY} H ${feature.column + feature.width - 0.2}`} />
+      <rect className="building-door" x={center.x - 0.7} y={feature.row + feature.height - 2.4} width="1.4" height="1.9" rx="0.15" />
+      {feature.width > 10 ? (
+        <>
+          <rect className="building-window" x={feature.column + 2.2} y={bodyY + 1.2} width="1.5" height="1.1" rx="0.12" />
+          <rect className="building-window" x={feature.column + feature.width - 3.7} y={bodyY + 1.2} width="1.5" height="1.1" rx="0.12" />
+        </>
+      ) : null}
     </g>
   );
 };
@@ -410,7 +630,7 @@ export const AsciiMapViewport = ({
       onWheel={(event: WheelEvent<HTMLDivElement>) => {
         event.preventDefault();
         const direction = event.deltaY > 0 ? -1 : 1;
-        const nextZoom = clamp(zoom + direction * 0.08, 0.72, 1.45);
+        const nextZoom = clamp(zoom + direction * 0.08, 0.56, 1.45);
         if (nextZoom === zoom) {
           return;
         }
@@ -460,22 +680,34 @@ export const AsciiMapViewport = ({
                   x: hotspot ? hotspot.column + hotspot.width / 2 : label.column,
                   y: hotspot ? hotspot.row + hotspot.height / 2 : label.row,
                 };
-                const width = labelWidth(label, hotspot);
-                const text = markerText(label);
+                const expanded =
+                  label.locationId === currentLocationId ||
+                  label.locationId === selectedLocationId ||
+                  label.locationId === hoveredLocationId ||
+                  label.locationId === pinnedLocationId;
+                const fullText = markerText(label);
+                const text = expanded ? fullText : label.marker;
+                const width = labelWidth(label, hotspot, text);
 
                 return (
                   <g
-                    className={semanticLabelClass({
-                      currentLocationId,
-                      hoveredLocationId,
-                      label,
-                      pinnedLocationId,
-                      selectedLocationId,
-                    })}
+                    aria-label={fullText}
+                    className={[
+                      semanticLabelClass({
+                        currentLocationId,
+                        hoveredLocationId,
+                        label,
+                        pinnedLocationId,
+                        selectedLocationId,
+                      }),
+                      expanded ? "expanded" : "compact",
+                    ].join(" ")}
+                    data-label-text={label.text}
                     data-location-id={label.locationId ?? undefined}
                     key={label.key}
                     transform={`translate(${center.x} ${center.y})`}
                   >
+                    <title>{fullText}</title>
                     <rect x={-width / 2} y="-1.25" width={width} height="2.5" rx="0.45" />
                     <text textAnchor="middle" dominantBaseline="middle">
                       {text}

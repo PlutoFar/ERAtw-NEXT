@@ -113,11 +113,17 @@ describe("App", () => {
     expect(document.querySelectorAll(".semantic-svg-building").length).toBeGreaterThan(0);
     expect(document.querySelectorAll(".semantic-svg-river").length).toBeGreaterThan(0);
     expect(document.querySelectorAll(".semantic-svg-trees").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".semantic-svg-yard").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".semantic-svg-market").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".semantic-svg-bridge").length).toBeGreaterThan(0);
     const plazaLabel = document.querySelector('.semantic-svg-label[data-location-id="garden"]');
-    expect(plazaLabel).toHaveTextContent("02 广场");
-    expect(plazaLabel).toHaveAttribute("transform", "translate(48 29)");
-    expect(Number(map.getAttribute("data-column-count"))).toBeGreaterThan(90);
-    expect(Number(map.getAttribute("data-row-count"))).toBeGreaterThan(50);
+    expect(plazaLabel).toHaveAttribute("data-label-text", "广场");
+    expect(plazaLabel).toHaveAttribute("transform", "translate(66 45.5)");
+    expect(document.querySelector(".semantic-svg-plaza .semantic-svg-place-name")).toHaveTextContent(
+      "广场",
+    );
+    expect(Number(map.getAttribute("data-column-count"))).toBeGreaterThan(120);
+    expect(Number(map.getAttribute("data-row-count"))).toBeGreaterThan(80);
 
     const hotspots = screen.getByLabelText("text map hotspots");
     expect(within(hotspots).getByRole("button", { name: "人里的门" })).toHaveAttribute(
@@ -133,8 +139,8 @@ describe("App", () => {
       "legacy.sato.220",
     );
     expect(within(hotspots).getByRole("button", { name: "瞭望楼" })).toHaveStyle({
-      "--hotspot-width": "10",
-      "--hotspot-height": "10",
+      "--hotspot-width": "9",
+      "--hotspot-height": "14",
     });
   });
 
@@ -166,14 +172,14 @@ describe("App", () => {
 
     expect(screen.getByLabelText("map screen")).toBeInTheDocument();
     const viewport = document.querySelector(".ascii-map-viewport");
-    expect(viewport).toHaveAttribute("data-zoom", "1.00");
+    expect(viewport).toHaveAttribute("data-zoom", "0.62");
 
     fireEvent.wheel(viewport!, { deltaY: -120 });
 
     await waitFor(() => {
       expect(document.querySelector(".ascii-map-viewport")).toHaveAttribute(
         "data-zoom",
-        "1.08",
+        "0.70",
       );
     });
   });

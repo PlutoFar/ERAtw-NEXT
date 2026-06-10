@@ -64,6 +64,8 @@ interface GameScreenProps {
 }
 
 type MapMode = "inspect" | "move";
+const defaultMapZoom = 0.62;
+const minMapZoom = 0.56;
 
 interface MainStatusPanelProps {
   commandPanelOpen: boolean;
@@ -279,7 +281,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
   );
   const [commandPanelOpen, setCommandPanelOpen] = useState(false);
   const [locationSearch, setLocationSearch] = useState("");
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(defaultMapZoom);
 
   const mapOpen = mapMode !== null;
   const activeAreaId =
@@ -363,6 +365,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
 
   const openMap = (mode: MapMode = "inspect") => {
     setMapMode(mode);
+    setZoom(defaultMapZoom);
     setInspectedLocationId(currentLocation?.id);
     setSelectedAreaId(currentLocation?.map_area_id ?? textMap?.default_area_id);
     setContextMenu(null);
@@ -601,7 +604,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setZoom((value) => Math.max(0.72, value - 0.08))}
+                onClick={() => setZoom((value) => Math.max(minMapZoom, value - 0.08))}
                 aria-label="缩小地图"
               >
                 <ZoomOut size={17} aria-hidden="true" />

@@ -48,16 +48,23 @@ export interface SemanticMapFeature {
   kind:
     | "boundary"
     | "building"
+    | "bridge"
+    | "canal"
+    | "field"
     | "gate"
+    | "market"
     | "landmark"
     | "plaza"
     | "river"
     | "road"
     | "trees"
-    | "water";
+    | "water"
+    | "yard";
   label?: string;
+  rotation?: number;
   row: number;
   column: number;
+  variant?: string;
   width: number;
   height: number;
 }

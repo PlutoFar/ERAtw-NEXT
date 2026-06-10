@@ -1,8 +1,11 @@
 :root {
   --cjk-mono-font:
-    "Sarasa Mono SC", "Sarasa Fixed SC", "Noto Sans Mono CJK SC",
-    "Source Han Mono SC", "Microsoft YaHei Mono", NSimSun, SimSun,
-    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", monospace;
+    NSimSun, SimSun, "Microsoft YaHei Mono", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Sarasa Mono SC", "Sarasa Fixed SC",
+    "Noto Sans Mono CJK SC", "Source Han Mono SC", "PingFang SC", monospace;
+  --map-cjk-font:
+    "Microsoft YaHei UI", "Microsoft YaHei", SimSun, NSimSun,
+    "Noto Sans CJK SC", "Source Han Sans SC", "PingFang SC", sans-serif;
   --ui-font:
     "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
     "Source Han Sans SC", SimSun, sans-serif;
@@ -523,7 +526,7 @@ button:disabled {
 .move-map-layout {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr) minmax(230px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 252px);
   min-height: 0;
   min-width: 0;
 }
@@ -697,14 +700,12 @@ button:disabled {
   --ascii-line: 11px;
 
   background:
-    radial-gradient(circle at 50% 48%, rgb(240 216 144 / 7%), transparent 34%),
-    linear-gradient(90deg, rgb(42 66 61 / 16%) 1px, transparent 1px),
-    linear-gradient(180deg, rgb(42 66 61 / 12%) 1px, transparent 1px),
+    radial-gradient(circle at 50% 48%, rgb(240 216 144 / 6%), transparent 36%),
+    radial-gradient(circle at 50% 96%, rgb(73 197 232 / 10%), transparent 22%),
     #010403;
   background-size:
     auto,
-    40px 40px,
-    40px 40px,
+    auto,
     auto;
 }
 
@@ -744,145 +745,320 @@ button:disabled {
   vector-effect: non-scaling-stroke;
 }
 
-.semantic-map-svg #semantic-tree-dots circle {
-  fill: #62ad55;
-}
-
-.semantic-map-svg #semantic-road-stripes rect {
-  fill: rgb(90 215 255 / 16%);
-}
-
 .semantic-svg-ground {
-  fill: #010403;
+  fill: #020604;
 }
 
-.semantic-svg-trees {
-  fill: url(#semantic-tree-dots);
-  opacity: 0.78;
-  stroke: rgb(98 173 85 / 26%);
+.semantic-svg-trees > rect {
+  fill: #06140d;
+  opacity: 0.94;
+}
+
+.semantic-svg-trees circle {
+  fill: #1c4d35;
+  opacity: 0.86;
+  stroke: rgb(126 198 118 / 22%);
+  stroke-width: 0.08;
+}
+
+.semantic-svg-trees.variant-riverbank circle {
+  fill: #173f2e;
+}
+
+.semantic-svg-boundary .wall-shadow {
+  fill: none;
+  stroke: rgb(0 0 0 / 72%);
+  stroke-width: 1.25;
+}
+
+.semantic-svg-boundary .wall-outer {
+  fill: none;
+  filter: url(#semantic-soft-glow);
+  stroke: #a8b1aa;
+  stroke-linejoin: round;
+  stroke-width: 0.55;
+}
+
+.semantic-svg-boundary .wall-inner {
+  fill: none;
+  stroke: rgb(240 216 144 / 38%);
+  stroke-dasharray: 1.2 0.9;
+  stroke-linejoin: round;
+  stroke-width: 0.18;
+}
+
+.semantic-svg-road path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.semantic-svg-road .road-edge {
+  stroke: rgb(0 0 0 / 74%);
+}
+
+.semantic-svg-road .road-bed {
+  stroke: #19221b;
+}
+
+.semantic-svg-road.variant-main .road-bed,
+.semantic-svg-road.variant-market .road-bed {
+  stroke: #2c3328;
+}
+
+.semantic-svg-road .road-center {
+  stroke: rgb(229 207 155 / 20%);
+  stroke-dasharray: 0.65 1.15;
+  stroke-width: 0.16;
+}
+
+.semantic-svg-road .road-side {
+  stroke: rgb(90 215 255 / 18%);
+  stroke-dasharray: 0.9 1.4;
   stroke-width: 0.12;
 }
 
-.semantic-svg-boundary {
+.semantic-svg-river .river-bed {
   fill: none;
-  filter: url(#semantic-soft-glow);
-  stroke: #78857f;
-  stroke-width: 0.2;
+  stroke: rgb(45 122 150 / 58%);
+  stroke-linecap: round;
+  stroke-width: 3.6;
 }
 
-.semantic-svg-road rect {
-  fill: #062326;
-  stroke: rgb(90 215 255 / 30%);
+.semantic-svg-river .river-highlight {
+  fill: none;
+  stroke: rgb(160 230 245 / 45%);
+  stroke-linecap: round;
+  stroke-width: 0.5;
+}
+
+.semantic-svg-canal rect,
+.semantic-svg-water rect {
+  fill: #04151a;
+  stroke: #41bdd6;
+  stroke-width: 0.18;
+}
+
+.semantic-svg-canal path,
+.semantic-svg-water path {
+  fill: none;
+  stroke: rgb(117 218 238 / 54%);
+  stroke-linecap: round;
+  stroke-width: 0.16;
+}
+
+.semantic-svg-bridge rect {
+  fill: #5a4730;
+  stroke: #e5cf9b;
+  stroke-width: 0.18;
+}
+
+.semantic-svg-bridge line,
+.semantic-svg-bridge path {
+  fill: none;
+  stroke: rgb(15 10 6 / 62%);
+  stroke-linecap: round;
+  stroke-width: 0.15;
+}
+
+.semantic-svg-field rect {
+  fill: #14220f;
+  stroke: #6fa25c;
+  stroke-width: 0.16;
+}
+
+.semantic-svg-field path {
+  fill: none;
+  stroke: rgb(165 205 116 / 45%);
+  stroke-linecap: round;
+  stroke-width: 0.12;
+}
+
+.semantic-svg-yard rect {
+  fill: rgb(20 27 20 / 86%);
+  stroke: rgb(211 194 145 / 30%);
   stroke-width: 0.14;
 }
 
-.semantic-svg-road rect + line {
-  stroke: rgb(90 215 255 / 24%);
-  stroke-dasharray: 1.2 1.2;
+.semantic-svg-yard path {
+  fill: none;
+  stroke: rgb(211 194 145 / 24%);
+  stroke-dasharray: 0.8 0.6;
+  stroke-linecap: round;
+  stroke-width: 0.1;
+}
+
+.semantic-svg-market .stall rect {
+  fill: #151813;
+  stroke: rgb(229 207 155 / 45%);
+  stroke-width: 0.14;
+}
+
+.semantic-svg-market .stall path {
+  fill: none;
+  stroke: #e5cf9b;
+  stroke-width: 0.12;
+}
+
+.semantic-svg-market .stall.color-1 rect {
+  fill: #1b1a26;
+}
+
+.semantic-svg-market .stall.color-2 rect {
+  fill: #1d1613;
+}
+
+.semantic-svg-building .building-shadow {
+  fill: rgb(0 0 0 / 42%);
+  stroke: none;
+}
+
+.semantic-svg-building .building-wall {
+  fill: #171915;
+  stroke: rgb(232 231 212 / 52%);
+  stroke-width: 0.16;
+}
+
+.semantic-svg-building .building-roof {
+  fill: #263a46;
+  stroke: #cad7d2;
+  stroke-linejoin: round;
+  stroke-width: 0.18;
+}
+
+.semantic-svg-building.variant-manor .building-roof,
+.semantic-svg-building.variant-hall .building-roof,
+.semantic-svg-building.variant-school .building-roof {
+  fill: #314650;
+}
+
+.semantic-svg-building.variant-tavern .building-roof,
+.semantic-svg-building.variant-inn .building-roof {
+  fill: #3d342c;
+}
+
+.semantic-svg-building.variant-shop .building-roof,
+.semantic-svg-building.variant-restaurant .building-roof,
+.semantic-svg-building.variant-bookstore .building-roof {
+  fill: #30413a;
+}
+
+.semantic-svg-building .roof-ridge,
+.semantic-svg-building .roof-eave {
+  fill: none;
+  stroke: rgb(239 243 232 / 45%);
   stroke-linecap: round;
   stroke-width: 0.12;
 }
 
-.semantic-svg-building > rect:first-child,
-.semantic-svg-landmark > rect,
-.semantic-svg-gate > rect {
-  fill: #090f0c;
-  stroke: #bdc8c1;
-  stroke-width: 0.18;
+.semantic-svg-building .building-door {
+  fill: #0b0d0a;
+  stroke: rgb(240 216 144 / 40%);
+  stroke-width: 0.08;
 }
 
-.semantic-svg-building > path {
-  fill: #315247;
-  stroke: #d7e1db;
-  stroke-linejoin: round;
-  stroke-width: 0.18;
-}
-
-.semantic-svg-building > rect:last-child {
-  fill: rgb(0 0 0 / 0%);
-  stroke: rgb(240 216 144 / 24%);
-  stroke-width: 0.1;
+.semantic-svg-building .building-window {
+  fill: rgb(240 216 144 / 25%);
+  stroke: rgb(240 216 144 / 36%);
+  stroke-width: 0.06;
 }
 
 .semantic-svg-gate rect,
-.semantic-svg-gate path,
-.semantic-svg-landmark rect,
-.semantic-svg-landmark path,
-.semantic-svg-landmark circle {
-  fill: #090d0a;
-  stroke: #f0d890;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 0.18;
+.semantic-svg-landmark rect {
+  fill: #111511;
+  stroke: #e5cf9b;
+  stroke-width: 0.2;
 }
 
 .semantic-svg-gate path,
 .semantic-svg-landmark path {
   fill: none;
-}
-
-.semantic-svg-landmark circle {
-  fill: rgb(240 216 144 / 14%);
-}
-
-.semantic-svg-plaza rect {
-  fill: #031315;
-  stroke: #3e8e99;
+  stroke: #e5cf9b;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   stroke-width: 0.18;
 }
 
-.semantic-svg-plaza circle {
-  fill: rgb(240 216 144 / 10%);
-  stroke: rgb(240 216 144 / 42%);
-  stroke-dasharray: 0.8 0.6;
-  stroke-width: 0.12;
+.semantic-svg-gate .gate-roof {
+  fill: #2d4048;
+  stroke: #e8f5ee;
+  stroke-width: 0.18;
 }
 
-.semantic-svg-plaza path {
-  stroke: rgb(90 215 255 / 22%);
+.semantic-svg-landmark.variant-lantern path,
+.semantic-svg-landmark.variant-lantern circle {
+  stroke: #ffd36e;
+}
+
+.semantic-svg-landmark.variant-lantern circle {
+  fill: rgb(255 185 72 / 28%);
+  filter: url(#semantic-soft-glow);
+  stroke-width: 0.18;
+}
+
+.semantic-svg-landmark.variant-watchtower circle {
+  fill: rgb(90 215 255 / 12%);
+  stroke: #e5cf9b;
+  stroke-width: 0.14;
+}
+
+.semantic-svg-plaza rect {
+  fill: #101917;
+  stroke: #5ad7ff;
+  stroke-width: 0.22;
+}
+
+.semantic-svg-plaza .plaza-tile {
+  fill: none;
+  stroke: rgb(210 221 216 / 22%);
+  stroke-width: 0.08;
+}
+
+.semantic-svg-plaza circle {
+  fill: rgb(240 216 144 / 14%);
+  stroke: rgb(240 216 144 / 55%);
+  stroke-dasharray: 0.8 0.6;
+  stroke-width: 0.15;
+}
+
+.semantic-svg-plaza > path:not(.plaza-tile) {
+  stroke: rgb(90 215 255 / 30%);
   stroke-linecap: round;
   stroke-width: 0.13;
 }
 
-.semantic-svg-water rect {
-  fill: #031018;
-  stroke: #49c5e8;
-  stroke-width: 0.18;
-}
-
-.semantic-svg-water path {
-  fill: none;
-  stroke: rgb(73 197 232 / 72%);
-  stroke-linecap: round;
-  stroke-width: 0.14;
-}
-
-.semantic-svg-river path:first-child {
-  fill: none;
-  stroke: rgb(73 197 232 / 34%);
-  stroke-linecap: round;
-  stroke-width: 1.8;
-}
-
-.semantic-svg-river path:last-child {
-  fill: none;
-  stroke: rgb(232 250 255 / 22%);
-  stroke-linecap: round;
-  stroke-width: 0.35;
+.semantic-svg-place-name {
+  fill: #f5eac4;
+  font-family: var(--map-cjk-font);
+  font-size: 2.15px;
+  font-weight: 700;
+  letter-spacing: 0;
+  paint-order: stroke;
+  stroke: rgb(0 0 0 / 78%);
+  stroke-width: 0.28px;
 }
 
 .semantic-svg-label rect {
   fill: rgb(2 5 5 / 88%);
-  stroke: rgb(90 215 255 / 50%);
+  stroke: rgb(90 215 255 / 45%);
   stroke-width: 0.13;
+}
+
+.semantic-svg-label.compact rect {
+  fill: rgb(2 7 7 / 72%);
+  stroke: rgb(90 215 255 / 42%);
 }
 
 .semantic-svg-label text {
   fill: #e8f5ee;
-  font-family: var(--cjk-mono-font);
+  font-family: var(--map-cjk-font);
   font-size: 1.05px;
   font-weight: 700;
   letter-spacing: 0;
+}
+
+.semantic-svg-label.compact text {
+  fill: #5ad7ff;
 }
 
 .semantic-svg-label.current rect,
