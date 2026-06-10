@@ -1,4 +1,4 @@
-import { LocateFixed, Move, Pin, X } from "lucide-react";
+import { Move, Pin, X } from "lucide-react";
 import type { Location, TextMap, WorldState } from "../../types";
 import {
   areaName,
@@ -15,7 +15,6 @@ interface LocationDrawerProps {
   onClose: () => void;
   onMove: (locationId: string) => void;
   onPin: (locationId: string) => void;
-  onSwitchArea: (location: Location | undefined) => void;
   pinnedLocationId: string | undefined;
   textMap: TextMap | undefined;
   world: WorldState;
@@ -28,7 +27,6 @@ export const LocationDrawer = ({
   onClose,
   onMove,
   onPin,
-  onSwitchArea,
   pinnedLocationId,
   textMap,
   world,
@@ -79,13 +77,6 @@ export const LocationDrawer = ({
           disabled={loading || isCurrent}
         >
           <Move size={16} aria-hidden="true" /> 移动
-        </button>
-        <button
-          type="button"
-          onClick={() => onSwitchArea(location)}
-          disabled={!location.map_area_id}
-        >
-          <LocateFixed size={16} aria-hidden="true" /> 切区
         </button>
         <button type="button" onClick={() => onPin(location.id)}>
           <Pin size={16} aria-hidden="true" /> {isPinned ? "取消关注" : "关注"}

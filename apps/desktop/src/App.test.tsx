@@ -35,6 +35,15 @@ const enterGame = async () => {
   return screen.findByLabelText("game screen");
 };
 
+const openMovementMap = async () => {
+  fireEvent.click(
+    within(screen.getByLabelText("quick actions")).getByRole("button", {
+      name: /移动/,
+    }),
+  );
+  return screen.findByLabelText("movement map");
+};
+
 describe("App", () => {
   beforeEach(resetEngineStore);
 
@@ -49,16 +58,21 @@ describe("App", () => {
     expect(await screen.findByLabelText("game screen")).toBeInTheDocument();
     expect(screen.getByLabelText("game hud")).toBeInTheDocument();
     expect(screen.getByLabelText("quick actions")).toBeInTheDocument();
+    expect(screen.getByLabelText("status screen")).toBeInTheDocument();
+    expect(screen.queryByLabelText("era text map")).not.toBeInTheDocument();
   });
 
   it("renders ASCII map text as fixed cells with separate overlay hotspots", async () => {
     await enterGame();
+    await openMovementMap();
 
     const map = screen.getByLabelText("era text map");
     expect(map).toHaveClass("ascii-map-grid");
     expect(within(map).queryByRole("button")).not.toBeInTheDocument();
     expect(map.textContent).toContain("广场");
     expect(map.textContent).toContain("稗田邸");
+    expect(map.textContent).toContain("阿求私室");
+    expect(map.textContent).toContain("慧音房间");
     expect(map.textContent).not.toContain("広场");
     expect(map.querySelectorAll(".ascii-map-cell").length).toBeGreaterThan(0);
     expect(Number(map.getAttribute("data-column-count"))).toBeGreaterThan(110);
@@ -72,6 +86,10 @@ describe("App", () => {
     expect(within(hotspots).getByRole("button", { name: "南大街" })).toHaveAttribute(
       "data-location-id",
       "club_room",
+    );
+    expect(within(hotspots).getByRole("button", { name: "瞭望楼" })).toHaveAttribute(
+      "data-location-id",
+      "legacy.sato.220",
     );
   });
 
@@ -95,15 +113,13 @@ describe("App", () => {
 
   it("groups the location legend instead of rendering one flat list", async () => {
     await enterGame();
+    await openMovementMap();
 
-    fireEvent.click(screen.getByText(/图例 \/ 地点/));
     const legend = screen.getByLabelText("location legend");
-    expect(within(legend).getByRole("heading", { name: /街区 \/ 出入口/ }))
-      .toBeInTheDocument();
-    expect(within(legend).getByRole("heading", { name: /商店 \/ 设施/ }))
-      .toBeInTheDocument();
-    expect(within(legend).getByRole("heading", { name: /长屋 \/ 住居/ }))
-      .toBeInTheDocument();
+    expect(within(legend).getByText(/街区 \/ 出入口/)).toBeInTheDocument();
+    expect(within(legend).getByText(/商店 \/ 设施/)).toBeInTheDocument();
+    expect(within(legend).getByText(/长屋 \/ 住居/)).toBeInTheDocument();
+    expect(screen.queryByText("切区")).not.toBeInTheDocument();
 
     const world = createDemoWorld();
     const groups = groupLocationLegendLocations(world.locations);
@@ -114,23 +130,26 @@ describe("App", () => {
 
   it("opens location details from a hotspot and moves by double click", async () => {
     await enterGame();
+    await openMovementMap();
 
     const plazaHotspot = screen.getByRole("button", { name: "广场" });
     fireEvent.mouseEnter(plazaHotspot);
     expect(within(screen.getByRole("tooltip")).getByText("广场")).toBeInTheDocument();
 
     fireEvent.click(plazaHotspot);
-    const drawer = screen.getByLabelText("location details");
-    expect(within(drawer).getByText("广场")).toBeInTheDocument();
+    const destination = screen.getByLabelText("selected destination");
+    expect(within(destination).getByRole("heading", { name: "广场" })).toBeInTheDocument();
 
     fireEvent.doubleClick(plazaHotspot);
     await waitFor(() => {
       expect(within(screen.getByLabelText("game hud")).getByText("广场")).toBeInTheDocument();
     });
+    expect(screen.queryByLabelText("movement map")).not.toBeInTheDocument();
   });
 
   it("opens a right-click location menu and moves through it", async () => {
     await enterGame();
+    await openMovementMap();
 
     fireEvent.contextMenu(screen.getByRole("button", { name: "广场" }), {
       clientX: 90,
@@ -169,10 +188,11 @@ describe("App", () => {
   it("saves and loads the selected slot independently from the pause menu", async () => {
     await enterGame();
 
+    await openMovementMap();
     fireEvent.click(screen.getByRole("button", { name: "广场" }));
     fireEvent.click(
-      within(screen.getByLabelText("location details")).getByRole("button", {
-        name: /移动/,
+      within(screen.getByLabelText("selected destination")).getByRole("button", {
+        name: /确定移动/,
       }),
     );
     await waitFor(() => {
@@ -190,10 +210,11 @@ describe("App", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: /继续游戏/ }));
+    await openMovementMap();
     fireEvent.click(screen.getByRole("button", { name: "人里的门" }));
     fireEvent.click(
-      within(screen.getByLabelText("location details")).getByRole("button", {
-        name: /移动/,
+      within(screen.getByLabelText("selected destination")).getByRole("button", {
+        name: /确定移动/,
       }),
     );
     await waitFor(() => {
@@ -267,7 +288,7 @@ describe("App", () => {
     const actionBar = screen.getByLabelText("quick actions");
     fireEvent.click(within(actionBar).getByRole("button", { name: /交流/ }));
     await waitFor(() => {
-      expect(screen.getAllByText("6").length).toBeGreaterThan(0);
+      expect(screen.getByText(/好感度:S 6/)).toBeInTheDocument();
     });
     fireEvent.click(within(actionBar).getByRole("button", { name: /交流/ }));
 

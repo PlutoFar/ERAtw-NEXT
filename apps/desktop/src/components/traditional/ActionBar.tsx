@@ -4,11 +4,10 @@ import { locationName } from "./viewModel";
 
 interface ActionBarProps {
   commandPanelOpen: boolean;
-  currentLocation: Location | undefined;
   inspectedLocation: Location | undefined;
   loading: boolean;
   onAdjustRelationship: () => void;
-  onMoveInspected: () => void;
+  onOpenMoveMap: () => void;
   onRest: () => void;
   onRollMood: () => void;
   onStartDialogue: () => void;
@@ -17,19 +16,15 @@ interface ActionBarProps {
 
 export const ActionBar = ({
   commandPanelOpen,
-  currentLocation,
   inspectedLocation,
   loading,
   onAdjustRelationship,
-  onMoveInspected,
+  onOpenMoveMap,
   onRest,
   onRollMood,
   onStartDialogue,
   onToggleCommandPanel,
 }: ActionBarProps) => {
-  const canMove =
-    !!inspectedLocation && inspectedLocation.id !== currentLocation?.id && !loading;
-
   return (
     <nav className="action-bar" aria-label="quick actions">
       <button type="button" onClick={onRest} disabled={loading}>
@@ -38,7 +33,7 @@ export const ActionBar = ({
       <button type="button" onClick={onStartDialogue} disabled={loading}>
         <MessageCircle size={17} aria-hidden="true" /> 对话
       </button>
-      <button type="button" onClick={onMoveInspected} disabled={!canMove}>
+      <button type="button" onClick={onOpenMoveMap} disabled={loading}>
         <Move size={17} aria-hidden="true" /> 移动
       </button>
       <button type="button" onClick={onAdjustRelationship} disabled={loading}>
