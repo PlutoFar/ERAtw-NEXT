@@ -638,6 +638,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
             <main className="map-screen" aria-label="map screen">
               <div className="map-stage">
                 <AsciiMapViewport
+                  key={activeArea?.id ?? "missing-map-area"}
                   area={activeArea}
                   currentLocationId={currentLocation?.id}
                   hoveredLocationId={hoveredLocationId}

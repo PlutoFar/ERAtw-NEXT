@@ -1,7 +1,8 @@
 :root {
   --cjk-mono-font:
-    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
-    "Source Han Sans SC", SimSun, NSimSun, Consolas, monospace;
+    "Sarasa Mono SC", "Sarasa Fixed SC", "Noto Sans Mono CJK SC",
+    "Source Han Mono SC", "Microsoft YaHei Mono", NSimSun, SimSun,
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", monospace;
   --ui-font:
     "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
     "Source Han Sans SC", SimSun, sans-serif;
@@ -522,7 +523,7 @@ button:disabled {
 .move-map-layout {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 280px);
   min-height: 0;
   min-width: 0;
 }
@@ -530,23 +531,38 @@ button:disabled {
 .move-map-sidebar {
   border-left: 1px solid #354f4b;
   display: grid;
-  gap: 12px;
+  gap: 8px;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
-  padding-left: 10px;
+  padding-left: 8px;
 }
 
 .move-destination-panel {
   border-bottom: 1px solid #354f4b;
   display: grid;
-  gap: 8px;
-  padding-bottom: 10px;
+  gap: 6px;
+  padding-bottom: 8px;
+}
+
+.move-destination-panel .compact-dl {
+  gap: 3px;
+}
+
+.move-destination-panel .compact-dl div {
+  gap: 6px;
+  grid-template-columns: 42px minmax(0, 1fr);
+}
+
+.move-destination-panel .drawer-actions {
+  gap: 4px 10px;
 }
 
 .move-map-legend {
+  align-content: start;
   display: grid;
-  gap: 8px;
+  gap: 6px;
+  grid-auto-rows: max-content;
   min-height: 0;
   overflow: auto;
 }
@@ -560,7 +576,7 @@ button:disabled {
 .move-map-legend-group {
   border-top: 1px solid #354f4b;
   display: grid;
-  padding-top: 6px;
+  padding-top: 5px;
 }
 
 .move-map-legend-group summary {
@@ -569,7 +585,7 @@ button:disabled {
   cursor: pointer;
   display: flex;
   gap: 8px;
-  min-height: 24px;
+  min-height: 22px;
 }
 
 .move-map-legend-group summary small {
@@ -579,7 +595,7 @@ button:disabled {
 .map-screen {
   display: grid;
   gap: 8px;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   min-width: 0;
@@ -634,6 +650,7 @@ button:disabled {
 }
 
 .map-stage {
+  height: 100%;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
@@ -664,7 +681,7 @@ button:disabled {
   line-height: var(--ascii-line);
   min-height: 0;
   overscroll-behavior: contain;
-  overflow: auto;
+  overflow: hidden;
   position: relative;
   touch-action: none;
   user-select: none;
@@ -683,6 +700,17 @@ button:disabled {
   pointer-events: none;
   position: absolute;
   width: 1px;
+}
+
+.ascii-map-canvas {
+  left: 0;
+  min-height: calc(var(--ascii-rows) * var(--ascii-line) + 20px);
+  min-width: calc(var(--ascii-columns) * var(--ascii-cell) + 20px);
+  position: absolute;
+  top: 0;
+  transform-origin: 0 0;
+  width: max-content;
+  will-change: transform;
 }
 
 .ascii-map-grid {
@@ -797,15 +825,19 @@ button:disabled {
 .ascii-map-hotspot:hover,
 .ascii-map-hotspot.hovered,
 .ascii-map-hotspot.selected {
-  background: rgb(240 216 144 / 20%);
+  background: rgb(240 216 144 / 7%);
   border-color: #f0d890;
-  box-shadow: 0 0 10px rgb(240 216 144 / 24%);
+  box-shadow:
+    inset 0 -2px 0 #f0d890,
+    0 0 8px rgb(240 216 144 / 18%);
 }
 
 .ascii-map-hotspot.current {
-  background: rgb(125 255 130 / 24%);
+  background: rgb(125 255 130 / 8%);
   border-color: #7dff82;
-  box-shadow: 0 0 12px rgb(125 255 130 / 28%);
+  box-shadow:
+    inset 0 -2px 0 #7dff82,
+    0 0 10px rgb(125 255 130 / 20%);
 }
 
 .ascii-map-hotspot.pinned {
@@ -906,8 +938,12 @@ button:disabled {
 .location-legend-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: 3px 6px;
   min-width: 0;
+}
+
+.move-map-legend .location-legend-list button {
+  min-height: 24px;
 }
 
 .location-legend-list button.current,

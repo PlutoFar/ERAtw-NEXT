@@ -91,7 +91,10 @@ describe("App", () => {
     expect(map.textContent).toContain("慧音房间");
     expect(map.textContent).toContain("咖啡馆");
     expect(map.textContent).toContain("包场浴场");
+    expect(map.textContent).toContain("望楼");
     expect(map.textContent).not.toContain("広场");
+    expect(map.textContent).not.toContain("櫓");
+    expect(map.textContent).not.toContain("橹");
     expect(map.textContent).not.toContain("咖啡館");
     expect(map.textContent).not.toContain("貸切浴場");
     expect(map.textContent).not.toContain("房間");
