@@ -8,14 +8,19 @@ const phraseReplacements: Array<[string, string]> = [
   ["鯢呑亭", "鲵吞亭"],
   ["鯢呑", "鲵吞"],
   ["銭湯", "钱汤"],
+  ["貸切浴場", "包场浴场"],
+  ["甘味処", "甘味处"],
   ["広场", "广场"],
+  ["房間", "房间"],
 ];
 
 const characterReplacements: Record<string, string> = {
+  館: "馆",
   東: "东",
   鈴: "铃",
   長: "长",
   門: "门",
+  龍: "龙",
   広: "广",
   鯢: "鲵",
   呑: "吞",
@@ -23,6 +28,12 @@ const characterReplacements: Record<string, string> = {
   湯: "汤",
   櫓: "橹",
   樓: "楼",
+  橋: "桥",
+  間: "间",
+  蓮: "莲",
+  貸: "贷",
+  場: "场",
+  処: "处",
 };
 
 export const normalizeSimplifiedChineseText = (text: string): string => {
@@ -31,7 +42,7 @@ export const normalizeSimplifiedChineseText = (text: string): string => {
     normalized = normalized.replaceAll(source, replacement);
   }
   return normalized.replace(
-    /[東鈴長門広鯢呑銭湯櫓樓]/g,
+    /[館東鈴長門龍広鯢呑銭湯櫓樓橋間蓮貸場処]/g,
     (character) => characterReplacements[character] ?? character,
   );
 };

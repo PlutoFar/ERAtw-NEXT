@@ -40,10 +40,13 @@ const cellToneClass = (character: string) => {
   if (/[0-9]/.test(character)) {
     return "cell-location";
   }
-  if ("■全合".includes(character)) {
+  if ("全合".includes(character)) {
+    return "cell-boundary";
+  }
+  if ("■".includes(character)) {
     return "cell-wall";
   }
-  if ("□+＋".includes(character)) {
+  if ("□+＋=＝-┼：:三".includes(character)) {
     return "cell-road";
   }
   if ("┃│└┘┌┐─━═＝＼／|".includes(character)) {
@@ -58,11 +61,11 @@ const cellToneClass = (character: string) => {
   if ("◇◆○●＠".includes(character)) {
     return "cell-marker";
   }
-  if ("東东西西南北门門龍龙櫓灯".includes(character)) {
+  if ("東东西西南北门門龍龙櫓橹灯".includes(character)) {
     return "cell-waypoint";
   }
   if (/\p{Script=Han}/u.test(character)) {
-    return "cell-label";
+    return "cell-building-label";
   }
   return "";
 };

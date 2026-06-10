@@ -89,11 +89,20 @@ describe("App", () => {
     expect(map.textContent).toContain("稗田邸");
     expect(map.textContent).toContain("阿求私室");
     expect(map.textContent).toContain("慧音房间");
+    expect(map.textContent).toContain("咖啡馆");
+    expect(map.textContent).toContain("包场浴场");
     expect(map.textContent).not.toContain("広场");
+    expect(map.textContent).not.toContain("咖啡館");
+    expect(map.textContent).not.toContain("貸切浴場");
+    expect(map.textContent).not.toContain("房間");
     expect(map.textContent).not.toContain("现在位置");
     expect(map.textContent).not.toContain("颜色说明");
     expect(map.textContent).not.toContain("提示");
     expect(map.querySelectorAll(".ascii-map-cell").length).toBeGreaterThan(0);
+    expect(map.querySelectorAll(".cell-wall").length).toBeGreaterThan(0);
+    expect(map.querySelectorAll(".cell-road").length).toBeGreaterThan(0);
+    expect(map.querySelectorAll(".cell-building-label").length).toBeGreaterThan(0);
+    expect(map.querySelectorAll(".cell-forest").length).toBeGreaterThan(0);
     expect(Number(map.getAttribute("data-column-count"))).toBeGreaterThan(110);
     expect(Number(map.getAttribute("data-row-count"))).toBeGreaterThan(50);
 

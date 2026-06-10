@@ -1,9 +1,14 @@
 :root {
+  --cjk-mono-font:
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
+    "Source Han Sans SC", SimSun, NSimSun, Consolas, monospace;
+  --ui-font:
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC",
+    "Source Han Sans SC", SimSun, sans-serif;
+
   background: #000;
   color: #e8e8e8;
-  font-family:
-    "Microsoft YaHei Mono", "Microsoft YaHei", SimSun, "Noto Sans Mono CJK SC",
-    "Noto Sans CJK SC", Consolas, "MS Gothic", monospace;
+  font-family: var(--ui-font);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -651,12 +656,10 @@ button:disabled {
   border-top: 1px solid #66807a;
   color: #d8d8d8;
   cursor: grab;
-  font-family:
-    "Microsoft YaHei Mono", "Microsoft YaHei", SimSun, "Noto Sans Mono CJK SC",
-    "Noto Sans CJK SC", Consolas, "MS Gothic", monospace;
-  font-feature-settings: "fwid" 1;
+  font-family: var(--cjk-mono-font);
+  font-feature-settings: normal;
   font-size: calc(14px * var(--ascii-font-scale));
-  font-variant-east-asian: full-width;
+  font-variant-east-asian: normal;
   height: 100%;
   line-height: var(--ascii-line);
   min-height: 0;
@@ -716,18 +719,24 @@ button:disabled {
   color: transparent;
 }
 
-.ascii-map-cell.cell-wall,
-.ascii-map-cell.cell-structure {
-  color: #9ba5a1;
-  text-shadow: 0 0 6px rgb(174 194 184 / 26%);
+.ascii-map-cell.cell-boundary {
+  color: #6f7875;
+  text-shadow: 0 0 4px rgb(130 150 142 / 20%);
+}
+
+.ascii-map-cell.cell-wall {
+  color: #b9c2be;
+  font-weight: 700;
+  text-shadow: 0 0 7px rgb(205 220 214 / 34%);
 }
 
 .ascii-map-cell.cell-road {
-  color: #456a70;
+  color: #3e8e99;
+  text-shadow: 0 0 4px rgb(62 142 153 / 28%);
 }
 
 .ascii-map-cell.cell-detail {
-  color: #a38c62;
+  color: #b08a58;
 }
 
 .ascii-map-cell.cell-forest {
@@ -749,8 +758,10 @@ button:disabled {
   color: #ffb56b;
 }
 
-.ascii-map-cell.cell-label {
-  color: #dcece8;
+.ascii-map-cell.cell-building-label {
+  color: #f1efe1;
+  font-weight: 700;
+  text-shadow: 0 0 5px rgb(241 239 225 / 22%);
 }
 
 .ascii-map-cell.cell-location {
