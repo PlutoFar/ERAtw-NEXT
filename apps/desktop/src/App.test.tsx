@@ -30,7 +30,9 @@ describe("App", () => {
 
     expect(await screen.findByText("ERAtw-NEXT")).toBeInTheDocument();
     expect(screen.getByLabelText("era text map")).toBeInTheDocument();
-    expect(screen.getByText("示例角色")).toBeInTheDocument();
+    expect(screen.getAllByText("示例角色").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("人里的门").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/人里的門/)).not.toBeInTheDocument();
   });
 
   it("loads the modern Pixi map only after selecting modern mode", async () => {
@@ -50,7 +52,7 @@ describe("App", () => {
   it("dispatches dialogue command through the engine store", async () => {
     render(<App />);
 
-    const dialogueButton = await screen.findByRole("button", { name: /\[100\] 对话/ });
+    const dialogueButton = await screen.findByRole("button", { name: "对话" });
     fireEvent.click(dialogueButton);
 
     await waitFor(() => {
@@ -82,8 +84,12 @@ describe("App", () => {
     fireEvent.click(await screen.findByRole("button", { name: "槽位 2" }));
     expect(screen.getByText("当前槽位：slot_2")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /\[400\] 移动/ }));
-    fireEvent.click(screen.getByRole("button", { name: /\[02\] 广场/ }));
+    fireEvent.click(screen.getByRole("button", { name: "查看 广场" }));
+    fireEvent.click(
+      within(screen.getByLabelText("location details")).getByRole("button", {
+        name: /移动到这里/,
+      }),
+    );
     await waitFor(() => {
       expect(screen.getAllByText("广场").length).toBeGreaterThan(0);
     });
@@ -93,9 +99,14 @@ describe("App", () => {
       expect(screen.getByText(/browser-memory:\/\/slot_2.json/)).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /\[01\] 人里的門/ }));
+    fireEvent.click(screen.getByRole("button", { name: "查看 人里的门" }));
+    fireEvent.click(
+      within(screen.getByLabelText("location details")).getByRole("button", {
+        name: /移动到这里/,
+      }),
+    );
     await waitFor(() => {
-      expect(screen.getAllByText("人里的門").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("人里的门").length).toBeGreaterThan(0);
     });
 
     fireEvent.click(screen.getByRole("button", { name: "预检读取" }));
@@ -156,6 +167,42 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByText(/随内容包新增的角色/)).toBeInTheDocument();
     });
+  });
+
+  it("shows hover location details for text-map targets", async () => {
+    render(<App />);
+
+    fireEvent.mouseEnter(await screen.findByRole("button", { name: "人里的门" }));
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(within(tooltip).getByText("人里的门")).toBeInTheDocument();
+    expect(within(tooltip).getByText("当前位置")).toBeInTheDocument();
+    expect(within(tooltip).getByText(/示例角色/)).toBeInTheDocument();
+  });
+
+  it("opens a right-click location menu and moves through it", async () => {
+    render(<App />);
+
+    fireEvent.contextMenu(await screen.findByRole("button", { name: "查看 广场" }), {
+      clientX: 90,
+      clientY: 120,
+    });
+
+    const menu = screen.getByRole("menu", { name: /广场 操作菜单/ });
+    fireEvent.click(within(menu).getByRole("menuitem", { name: /移动到这里/ }));
+
+    await waitFor(() => {
+      expect(within(screen.getByLabelText("world status")).getByText("广场")).toBeInTheDocument();
+    });
+  });
+
+  it("shows current-location characters and a portrait fallback", async () => {
+    render(<App />);
+
+    const panel = await screen.findByLabelText("current location characters");
+    expect(within(panel).getAllByText("示例角色").length).toBeGreaterThan(0);
+    expect(within(panel).getByLabelText("character portrait")).toBeInTheDocument();
+    expect(within(panel).getByText("core.demo.heroine.neutral")).toBeInTheDocument();
   });
 
   it("preflights a mod package and shows resource warnings", async () => {
@@ -292,22 +339,24 @@ describe("App", () => {
   it("dispatches relationship command through the engine store", async () => {
     render(<App />);
 
-    expect(await screen.findByText("好感")).toBeInTheDocument();
-    expect(screen.getByText("信赖")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByText("好感").length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByText("信赖").length).toBeGreaterThan(0);
 
     const communicateButton = screen.getByRole("button", { name: /交流/ });
     fireEvent.click(communicateButton);
 
     await waitFor(() => {
-      expect(screen.getByText("6")).toBeInTheDocument();
-      expect(screen.getByText("1")).toBeInTheDocument();
+      expect(screen.getAllByText("6").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("1").length).toBeGreaterThan(0);
     });
   });
 
   it("shows dialogue choices only when conditions pass", async () => {
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: /\[100\] 对话/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "对话" }));
 
     await waitFor(() => {
       expect(screen.getByText("询问新引擎")).toBeInTheDocument();
@@ -317,7 +366,7 @@ describe("App", () => {
     const communicateButton = screen.getByRole("button", { name: /交流/ });
     fireEvent.click(communicateButton);
     await waitFor(() => {
-      expect(screen.getByText("6")).toBeInTheDocument();
+      expect(screen.getAllByText("6").length).toBeGreaterThan(0);
     });
 
     fireEvent.click(communicateButton);

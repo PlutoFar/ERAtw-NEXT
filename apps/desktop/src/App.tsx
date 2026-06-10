@@ -11,6 +11,7 @@ import {
 import { DEFAULT_MOD_INSTALL_ROOT, useEngine } from "./engine/useEngine";
 import { visibleChoices } from "./engine/demoWorld";
 import { createSampleContentPackage } from "./engine/sampleContentPackage";
+import { displayText } from "./engine/displayText";
 import { TraditionalView } from "./components/TraditionalView";
 import type { Location, ModInstallActionReport, WorldState } from "./types";
 
@@ -150,7 +151,7 @@ export const App = () => {
           </span>
           <span>{formatScheduledEventTime(world)}</span>
           <span>RNG {world.random.cursor}</span>
-          <span>{currentLocation?.name ?? "未知地点"}</span>
+          <span>{displayText(currentLocation?.name, "未知地点")}</span>
         </div>
       </header>
 
@@ -183,7 +184,11 @@ export const App = () => {
             <dl>
               <div>
                 <dt>位置</dt>
-                <dd>{currentLocation?.name ?? character.location_id}</dd>
+                <dd>
+                  {currentLocation
+                    ? displayText(currentLocation.name)
+                    : character.location_id}
+                </dd>
               </div>
               <div>
                 <dt>体力</dt>

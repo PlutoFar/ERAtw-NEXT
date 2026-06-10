@@ -1,5 +1,6 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
 import { useEffect, useRef, useState } from "react";
+import { displayText } from "../engine/displayText";
 import type { Location, WorldState } from "../types";
 
 interface ModernMapProps {
@@ -81,7 +82,7 @@ export const ModernMap = ({ world }: ModernMapProps) => {
         stage.addChild(node);
 
         const label = new Text({
-          text: location.name,
+          text: displayText(location.name),
           style: {
             fill: 0xffffff,
             fontFamily: "Microsoft YaHei, sans-serif",
