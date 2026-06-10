@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import type { CSSProperties, MouseEvent } from "react";
+import { useMemo, useRef, useState } from "react";
+import type { CSSProperties, MouseEvent, PointerEvent, WheelEvent } from "react";
 import type { TextMapAction, TextMapArea } from "../../types";
 import { buildAsciiMapModel } from "./viewModel";
 
@@ -13,6 +13,7 @@ interface AsciiMapViewportProps {
   onHoverLocation: (locationId: string | undefined) => void;
   onInspectLocation: (locationId: string) => void;
   onMoveLocation: (locationId: string) => void;
+  onZoomChange: (zoom: number) => void;
   pinnedLocationId: string | undefined;
   selectedLocationId: string | undefined;
   zoom: number;
@@ -39,20 +40,29 @@ const cellToneClass = (character: string) => {
   if (/[0-9]/.test(character)) {
     return "cell-location";
   }
-  if ("■□全合┃│└┘┌┐─━═＝+＋".includes(character)) {
-    return "cell-structure";
+  if ("■全合".includes(character)) {
+    return "cell-wall";
+  }
+  if ("□+＋".includes(character)) {
+    return "cell-road";
+  }
+  if ("┃│└┘┌┐─━═＝＼／|".includes(character)) {
+    return "cell-detail";
   }
   if ("木森林".includes(character)) {
     return "cell-forest";
   }
-  if ("~≈♨".includes(character)) {
+  if ("~≈♨川".includes(character)) {
     return "cell-water";
   }
   if ("◇◆○●＠".includes(character)) {
     return "cell-marker";
   }
-  if ("東西南北门門龍龙".includes(character)) {
+  if ("東东西西南北门門龍龙櫓灯".includes(character)) {
     return "cell-waypoint";
+  }
+  if (/\p{Script=Han}/u.test(character)) {
+    return "cell-label";
   }
   return "";
 };
@@ -67,10 +77,20 @@ export const AsciiMapViewport = ({
   onHoverLocation,
   onInspectLocation,
   onMoveLocation,
+  onZoomChange,
   pinnedLocationId,
   selectedLocationId,
   zoom,
 }: AsciiMapViewportProps) => {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    scrollLeft: number;
+    scrollTop: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const model = useMemo(() => buildAsciiMapModel(area), [area]);
   const style: MapStyle = {
     "--ascii-columns": model.maxColumns,
@@ -78,8 +98,59 @@ export const AsciiMapViewport = ({
     "--ascii-rows": model.rowCount,
   };
 
+  const finishDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null;
+      setDragging(false);
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   return (
-    <div className="ascii-map-viewport" style={style}>
+    <div
+      className={["ascii-map-viewport", dragging ? "dragging" : ""]
+        .filter(Boolean)
+        .join(" ")}
+      style={style}
+      ref={viewportRef}
+      data-zoom={zoom.toFixed(2)}
+      onPointerDown={(event) => {
+        if (event.button !== 0) {
+          return;
+        }
+        if ((event.target as HTMLElement).closest(".ascii-map-hotspot")) {
+          return;
+        }
+        dragRef.current = {
+          pointerId: event.pointerId,
+          scrollLeft: event.currentTarget.scrollLeft,
+          scrollTop: event.currentTarget.scrollTop,
+          startX: event.clientX,
+          startY: event.clientY,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        const drag = dragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) {
+          return;
+        }
+        const deltaX = event.clientX - drag.startX;
+        const deltaY = event.clientY - drag.startY;
+        event.currentTarget.scrollLeft = drag.scrollLeft - deltaX;
+        event.currentTarget.scrollTop = drag.scrollTop - deltaY;
+        if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+          setDragging(true);
+        }
+      }}
+      onPointerUp={finishDrag}
+      onPointerCancel={finishDrag}
+      onWheel={(event: WheelEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        const direction = event.deltaY > 0 ? -1 : 1;
+        onZoomChange(Math.max(0.72, Math.min(1.45, zoom + direction * 0.08)));
+      }}
+    >
       <pre className="ascii-map-source" aria-hidden="true">
         {model.lines.join("\n")}
       </pre>

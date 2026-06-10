@@ -1,27 +1,23 @@
-import { Clock3, MessageCircle, Move, RefreshCw, Sparkles, TerminalSquare } from "lucide-react";
-import type { Location } from "../../types";
-import { locationName } from "./viewModel";
+import { Clock3, ListChecks, Map as MapIcon, MessageCircle, Move, Sparkles } from "lucide-react";
 
 interface ActionBarProps {
   commandPanelOpen: boolean;
-  inspectedLocation: Location | undefined;
   loading: boolean;
   onAdjustRelationship: () => void;
+  onOpenMap: () => void;
   onOpenMoveMap: () => void;
   onRest: () => void;
-  onRollMood: () => void;
   onStartDialogue: () => void;
   onToggleCommandPanel: () => void;
 }
 
 export const ActionBar = ({
   commandPanelOpen,
-  inspectedLocation,
   loading,
   onAdjustRelationship,
+  onOpenMap,
   onOpenMoveMap,
   onRest,
-  onRollMood,
   onStartDialogue,
   onToggleCommandPanel,
 }: ActionBarProps) => {
@@ -36,24 +32,15 @@ export const ActionBar = ({
       <button type="button" onClick={onOpenMoveMap} disabled={loading}>
         <Move size={17} aria-hidden="true" /> 移动
       </button>
+      <button type="button" onClick={onOpenMap} disabled={loading}>
+        <MapIcon size={17} aria-hidden="true" /> 地图
+      </button>
       <button type="button" onClick={onAdjustRelationship} disabled={loading}>
         <Sparkles size={17} aria-hidden="true" /> 交流
       </button>
       <button type="button" onClick={onToggleCommandPanel} aria-expanded={commandPanelOpen}>
-        <TerminalSquare size={17} aria-hidden="true" /> 命令
+        <ListChecks size={17} aria-hidden="true" /> 命令
       </button>
-
-      {commandPanelOpen ? (
-        <div className="command-popover" aria-label="command panel">
-          <strong>命令面板</strong>
-          <button type="button" onClick={onRollMood} disabled={loading}>
-            <RefreshCw size={16} aria-hidden="true" /> 随机心情
-          </button>
-          <span>
-            目标：{inspectedLocation ? locationName(inspectedLocation) : "未选择地点"}
-          </span>
-        </div>
-      ) : null}
     </nav>
   );
 };

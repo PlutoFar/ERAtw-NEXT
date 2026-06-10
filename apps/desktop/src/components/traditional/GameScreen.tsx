@@ -1,17 +1,35 @@
 import { useMemo, useState } from "react";
-import type { MouseEvent, ReactNode } from "react";
+import type { MouseEvent } from "react";
 import {
   Check,
+  Clock3,
+  Compass,
+  Eye,
+  HeartHandshake,
+  ListChecks,
+  Map as MapIcon,
   MapPinned,
+  MessageCircle,
   Move,
+  PanelRightOpen,
   Pin,
+  RefreshCw,
   Search,
+  Sparkles,
+  UserRound,
   X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
 import { displayText } from "../../engine/displayText";
-import type { Character, Location, TextMap, TextMapAction, WorldState } from "../../types";
+import type {
+  Character,
+  Location,
+  Relationship,
+  TextMap,
+  TextMapAction,
+  WorldState,
+} from "../../types";
 import { ActionBar } from "./ActionBar";
 import { AsciiMapViewport } from "./AsciiMapViewport";
 import { CharacterDock } from "./CharacterDock";
@@ -25,11 +43,12 @@ import {
   charactersAtLocation,
   findPortrait,
   formatClock,
-  groupLocationLegendLocations,
   locationName,
   locationSymbol,
+  seasonLabels,
   terrainName,
   visibleLocationsForTextMap,
+  weatherLabels,
 } from "./viewModel";
 
 interface ContextMenuState {
@@ -44,175 +63,195 @@ interface GameScreenProps {
   world: WorldState;
 }
 
+type MapMode = "inspect" | "move";
+
 interface MainStatusPanelProps {
+  commandPanelOpen: boolean;
   currentLocation: Location | undefined;
-  relationshipAffinity: number | undefined;
-  relationshipTrust: number | undefined;
+  currentLocationCharacters: Character[];
+  loading: boolean;
+  onAdjustRelationship: () => void;
+  onOpenCharacters: () => void;
+  onOpenMap: () => void;
+  onOpenMoveMap: () => void;
+  onRest: () => void;
+  onRollMood: () => void;
+  onStartDialogue: () => void;
+  onToggleCommandPanel: () => void;
+  relationship: Relationship | undefined;
   selectedCharacter: Character | undefined;
   textMap: TextMap | undefined;
   world: WorldState;
 }
 
-const Meter = ({
+const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
+
+const StatusMeter = ({
   label,
   tone,
   value,
 }: {
   label: string;
-  tone?: "blue" | "green" | "red";
+  tone?: "blue" | "green" | "yellow";
   value: number;
 }) => (
-  <span className="status-meter">
+  <div className="hub-meter">
     <span>{label}</span>
-    <span className={`status-meter-bar ${tone ?? "blue"}`}>
-      <span style={{ width: `${Math.max(4, Math.min(100, value))}%` }} />
-    </span>
     <strong>{value}</strong>
-  </span>
-);
-
-const TerminalRow = ({ children }: { children: ReactNode }) => (
-  <div className="terminal-row">{children}</div>
+    <i className={tone ?? "blue"}>
+      <b style={{ width: `${clampPercent(value)}%` }} />
+    </i>
+  </div>
 );
 
 const MainStatusPanel = ({
+  commandPanelOpen,
   currentLocation,
-  relationshipAffinity,
-  relationshipTrust,
+  currentLocationCharacters,
+  loading,
+  onAdjustRelationship,
+  onOpenCharacters,
+  onOpenMap,
+  onOpenMoveMap,
+  onRest,
+  onRollMood,
+  onStartDialogue,
+  onToggleCommandPanel,
+  relationship,
   selectedCharacter,
   textMap,
   world,
 }: MainStatusPanelProps) => {
   const portrait = findPortrait(world.resources, selectedCharacter?.id);
   const canRenderPortrait = canRenderImagePath(portrait?.source_path);
+  const latestLog = world.event_log.slice(0, 4);
   const energy = selectedCharacter?.state.energy ?? 0;
   const mood = selectedCharacter?.state.mood ?? 0;
+  const moodPercent = clampPercent(mood + 50);
 
   return (
-    <main className="status-screen" aria-label="status screen">
-      <div className="terminal-frame">
-        <TerminalRow>
-          <span>******************************************************</span>
-        </TerminalRow>
-        <TerminalRow>
-          <strong>{formatClock(world)}</strong>
-          <span>春・晴</span>
-          <span>気温 12.5°C</span>
-          <span>&lt;可吃饭&gt;</span>
-        </TerminalRow>
-        <TerminalRow>
-          <span>TSP</span>
-          <span className="tsp-bar" />
-          <span>(6680/6680)[时间停止可]</span>
-        </TerminalRow>
-        <TerminalRow>
-          <span>{locationName(currentLocation)}</span>
-          <span>清洁度:最高</span>
-          <span>{areaName(textMap, currentLocation?.map_area_id)}</span>
-        </TerminalRow>
-        <TerminalRow>
-          <strong>[{characterName(selectedCharacter)}]</strong>
-        </TerminalRow>
-        <TerminalRow>
+    <main className="status-screen game-hub" aria-label="status screen">
+      <section className="hub-scene-panel" aria-label="current scene">
+        <div className="hub-panel-heading">
+          <span className="panel-kicker">当前场景</span>
+          <h1>{locationName(currentLocation)}</h1>
+        </div>
+        <div className="scene-meta">
           <span>
-            {characterName(selectedCharacter)}
-            (好感度:S {relationshipAffinity ?? "?"}, 信赖度:A{" "}
-            {relationshipTrust ?? "?"}, 欲求不满度:1%)
+            <Clock3 size={16} aria-hidden="true" /> {formatClock(world)}
           </span>
-          <span>子供の数:0</span>
-          <span>愤怒:</span>
-        </TerminalRow>
-        <TerminalRow>
-          <span>工作情报: 寺子屋的医护</span>
-          <span>平日 8時～14時</span>
-          <span>职场: {locationName(currentLocation)}</span>
-          <span>战斗能力:B3</span>
-        </TerminalRow>
+          <span>
+            <Compass size={16} aria-hidden="true" /> {seasonLabels[world.clock.season]} ·{" "}
+            {weatherLabels[world.clock.weather]}
+          </span>
+          <span>
+            <MapPinned size={16} aria-hidden="true" />{" "}
+            {areaName(textMap, currentLocation?.map_area_id)}
+          </span>
+        </div>
+        <div className="scene-action-grid" aria-label="scene actions">
+          <button type="button" onClick={onStartDialogue} disabled={loading}>
+            <MessageCircle size={17} aria-hidden="true" /> 对话
+          </button>
+          <button type="button" onClick={onAdjustRelationship} disabled={loading}>
+            <HeartHandshake size={17} aria-hidden="true" /> 交流
+          </button>
+          <button type="button" onClick={onRest} disabled={loading}>
+            <Clock3 size={17} aria-hidden="true" /> 休息
+          </button>
+          <button type="button" onClick={onOpenMoveMap} disabled={loading}>
+            <Move size={17} aria-hidden="true" /> 移动
+          </button>
+          <button type="button" onClick={onOpenMap} disabled={loading}>
+            <MapIcon size={17} aria-hidden="true" /> 地图
+          </button>
+          <button type="button" onClick={onToggleCommandPanel} aria-expanded={commandPanelOpen}>
+            <ListChecks size={17} aria-hidden="true" /> 命令
+          </button>
+        </div>
+      </section>
 
-        <section className="terminal-section" aria-label="status values">
-          <h2>▼[-][Status]--------[能力表示]</h2>
-          <div className="status-meter-grid">
-            <Meter label="天明 体" tone="green" value={Math.min(100, energy)} />
-            <Meter label="気" value={80} />
-            <Meter label="酒" tone="red" value={0} />
-            <Meter label="精" tone="green" value={70} />
-            <Meter label={`${characterName(selectedCharacter)} 体`} tone="green" value={energy} />
-            <Meter label="気" value={Math.max(4, mood * 8)} />
-            <Meter label="酒" tone="red" value={0} />
+      <section className="hub-character-panel" aria-label="focused character">
+        <div className="status-portrait" aria-label="character portrait">
+          {canRenderPortrait && portrait ? (
+            <img src={portrait.source_path} alt={`${characterName(selectedCharacter)} 立绘`} />
+          ) : (
+            <div className="portrait-fallback">
+              <span>{Array.from(characterName(selectedCharacter))[0] ?? "人"}</span>
+              <small>{portrait ? "立绘未加载" : "未绑定立绘"}</small>
+            </div>
+          )}
+        </div>
+        <div className="character-readout">
+          <span className="panel-kicker">当前人物</span>
+          <h2>{characterName(selectedCharacter)}</h2>
+          <p>
+            好感度:S {relationship?.affinity ?? "?"} / 信赖度:A{" "}
+            {relationship?.trust ?? "?"}
+          </p>
+          <div className="hub-meter-stack">
+            <StatusMeter label="体力" tone="green" value={energy} />
+            <StatusMeter label="心情" tone="yellow" value={moodPercent} />
           </div>
-          <TerminalRow>
-            <span>情绪:</span>
-            <span>理性:★★★★★</span>
-          </TerminalRow>
-        </section>
+          <div className="hub-inline-actions">
+            <button type="button" onClick={onOpenCharacters}>
+              <UserRound size={16} aria-hidden="true" /> 人物
+            </button>
+            <button type="button" onClick={onRollMood} disabled={loading}>
+              <RefreshCw size={16} aria-hidden="true" /> 状态
+            </button>
+          </div>
+        </div>
+      </section>
 
-        <section className="terminal-section" aria-label="palam values">
-          <h2>▼[-][Palam]--------</h2>
-          <div className="palam-grid">
-            {[
-              "快C",
-              "快V",
-              "快A",
-              "快B",
-              "快M",
-              "润滑",
-              "恭顺",
-              "欲情",
-              "屈服",
-              "习得",
-              "耻情",
-              "苦痛",
-              "恐怖",
-              "好意",
-              "优越",
-              "反感",
-              "不快",
-              "抑郁",
-              "眠气",
-            ].map((item) => (
-              <span key={item}>
-                {item}Lv 0 <span className="palam-bar" /> 0
-              </span>
-            ))}
-          </div>
-        </section>
+      <section className="hub-occupants-panel" aria-label="location occupants">
+        <div className="hub-panel-heading compact">
+          <span className="panel-kicker">当前位置人物</span>
+          <strong>{currentLocationCharacters.length}</strong>
+        </div>
+        <div className="occupant-list">
+          {currentLocationCharacters.length > 0 ? (
+            currentLocationCharacters.map((character) => (
+              <button key={character.id} type="button" onClick={onOpenCharacters}>
+                <UserRound size={16} aria-hidden="true" />
+                <span>{characterName(character)}</span>
+                <small>
+                  体力 {character.state.energy} / 心情 {character.state.mood}
+                </small>
+              </button>
+            ))
+          ) : (
+            <span className="empty-text">无人</span>
+          )}
+        </div>
+      </section>
 
-        <section className="terminal-section look-section" aria-label="look values">
-          <div>
-            <h2>▼[-][Look]--------[画像表示][表示設定]</h2>
-            <TerminalRow>【上半身】 女式衬衫</TerminalRow>
-            <TerminalRow>【下半身】 裙子</TerminalRow>
-            <TerminalRow>【★857】 美丽な符卡</TerminalRow>
+      <section className="hub-log-panel" aria-label="event log">
+        <div className="hub-panel-heading compact">
+          <span className="panel-kicker">事件</span>
+          <small>
+            命令 {world.command_log.length} / 计划 {world.scheduled_events.length}
+          </small>
+        </div>
+        <ol>
+          {latestLog.map((entry, index) => (
+            <li key={`${entry}:${index}`}>{displayText(entry)}</li>
+          ))}
+        </ol>
+        {commandPanelOpen ? (
+          <div className="hub-command-panel" aria-label="command panel">
+            <button type="button" onClick={onRollMood} disabled={loading}>
+              <Sparkles size={16} aria-hidden="true" /> 随机心情
+            </button>
+            <button type="button" onClick={onOpenMap} disabled={loading}>
+              <Eye size={16} aria-hidden="true" /> 查看地图
+            </button>
+            <button type="button" onClick={onOpenMoveMap} disabled={loading}>
+              <Move size={16} aria-hidden="true" /> 选择目的地
+            </button>
           </div>
-          <div className="status-portrait" aria-label="character portrait">
-            {canRenderPortrait && portrait ? (
-              <img src={portrait.source_path} alt={`${characterName(selectedCharacter)} 立绘`} />
-            ) : (
-              <div className="portrait-fallback">
-                <span>{Array.from(characterName(selectedCharacter))[0] ?? "人"}</span>
-                <small>{portrait ? portrait.resource_id : "未绑定立绘"}</small>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="terminal-command-lines" aria-label="terminal commands">
-          <TerminalRow>
-            ====== Act_COM == [★] [V]=[A]=[S M]=[奉仕]=[性骚扰]=[家务]=[口上]=[自动避孕套装备]=[自动喘息: 开启] ======
-          </TerminalRow>
-          <TerminalRow>会话[300] 泡茶[301]身体接触[302] 劝酒[332] 膝枕[336]</TerminalRow>
-          <TerminalRow>
-            <strong>带出去[351]</strong> 休憩[403]日记本[406] 学习[412]制作料理[413] 演奏[416]
-          </TerminalRow>
-          <TerminalRow>
-            ▼[-][Ex_COM] ================================================================
-          </TerminalRow>
-          <TerminalRow>
-            <strong>移动[400]</strong> 外出[405] 污渍显示[801]能力表示[803]道具确认[805]居场所察知[811]
-          </TerminalRow>
-          <TerminalRow>&lt;上回指令:&gt;</TerminalRow>
-        </section>
-      </div>
+        ) : null}
+      </section>
     </main>
   );
 };
@@ -227,7 +266,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
     () => visibleLocationsForTextMap(world, textMap),
     [textMap, world],
   );
-  const [mapOpen, setMapOpen] = useState(false);
+  const [mapMode, setMapMode] = useState<MapMode | null>(null);
   const [selectedAreaId, setSelectedAreaId] = useState<string | undefined>();
   const [inspectedLocationId, setInspectedLocationId] = useState<string | undefined>();
   const [hoveredLocationId, setHoveredLocationId] = useState<string | undefined>();
@@ -242,6 +281,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
   const [locationSearch, setLocationSearch] = useState("");
   const [zoom, setZoom] = useState(1);
 
+  const mapOpen = mapMode !== null;
   const activeAreaId =
     selectedAreaId ??
     currentLocation?.map_area_id ??
@@ -280,10 +320,29 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
       String(location.legacy_place_id ?? "").includes(query)
     );
   });
-  const legendGroups = useMemo(
-    () => groupLocationLegendLocations(filteredLocations),
-    [filteredLocations],
-  );
+  const areaLegendGroups = useMemo(() => {
+    const groupedLocationIds = new Set<string>();
+    const groups =
+      textMap?.areas
+        .map((area) => {
+          const locations = filteredLocations.filter(
+            (location) => location.map_area_id === area.id,
+          );
+          locations.forEach((location) => groupedLocationIds.add(location.id));
+          return {
+            id: area.id,
+            title: displayText(area.name),
+            locations,
+          };
+        })
+        .filter((group) => group.locations.length > 0) ?? [];
+    const otherLocations = filteredLocations.filter(
+      (location) => !groupedLocationIds.has(location.id),
+    );
+    return otherLocations.length > 0
+      ? [...groups, { id: "other", title: "其他", locations: otherLocations }]
+      : groups;
+  }, [filteredLocations, textMap]);
   const dialogueToken =
     world.active_dialogue.length > 0
       ? `${world.active_dialogue_scene_id ?? "dialogue"}:${
@@ -302,14 +361,15 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
     }
   };
 
-  const openMoveMap = () => {
-    setMapOpen(true);
+  const openMap = (mode: MapMode = "inspect") => {
+    setMapMode(mode);
     setInspectedLocationId(currentLocation?.id);
     setSelectedAreaId(currentLocation?.map_area_id ?? textMap?.default_area_id);
+    setContextMenu(null);
   };
 
-  const closeMoveMap = () => {
-    setMapOpen(false);
+  const closeMap = () => {
+    setMapMode(null);
     setContextMenu(null);
     setHoveredLocationId(undefined);
   };
@@ -325,10 +385,10 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
       setSelectedAreaId(destination.map_area_id);
     }
     if (destination?.id === playerCharacter.location_id) {
-      closeMoveMap();
+      closeMap();
       return;
     }
-    closeMoveMap();
+    closeMap();
     void services.dispatch({
       type: "move_character",
       character_id: playerCharacter.id,
@@ -451,9 +511,19 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
 
       <div className="game-layout">
         <MainStatusPanel
+          commandPanelOpen={commandPanelOpen}
           currentLocation={currentLocation}
-          relationshipAffinity={selectedCharacterRelationship?.affinity}
-          relationshipTrust={selectedCharacterRelationship?.trust}
+          currentLocationCharacters={currentLocationCharacters}
+          loading={services.loading}
+          onAdjustRelationship={adjustRelationship}
+          onOpenCharacters={() => setCharacterPanelOpen(true)}
+          onOpenMap={() => openMap("inspect")}
+          onOpenMoveMap={() => openMap("move")}
+          onRest={() => services.dispatch({ type: "advance_time", minutes: 30 })}
+          onRollMood={rollMood}
+          onStartDialogue={startDialogue}
+          onToggleCommandPanel={() => setCommandPanelOpen((open) => !open)}
+          relationship={selectedCharacterRelationship}
           selectedCharacter={selectedCharacter}
           textMap={textMap}
           world={world}
@@ -479,22 +549,40 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
 
       <ActionBar
         commandPanelOpen={commandPanelOpen}
-        inspectedLocation={selectedDestination}
         loading={services.loading}
         onAdjustRelationship={adjustRelationship}
-        onOpenMoveMap={openMoveMap}
+        onOpenMap={() => openMap("inspect")}
+        onOpenMoveMap={() => openMap("move")}
         onRest={() => services.dispatch({ type: "advance_time", minutes: 30 })}
-        onRollMood={rollMood}
         onStartDialogue={startDialogue}
         onToggleCommandPanel={() => setCommandPanelOpen((open) => !open)}
       />
 
       {mapOpen ? (
-        <section className="move-map-overlay" aria-label="movement map">
+        <section
+          className={`move-map-overlay ${mapMode === "move" ? "move-mode" : "inspect-mode"}`}
+          aria-label={mapMode === "move" ? "movement map" : "world map"}
+        >
           <header className="move-map-header">
             <div>
-              <span>移动</span>
+              <span>{mapMode === "move" ? "移动" : "地图"}</span>
               <h2>{locationName(selectedDestination)}</h2>
+            </div>
+            <div className="map-mode-switch" aria-label="map mode">
+              <button
+                type="button"
+                className={mapMode === "inspect" ? "active" : undefined}
+                onClick={() => setMapMode("inspect")}
+              >
+                <Eye size={16} aria-hidden="true" /> 浏览
+              </button>
+              <button
+                type="button"
+                className={mapMode === "move" ? "active" : undefined}
+                onClick={() => setMapMode("move")}
+              >
+                <Move size={16} aria-hidden="true" /> 移动
+              </button>
             </div>
             <div className="area-tabs" aria-label="text map areas">
               {textMap?.areas.map((area) => (
@@ -505,7 +593,6 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
                   onClick={() => setSelectedAreaId(area.id)}
                   disabled={services.loading}
                 >
-                  <span>{area.kind === "outing" ? "外" : "内"}</span>
                   {displayText(area.name)}
                 </button>
               ))}
@@ -514,7 +601,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setZoom((value) => Math.max(0.78, value - 0.08))}
+                onClick={() => setZoom((value) => Math.max(0.72, value - 0.08))}
                 aria-label="缩小地图"
               >
                 <ZoomOut size={17} aria-hidden="true" />
@@ -522,7 +609,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => setZoom((value) => Math.min(1.18, value + 0.08))}
+                onClick={() => setZoom((value) => Math.min(1.45, value + 0.08))}
                 aria-label="放大地图"
               >
                 <ZoomIn size={17} aria-hidden="true" />
@@ -539,8 +626,8 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
               <button
                 type="button"
                 className="icon-button"
-                onClick={closeMoveMap}
-                aria-label="关闭移动地图"
+                onClick={closeMap}
+                aria-label="关闭地图"
               >
                 <X size={18} aria-hidden="true" />
               </button>
@@ -560,6 +647,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
                   onHoverLocation={setHoveredLocationId}
                   onInspectLocation={selectLocation}
                   onMoveLocation={moveTo}
+                  onZoomChange={setZoom}
                   pinnedLocationId={pinnedLocationId}
                   selectedLocationId={selectedDestination?.id}
                   zoom={zoom}
@@ -592,7 +680,9 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
 
             <aside className="move-map-sidebar">
               <section className="move-destination-panel" aria-label="selected destination">
-                <span className="panel-kicker">目的地</span>
+                <span className="panel-kicker">
+                  {mapMode === "move" ? "目的地" : "选中地点"}
+                </span>
                 <h3>{locationName(selectedDestination)}</h3>
                 <dl className="compact-dl">
                   <div>
@@ -632,23 +722,35 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
                       selectedDestination.id === currentLocation?.id
                     }
                   >
-                    <Check size={16} aria-hidden="true" /> 确定移动
+                    <Check size={16} aria-hidden="true" />{" "}
+                    {mapMode === "move" ? "确定移动" : "移动到这里"}
                   </button>
-                  <button type="button" onClick={closeMoveMap}>
-                    <X size={16} aria-hidden="true" /> 取消
+                  <button
+                    type="button"
+                    onClick={() => focusPeopleAtLocation(selectedDestination)}
+                  >
+                    <UserRound size={16} aria-hidden="true" /> 人物
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => selectedDestination && pinLocation(selectedDestination.id)}
+                    disabled={!selectedDestination}
+                  >
+                    <Pin size={16} aria-hidden="true" />{" "}
+                    {selectedDestination?.id === pinnedLocationId ? "取消关注" : "关注"}
                   </button>
                 </div>
               </section>
 
               <section className="move-map-legend" aria-label="location legend">
                 <h3>
-                  <MapPinned size={16} aria-hidden="true" /> 图例 / 地点
+                  <PanelRightOpen size={16} aria-hidden="true" /> 图例 / 地点
                 </h3>
-                {legendGroups.map((group, index) => (
+                {areaLegendGroups.map((group, index) => (
                   <details
                     className="move-map-legend-group"
                     key={group.id}
-                    open={index < 2}
+                    open={group.id === activeArea?.id || index === 0}
                   >
                     <summary>
                       <span>{group.title}</span>
@@ -659,7 +761,7 @@ export const GameScreen = ({ onPause, services, world }: GameScreenProps) => {
                     </div>
                   </details>
                 ))}
-                {legendGroups.length === 0 ? (
+                {areaLegendGroups.length === 0 ? (
                   <p className="empty-legend-text">没有匹配地点</p>
                 ) : null}
               </section>

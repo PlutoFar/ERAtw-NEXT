@@ -44,6 +44,15 @@ const openMovementMap = async () => {
   return screen.findByLabelText("movement map");
 };
 
+const openWorldMap = async () => {
+  fireEvent.click(
+    within(screen.getByLabelText("quick actions")).getByRole("button", {
+      name: /地图/,
+    }),
+  );
+  return screen.findByLabelText("world map");
+};
+
 describe("App", () => {
   beforeEach(resetEngineStore);
 
@@ -59,6 +68,13 @@ describe("App", () => {
     expect(screen.getByLabelText("game hud")).toBeInTheDocument();
     expect(screen.getByLabelText("quick actions")).toBeInTheDocument();
     expect(screen.getByLabelText("status screen")).toBeInTheDocument();
+    expect(screen.getByLabelText("current scene")).toBeInTheDocument();
+    expect(screen.getByLabelText("focused character")).toBeInTheDocument();
+    expect(screen.getByLabelText("location occupants")).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText("quick actions")).getByRole("button", { name: /地图/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Act_COM/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("era text map")).not.toBeInTheDocument();
   });
 
@@ -74,6 +90,9 @@ describe("App", () => {
     expect(map.textContent).toContain("阿求私室");
     expect(map.textContent).toContain("慧音房间");
     expect(map.textContent).not.toContain("広场");
+    expect(map.textContent).not.toContain("现在位置");
+    expect(map.textContent).not.toContain("颜色说明");
+    expect(map.textContent).not.toContain("提示");
     expect(map.querySelectorAll(".ascii-map-cell").length).toBeGreaterThan(0);
     expect(Number(map.getAttribute("data-column-count"))).toBeGreaterThan(110);
     expect(Number(map.getAttribute("data-row-count"))).toBeGreaterThan(50);
@@ -109,16 +128,36 @@ describe("App", () => {
     expect(model.hotspots.length).toBeGreaterThan(20);
     expect(model.rowCount).toBeGreaterThan(50);
     expect(model.maxColumns).toBeGreaterThan(110);
+    expect(model.lines.join("\n")).not.toContain("现在位置");
+    expect(model.lines.join("\n")).not.toContain("颜色说明");
   });
 
-  it("groups the location legend instead of rendering one flat list", async () => {
+  it("opens the map independently and supports wheel zoom", async () => {
+    await enterGame();
+    await openWorldMap();
+
+    expect(screen.getByLabelText("map screen")).toBeInTheDocument();
+    const viewport = document.querySelector(".ascii-map-viewport");
+    expect(viewport).toHaveAttribute("data-zoom", "1.00");
+
+    fireEvent.wheel(viewport!, { deltaY: -120 });
+
+    await waitFor(() => {
+      expect(document.querySelector(".ascii-map-viewport")).toHaveAttribute(
+        "data-zoom",
+        "1.08",
+      );
+    });
+  });
+
+  it("groups the location legend by map area instead of rendering one flat list", async () => {
     await enterGame();
     await openMovementMap();
 
     const legend = screen.getByLabelText("location legend");
-    expect(within(legend).getByText(/街区 \/ 出入口/)).toBeInTheDocument();
-    expect(within(legend).getByText(/商店 \/ 设施/)).toBeInTheDocument();
-    expect(within(legend).getByText(/长屋 \/ 住居/)).toBeInTheDocument();
+    expect(within(legend).getByText("人里")).toBeInTheDocument();
+    expect(within(legend).getByText("长屋")).toBeInTheDocument();
+    expect(within(legend).getAllByText("鲵吞亭").length).toBeGreaterThan(0);
     expect(screen.queryByText("切区")).not.toBeInTheDocument();
 
     const world = createDemoWorld();
