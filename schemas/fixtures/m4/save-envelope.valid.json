@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "save-envelope/v1",
+  "saveVersion": 1,
+  "engineVersion": "0.4.0-m4",
+  "dependencies": [
+    {
+      "packageId": "test.playable",
+      "version": "1.0.0"
+    }
+  ],
+  "initialState": {
+    "schemaVersion": "game-state/v1",
+    "package": {
+      "packageId": "test.playable",
+      "displayName": "Playable Test",
+      "version": "1.0.0"
+    },
+    "turn": 0,
+    "clock": {
+      "day": 1,
+      "minuteOfDay": 360,
+      "totalMinutes": 360
+    },
+    "currentLocationId": "core.location.home",
+    "player": {
+      "energy": 100,
+      "maxEnergy": 100,
+      "money": 100
+    },
+    "flags": {},
+    "eventQueue": [
+      {
+        "id": "system.daybreak.1",
+        "dueAt": 480,
+        "kind": "daybreak"
+      }
+    ],
+    "recentEvents": []
+  },
+  "state": {
+    "schemaVersion": "game-state/v1",
+    "package": {
+      "packageId": "test.playable",
+      "displayName": "Playable Test",
+      "version": "1.0.0"
+    },
+    "turn": 1,
+    "clock": {
+      "day": 1,
+      "minuteOfDay": 370,
+      "totalMinutes": 370
+    },
+    "currentLocationId": "core.location.square",
+    "player": {
+      "energy": 99,
+      "maxEnergy": 100,
+      "money": 100
+    },
+    "flags": {},
+    "eventQueue": [
+      {
+        "id": "system.daybreak.1",
+        "dueAt": 480,
+        "kind": "daybreak"
+      }
+    ],
+    "recentEvents": []
+  },
+  "commandLog": [
+    {
+      "type": "move",
+      "locationId": "core.location.square",
+      "minutes": 10
+    }
+  ],
+  "stateHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

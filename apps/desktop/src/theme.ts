@@ -20,7 +20,7 @@ export const theme = createTheme({
       "sans-serif",
     ].join(","),
   },
-  shape: { borderRadius: 10 },
+  shape: { borderRadius: 8 },
 });
 
 // 字符画地图专用等宽字体栈（CJK 等宽尽量对齐）。

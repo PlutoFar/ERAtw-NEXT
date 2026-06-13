@@ -12,9 +12,19 @@ const loadJson = (...segments: string[]): object =>
 const loadSchema = (file: string): object => loadJson(file);
 const loadM1Fixture = (file: string): object => loadJson("fixtures/m1", file);
 const loadM2Fixture = (file: string): object => loadJson("fixtures/m2", file);
+const loadM3Fixture = (file: string): object => loadJson("fixtures/m3", file);
+const loadM4Fixture = (file: string): object => loadJson("fixtures/m4", file);
 
-const compileSchema = (file: string) =>
-  new Ajv2020({ allErrors: true, strict: false }).compile(loadSchema(file));
+const compileSchema = (file: string) => {
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  if (file !== "game-state.schema.json") {
+    ajv.addSchema(loadSchema("game-state.schema.json"));
+  }
+  if (file !== "game-command.schema.json") {
+    ajv.addSchema(loadSchema("game-command.schema.json"));
+  }
+  return ajv.compile(loadSchema(file));
+};
 
 const m2Fixtures = [
   ["content-package.schema.json", "manifest.valid.json"],
@@ -37,6 +47,17 @@ const m1Fixtures = [
   ["content-audit-erb-stats.schema.json", "erb-stats.valid.json"],
   ["content-audit-csv-stats.schema.json", "csv-stats.valid.json"],
   ["content-audit-resources.schema.json", "resources.valid.json"],
+] as const;
+
+const m3Fixtures = [
+  ["content-package-index.schema.json", "content-package-index.valid.json"],
+] as const;
+
+const m4Fixtures = [
+  ["game-command.schema.json", "game-command.valid.json"],
+  ["game-state.schema.json", "game-state.valid.json"],
+  ["save-envelope.schema.json", "save-envelope.valid.json"],
+  ["save-report.schema.json", "save-report.valid.json"],
 ] as const;
 
 describe("JSON Schema 契约", () => {
@@ -71,6 +92,20 @@ describe("JSON Schema 契约", () => {
   it.each(m2Fixtures)("M2 fixture %s 符合 schema", (schemaFile, fixtureFile) => {
     const validate = compileSchema(schemaFile);
     const ok = validate(loadM2Fixture(fixtureFile));
+    expect(validate.errors ?? []).toEqual([]);
+    expect(ok).toBe(true);
+  });
+
+  it.each(m3Fixtures)("M3 fixture %s 符合 schema", (schemaFile, fixtureFile) => {
+    const validate = compileSchema(schemaFile);
+    const ok = validate(loadM3Fixture(fixtureFile));
+    expect(validate.errors ?? []).toEqual([]);
+    expect(ok).toBe(true);
+  });
+
+  it.each(m4Fixtures)("M4 fixture %s 符合 schema", (schemaFile, fixtureFile) => {
+    const validate = compileSchema(schemaFile);
+    const ok = validate(loadM4Fixture(fixtureFile));
     expect(validate.errors ?? []).toEqual([]);
     expect(ok).toBe(true);
   });

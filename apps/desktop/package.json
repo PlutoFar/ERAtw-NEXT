@@ -1,7 +1,7 @@
 {
   "name": "@eratw-next/desktop",
   "private": true,
-  "version": "0.1.0-m0",
+  "version": "0.4.0-m4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,6 +17,8 @@
     "@emotion/styled": "^11.13.0",
     "@mui/material": "^5.16.7",
     "@tauri-apps/api": "^2.0.3",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

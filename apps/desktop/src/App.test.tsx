@@ -4,7 +4,13 @@ import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 import App from "./App";
 import type { EngineClient } from "./engine/client";
-import { mockMapModel, mockSystemStatus } from "./engine/mockData";
+import {
+  applyMockCommand,
+  mockContentPackageIndex,
+  mockInitialGameState,
+  mockMapModel,
+  mockSystemStatus,
+} from "./engine/mockData";
 import { SettingsProvider } from "./settings/SettingsContext";
 import { theme } from "./theme";
 
@@ -19,6 +25,23 @@ function renderApp(ui: ReactElement) {
 const readyClient: EngineClient = {
   getSystemStatus: async () => mockSystemStatus,
   getMapOverview: async () => mockMapModel,
+  loadContentPackage: async () => mockContentPackageIndex,
+  getLoadedContent: async () => null,
+  newGame: async () => mockInitialGameState,
+  getGameState: async () => null,
+  applyGameCommand: async (command) => applyMockCommand(mockInitialGameState, command),
+  writeSave: async (path) => ({
+    schemaVersion: "save-report/v1",
+    path,
+    packageId: "demo.playable",
+    turn: 0,
+    bytes: 100,
+    stateHash: "sha256:test",
+  }),
+  loadSave: async () => mockInitialGameState,
+  chooseContentPackageDirectory: async () => null,
+  chooseSavePath: async () => null,
+  chooseLoadSavePath: async () => null,
 };
 
 describe("App 三态", () => {
@@ -26,6 +49,16 @@ describe("App 三态", () => {
     const pendingClient: EngineClient = {
       getSystemStatus: () => new Promise(() => {}),
       getMapOverview: () => new Promise(() => {}),
+      loadContentPackage: () => new Promise(() => {}),
+      getLoadedContent: () => new Promise(() => {}),
+      newGame: () => new Promise(() => {}),
+      getGameState: () => new Promise(() => {}),
+      applyGameCommand: () => new Promise(() => {}),
+      writeSave: () => new Promise(() => {}),
+      loadSave: () => new Promise(() => {}),
+      chooseContentPackageDirectory: () => new Promise(() => {}),
+      chooseSavePath: () => new Promise(() => {}),
+      chooseLoadSavePath: () => new Promise(() => {}),
     };
     renderApp(<App client={pendingClient} />);
     expect(screen.getByText("正在读取引擎状态…")).toBeInTheDocument();
@@ -43,6 +76,16 @@ describe("App 三态", () => {
         throw { code: "SYSTEM_STATUS_UNAVAILABLE", message: "引擎挂了", details: {} };
       },
       getMapOverview: async () => mockMapModel,
+      loadContentPackage: async () => mockContentPackageIndex,
+      getLoadedContent: async () => null,
+      newGame: async () => mockInitialGameState,
+      getGameState: async () => null,
+      applyGameCommand: async (command) => applyMockCommand(mockInitialGameState, command),
+      writeSave: readyClient.writeSave,
+      loadSave: async () => mockInitialGameState,
+      chooseContentPackageDirectory: async () => null,
+      chooseSavePath: async () => null,
+      chooseLoadSavePath: async () => null,
     };
     renderApp(<App client={failClient} />);
     await waitFor(() =>

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "game-state/v1",
+  "package": {
+    "packageId": "test.playable",
+    "displayName": "Playable Test",
+    "version": "1.0.0"
+  },
+  "turn": 1,
+  "clock": {
+    "day": 1,
+    "minuteOfDay": 370,
+    "totalMinutes": 370
+  },
+  "currentLocationId": "core.location.square",
+  "player": {
+    "energy": 99,
+    "maxEnergy": 100,
+    "money": 100
+  },
+  "flags": {},
+  "eventQueue": [
+    {
+      "id": "system.daybreak.1",
+      "dueAt": 480,
+      "kind": "daybreak"
+    }
+  ],
+  "recentEvents": []
+}

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "content-package-index/v1",
+  "rootPath": "D:/content/test",
+  "package": {
+    "packageId": "test.playable",
+    "displayName": "Playable Test",
+    "version": "1.0.0"
+  },
+  "engineRequirement": ">=0.4.0",
+  "capabilities": ["playable.core"],
+  "reviewStatus": "accepted",
+  "playable": true,
+  "counts": {
+    "dictionaries": 0,
+    "characters": 1,
+    "locations": 2,
+    "resources": 0,
+    "dialogueSources": 0,
+    "dialogueScenes": 0
+  },
+  "characters": [
+    {
+      "id": "core.character.001",
+      "displayName": "Alice",
+      "reviewStatus": "accepted",
+      "resourceCount": 0,
+      "dialogueSourceCount": 0
+    }
+  ],
+  "locations": [
+    {
+      "id": "core.location.home",
+      "displayName": "Home",
+      "kind": "home",
+      "tags": ["safe"],
+      "connections": ["core.location.square"],
+      "reviewStatus": "accepted"
+    }
+  ],
+  "resources": [],
+  "warnings": []
+}

@@ -78,7 +78,7 @@ ERAtw-NEXT 是 ERAtw 的现代化引擎与桌面应用项目，不是旧 Emuera 
 涉及子系统：
 
 - Engine：内容包加载、基础索引、引用校验。
-- Desktop：选择内容包路径，读取只读 package。
+- Desktop：使用原生目录选择器或绝对路径读取只读 package。
 - UI：角色、地点、资源索引视图。
 - Contract：content package API schema。
 
@@ -88,6 +88,12 @@ ERAtw-NEXT 是 ERAtw 的现代化引擎与桌面应用项目，不是旧 Emuera 
 - 加载失败返回结构化错误。
 - UI 能展示角色/地点/资源，不进入玩法循环。
 - 内容包与 engine 仓库仍分离。
+
+实现结果：
+
+- M2 全量草案包 4194 个对象可被 M3 loader 完整索引。
+- 新增 `content-package-index/v1`、结构化错误和跨引用验证。
+- 草案包保持不可玩；仓库外 accepted 自有最小包可进入 M4。
 
 ## M4：玩法状态机与存档基础
 
@@ -106,6 +112,13 @@ ERAtw-NEXT 是 ERAtw 的现代化引擎与桌面应用项目，不是旧 Emuera 
 - 存档能保存/加载最小 world state。
 - 错误存档、版本不匹配、缺依赖有明确报告。
 - 不依赖 ERB 执行。
+
+实现结果：
+
+- `game-state/v1` 和纯 command reducer 已实现。
+- 时间推进、地点移动、体力、flags、稳定事件队列已实现。
+- `save-envelope/v1` 记录依赖、initial/current state、command log 和 SHA-256。
+- 存档加载执行版本、依赖、hash 和确定性 replay 校验。
 
 ## M5：ERB 迁移双轨实验
 
@@ -194,4 +207,4 @@ ERAtw-NEXT 是 ERAtw 的现代化引擎与桌面应用项目，不是旧 Emuera 
 
 ## 当前下一步
 
-M0、M1、M2 已完成工程实现与真实数据验收。下一阶段为 M3：加载人工维护或 M2 生成的小型新 schema 内容包；M2 的全量草案仍不可玩，必须先完成人工复核与内容治理。
+M0-M4 已完成工程实现与真实数据验收。下一阶段为 M5：验证有限 ERB 子集解释器与纯转换路线的边界；M2 全量草案仍不可玩，必须先完成人工复核与内容治理。

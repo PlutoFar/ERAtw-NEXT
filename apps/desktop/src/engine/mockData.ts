@@ -1,16 +1,23 @@
 // 浏览器 / 开发 / 测试环境下的引擎返回镜像数据。
 // 与 crates/engine 中的内置数据保持一致；真实环境由 Tauri command 返回。
 
-import type { MapModel, SystemStatus } from "../types";
+import type {
+  CommandResult,
+  ContentPackageIndex,
+  GameCommand,
+  GameState,
+  MapModel,
+  SystemStatus,
+} from "../types";
 
 export const mockSystemStatus: SystemStatus = {
   schemaVersion: "system-status/v1",
   app: {
     name: "ERAtw-NEXT",
-    stage: "M0",
+    stage: "M4",
     tagline: "ERAtw 现代化引擎与桌面应用，不是旧运行时打包。",
   },
-  engine: { name: "eratw_next_engine", version: "0.1.0-m0" },
+  engine: { name: "eratw_next_engine", version: "0.4.0-m4" },
   build: { profile: "debug", gitDescribe: null, timestamp: null },
   paths: [
     {
@@ -58,8 +65,26 @@ export const mockSystemStatus: SystemStatus = {
     {
       id: "content_audit",
       label: "只读内容审计",
-      status: "planned",
-      description: "M1 实现，扫描 eratw-content，默认不自动执行。",
+      status: "available",
+      description: "M1 只读审计工具已完成。",
+    },
+    {
+      id: "content_package",
+      label: "内容包加载",
+      status: "available",
+      description: "M3 可加载、校验并索引仓库外内容包。",
+    },
+    {
+      id: "content_migration",
+      label: "内容转换草案",
+      status: "available",
+      description: "M2 可生成仓库外 draft 内容包。",
+    },
+    {
+      id: "game_state",
+      label: "玩法状态机与存档",
+      status: "available",
+      description: "M4 reducer、事件队列、replay 与版本化存档已可用。",
     },
     {
       id: "erb_runtime",
@@ -68,28 +93,151 @@ export const mockSystemStatus: SystemStatus = {
       description: "默认禁用，不执行任何外部 ERB 或脚本。",
     },
   ],
-  currentMilestone: "M0",
+  currentMilestone: "M4",
   milestones: [
     {
       id: "M0",
       title: "现代工程骨架",
-      status: "in_progress",
-      summary: "Rust + Tauri + React/MUI 可启动基线，地图功能提前接入。",
+      status: "done",
+      summary: "Rust + Tauri + React/MUI 工程基线。",
     },
     {
       id: "M1",
       title: "只读内容审计",
-      status: "planned",
+      status: "done",
       summary: "安全扫描 eratw-content，输出规模/编码/资源引用报告。",
     },
     {
       id: "M2",
       title: "内容契约与转换草案",
-      status: "planned",
+      status: "done",
       summary: "定义新内容 schema 并生成可校验的草案内容包。",
+    },
+    {
+      id: "M3",
+      title: "最小内容包加载",
+      status: "done",
+      summary: "加载、校验并展示独立内容包索引。",
+    },
+    {
+      id: "M4",
+      title: "玩法状态机与存档基础",
+      status: "done",
+      summary: "确定性 reducer、时间事件队列与版本化存档。",
+    },
+    {
+      id: "M5",
+      title: "ERB 迁移双轨实验",
+      status: "planned",
+      summary: "验证有限 ERB 子集与新 schema 主线的边界。",
     },
   ],
 };
+
+export const mockContentPackageIndex: ContentPackageIndex = {
+  schemaVersion: "content-package-index/v1",
+  rootPath: "D:/AICODE/ERAtw-NEXT-content/playable-demo",
+  package: {
+    packageId: "demo.playable",
+    displayName: "Playable Demo",
+    version: "1.0.0",
+  },
+  engineRequirement: ">=0.4.0",
+  capabilities: ["playable.core"],
+  reviewStatus: "accepted",
+  playable: true,
+  counts: {
+    dictionaries: 0,
+    characters: 1,
+    locations: 2,
+    resources: 0,
+    dialogueSources: 0,
+    dialogueScenes: 0,
+  },
+  characters: [
+    {
+      id: "core.character.001",
+      displayName: "角色 001",
+      reviewStatus: "accepted",
+      resourceCount: 0,
+      dialogueSourceCount: 0,
+    },
+  ],
+  locations: [
+    {
+      id: "core.location.home",
+      displayName: "居所",
+      kind: "home",
+      tags: ["safe"],
+      connections: ["core.location.square"],
+      reviewStatus: "accepted",
+    },
+    {
+      id: "core.location.square",
+      displayName: "广场",
+      kind: "public",
+      tags: [],
+      connections: ["core.location.home"],
+      reviewStatus: "accepted",
+    },
+  ],
+  resources: [],
+  warnings: [],
+};
+
+export const mockInitialGameState: GameState = {
+  schemaVersion: "game-state/v1",
+  package: mockContentPackageIndex.package,
+  turn: 0,
+  clock: { day: 1, minuteOfDay: 360, totalMinutes: 360 },
+  currentLocationId: "core.location.home",
+  player: { energy: 100, maxEnergy: 100, money: 100 },
+  flags: {},
+  eventQueue: [{ id: "system.daybreak.1", dueAt: 480, kind: "daybreak" }],
+  recentEvents: [],
+};
+
+export function loadMockGame(): GameState {
+  return structuredClone(mockInitialGameState);
+}
+
+export function applyMockCommand(state: GameState, command: GameCommand): CommandResult {
+  const next = structuredClone(state);
+  next.recentEvents = [];
+  if (command.type === "move") {
+    next.currentLocationId = command.locationId;
+    next.player.energy = Math.max(0, next.player.energy - Math.ceil(command.minutes / 10));
+    advanceMockTime(next, command.minutes);
+  } else if (command.type === "wait") {
+    advanceMockTime(next, command.minutes);
+  } else if (command.type === "rest") {
+    advanceMockTime(next, command.minutes);
+    next.player.energy = Math.min(next.player.maxEnergy, next.player.energy + Math.max(1, Math.floor(command.minutes / 5)));
+  } else if (command.type === "setFlag") {
+    next.flags[command.key] = command.value;
+  } else {
+    next.eventQueue.push({
+      id: command.eventId,
+      dueAt: next.clock.totalMinutes + command.dueInMinutes,
+      kind: command.kind,
+    });
+  }
+  next.turn += 1;
+  const due = next.eventQueue.filter((event) => event.dueAt <= next.clock.totalMinutes);
+  next.eventQueue = next.eventQueue.filter((event) => event.dueAt > next.clock.totalMinutes);
+  next.recentEvents = due.map((event) => ({
+    id: event.id,
+    occurredAt: event.dueAt,
+    kind: event.kind,
+  }));
+  return { state: next, emittedEvents: next.recentEvents };
+}
+
+function advanceMockTime(state: GameState, minutes: number) {
+  state.clock.totalMinutes += minutes;
+  state.clock.day = Math.floor(state.clock.totalMinutes / 1440) + 1;
+  state.clock.minuteOfDay = state.clock.totalMinutes % 1440;
+}
 
 export const mockMapModel: MapModel = {
   schemaVersion: "map-model/v1",

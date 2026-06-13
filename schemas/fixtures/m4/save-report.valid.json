@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "save-report/v1",
+  "path": "D:/saves/test.json",
+  "packageId": "test.playable",
+  "turn": 1,
+  "bytes": 1024,
+  "stateHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

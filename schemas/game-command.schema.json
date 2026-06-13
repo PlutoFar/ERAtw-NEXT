@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/game-command/v1",
+  "title": "Game command",
+  "oneOf": [
+    { "$ref": "#/$defs/wait" },
+    { "$ref": "#/$defs/rest" },
+    { "$ref": "#/$defs/move" },
+    { "$ref": "#/$defs/setFlag" },
+    { "$ref": "#/$defs/scheduleEvent" }
+  ],
+  "$defs": {
+    "minutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
+    "wait": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "minutes"],
+      "properties": {
+        "type": { "const": "wait" },
+        "minutes": { "$ref": "#/$defs/minutes" }
+      }
+    },
+    "rest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "minutes"],
+      "properties": {
+        "type": { "const": "rest" },
+        "minutes": { "$ref": "#/$defs/minutes" }
+      }
+    },
+    "move": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "locationId", "minutes"],
+      "properties": {
+        "type": { "const": "move" },
+        "locationId": { "type": "string", "minLength": 1 },
+        "minutes": { "$ref": "#/$defs/minutes" }
+      }
+    },
+    "setFlag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "key", "value"],
+      "properties": {
+        "type": { "const": "setFlag" },
+        "key": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "value": { "type": "integer" }
+      }
+    },
+    "scheduleEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "eventId", "dueInMinutes", "kind"],
+      "properties": {
+        "type": { "const": "scheduleEvent" },
+        "eventId": { "type": "string", "minLength": 1 },
+        "dueInMinutes": { "$ref": "#/$defs/minutes" },
+        "kind": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

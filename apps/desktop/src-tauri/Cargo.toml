@@ -3,7 +3,7 @@ name = "eratw-next-desktop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ERAtw-NEXT 桌面壳：仅做窗口与 command 桥接，业务逻辑在 eratw_next_engine。"
+description = "ERAtw-NEXT 桌面壳：桥接内容包、玩法状态与存档命令。"
 
 [lib]
 name = "eratw_next_desktop_lib"
@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 eratw_next_engine = { path = "../../../crates/engine" }

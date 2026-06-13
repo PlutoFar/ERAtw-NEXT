@@ -92,3 +92,121 @@ export interface EngineError {
   message: string;
   details: Record<string, unknown>;
 }
+
+// ===== M3 内容包索引 =====
+
+export interface PackageIdentity {
+  packageId: string;
+  displayName: string;
+  version: string;
+}
+
+export interface PackageCounts {
+  dictionaries: number;
+  characters: number;
+  locations: number;
+  resources: number;
+  dialogueSources: number;
+  dialogueScenes: number;
+}
+
+export interface CharacterIndexEntry {
+  id: string;
+  displayName: string;
+  reviewStatus: string;
+  resourceCount: number;
+  dialogueSourceCount: number;
+}
+
+export interface LocationIndexEntry {
+  id: string;
+  displayName: string;
+  kind: string;
+  tags: string[];
+  connections: string[];
+  reviewStatus: string;
+}
+
+export interface ResourceIndexEntry {
+  id: string;
+  mediaType: string;
+  sourcePath: string;
+  usage: string[];
+  author: string;
+  license: string;
+  reviewStatus: string;
+}
+
+export interface ContentPackageIndex {
+  schemaVersion: "content-package-index/v1";
+  rootPath: string;
+  package: PackageIdentity;
+  engineRequirement: string;
+  capabilities: string[];
+  reviewStatus: string;
+  playable: boolean;
+  counts: PackageCounts;
+  characters: CharacterIndexEntry[];
+  locations: LocationIndexEntry[];
+  resources: ResourceIndexEntry[];
+  warnings: string[];
+}
+
+// ===== M4 玩法状态与存档 =====
+
+export interface GameClock {
+  day: number;
+  minuteOfDay: number;
+  totalMinutes: number;
+}
+
+export interface PlayerState {
+  energy: number;
+  maxEnergy: number;
+  money: number;
+}
+
+export interface ScheduledEvent {
+  id: string;
+  dueAt: number;
+  kind: string;
+}
+
+export interface EventRecord {
+  id: string;
+  occurredAt: number;
+  kind: string;
+}
+
+export interface GameState {
+  schemaVersion: "game-state/v1";
+  package: PackageIdentity;
+  turn: number;
+  clock: GameClock;
+  currentLocationId: string;
+  player: PlayerState;
+  flags: Record<string, number>;
+  eventQueue: ScheduledEvent[];
+  recentEvents: EventRecord[];
+}
+
+export type GameCommand =
+  | { type: "wait"; minutes: number }
+  | { type: "rest"; minutes: number }
+  | { type: "move"; locationId: string; minutes: number }
+  | { type: "setFlag"; key: string; value: number }
+  | { type: "scheduleEvent"; eventId: string; dueInMinutes: number; kind: string };
+
+export interface CommandResult {
+  state: GameState;
+  emittedEvents: EventRecord[];
+}
+
+export interface SaveReport {
+  schemaVersion: "save-report/v1";
+  path: string;
+  packageId: string;
+  turn: number;
+  bytes: number;
+  stateHash: string;
+}

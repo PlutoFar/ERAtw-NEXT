@@ -80,13 +80,13 @@ fn build_profile() -> String {
     }
 }
 
-/// 返回稳定的系统状态。M0 不读取磁盘、不接触真实内容目录。
+/// 返回稳定的系统状态。
 pub fn system_status() -> SystemStatus {
     SystemStatus {
         schema_version: s(SCHEMA_VERSION),
         app: AppInfo {
             name: s("ERAtw-NEXT"),
-            stage: s("M0"),
+            stage: s("M4"),
             tagline: s("ERAtw 现代化引擎与桌面应用，不是旧运行时打包。"),
         },
         engine: EngineInfo {
@@ -144,8 +144,26 @@ pub fn system_status() -> SystemStatus {
             Capability {
                 id: s("content_audit"),
                 label: s("只读内容审计"),
-                status: s("planned"),
-                description: s("M1 实现，扫描 eratw-content，默认不自动执行。"),
+                status: s("available"),
+                description: s("M1 只读审计工具已完成。"),
+            },
+            Capability {
+                id: s("content_migration"),
+                label: s("内容转换草案"),
+                status: s("available"),
+                description: s("M2 可生成仓库外 draft 内容包。"),
+            },
+            Capability {
+                id: s("content_package"),
+                label: s("内容包加载"),
+                status: s("available"),
+                description: s("M3 可加载、校验并索引仓库外内容包。"),
+            },
+            Capability {
+                id: s("game_state"),
+                label: s("玩法状态机与存档"),
+                status: s("available"),
+                description: s("M4 reducer、事件队列、replay 与版本化存档已可用。"),
             },
             Capability {
                 id: s("erb_runtime"),
@@ -154,25 +172,43 @@ pub fn system_status() -> SystemStatus {
                 description: s("默认禁用，不执行任何外部 ERB 或脚本。"),
             },
         ],
-        current_milestone: s("M0"),
+        current_milestone: s("M4"),
         milestones: vec![
             Milestone {
                 id: s("M0"),
                 title: s("现代工程骨架"),
-                status: s("in_progress"),
-                summary: s("Rust + Tauri + React/MUI 可启动基线，地图功能提前接入。"),
+                status: s("done"),
+                summary: s("Rust + Tauri + React/MUI 工程基线。"),
             },
             Milestone {
                 id: s("M1"),
                 title: s("只读内容审计"),
-                status: s("planned"),
+                status: s("done"),
                 summary: s("安全扫描 eratw-content，输出规模/编码/资源引用报告。"),
             },
             Milestone {
                 id: s("M2"),
                 title: s("内容契约与转换草案"),
-                status: s("planned"),
+                status: s("done"),
                 summary: s("定义新内容 schema 并生成可校验的草案内容包。"),
+            },
+            Milestone {
+                id: s("M3"),
+                title: s("最小内容包加载"),
+                status: s("done"),
+                summary: s("加载、校验并展示独立内容包索引。"),
+            },
+            Milestone {
+                id: s("M4"),
+                title: s("玩法状态机与存档基础"),
+                status: s("done"),
+                summary: s("确定性 reducer、时间事件队列与版本化存档。"),
+            },
+            Milestone {
+                id: s("M5"),
+                title: s("ERB 迁移双轨实验"),
+                status: s("planned"),
+                summary: s("验证有限 ERB 子集与新 schema 主线的边界。"),
             },
         ],
     }
@@ -187,7 +223,7 @@ mod tests {
         let status = system_status();
         assert_eq!(status.schema_version, SCHEMA_VERSION);
         assert_eq!(status.engine.name, "eratw_next_engine");
-        assert_eq!(status.current_milestone, "M0");
+        assert_eq!(status.current_milestone, "M4");
     }
 
     #[test]

@@ -1,8 +1,8 @@
 {
   "name": "eratw-next",
   "private": true,
-  "version": "0.1.0-m0",
-  "description": "ERAtw 现代化引擎与桌面应用（M0 工程骨架）",
+  "version": "0.4.0-m4",
+  "description": "ERAtw 现代化引擎与桌面应用",
   "workspaces": [
     "apps/*",
     "packages/*"

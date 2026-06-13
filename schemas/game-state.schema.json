@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/game-state/v1",
+  "title": "Game state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "package",
+    "turn",
+    "clock",
+    "currentLocationId",
+    "player",
+    "flags",
+    "eventQueue",
+    "recentEvents"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "game-state/v1" },
+    "package": { "$ref": "#/$defs/packageIdentity" },
+    "turn": { "type": "integer", "minimum": 0 },
+    "clock": { "$ref": "#/$defs/clock" },
+    "currentLocationId": { "type": "string", "minLength": 1 },
+    "player": { "$ref": "#/$defs/player" },
+    "flags": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" }
+    },
+    "eventQueue": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/scheduledEvent" }
+    },
+    "recentEvents": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/eventRecord" }
+    }
+  },
+  "$defs": {
+    "packageIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packageId", "displayName", "version"],
+      "properties": {
+        "packageId": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "clock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["day", "minuteOfDay", "totalMinutes"],
+      "properties": {
+        "day": { "type": "integer", "minimum": 1 },
+        "minuteOfDay": { "type": "integer", "minimum": 0, "maximum": 1439 },
+        "totalMinutes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["energy", "maxEnergy", "money"],
+      "properties": {
+        "energy": { "type": "integer", "minimum": 0 },
+        "maxEnergy": { "type": "integer", "minimum": 1 },
+        "money": { "type": "integer" }
+      }
+    },
+    "scheduledEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "dueAt", "kind"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "dueAt": { "type": "integer", "minimum": 0 },
+        "kind": { "type": "string", "minLength": 1 }
+      }
+    },
+    "eventRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "occurredAt", "kind"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "occurredAt": { "type": "integer", "minimum": 0 },
+        "kind": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

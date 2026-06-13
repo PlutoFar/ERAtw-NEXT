@@ -1,0 +1,5 @@
+{
+  "type": "move",
+  "locationId": "core.location.square",
+  "minutes": 10
+}

@@ -1,13 +1,27 @@
-//! ERAtw-NEXT 核心引擎（M0）。
+//! ERAtw-NEXT 核心引擎。
 //!
-//! 仅提供系统状态与地图模型的纯查询 API：
-//! 不依赖 Tauri、不读取磁盘、不接触真实内容目录。
 //! 业务逻辑集中在此 crate，桌面壳只做 command 桥接。
 
+mod content;
+mod game;
 mod map;
+mod save;
 mod status;
 
+pub use content::{
+    load_content_package, CharacterIndexEntry, ContentPackageIndex, ContentPackageManifest,
+    LoadedContentPackage, LocationIndexEntry, PackageCounts, PackageIdentity, ResourceIndexEntry,
+    RuntimeLocation, CONTENT_PACKAGE_INDEX_SCHEMA_VERSION,
+};
+pub use game::{
+    apply_command, new_game, replay_commands, CommandResult, EventRecord, GameClock, GameCommand,
+    GameContext, GameSession, GameState, PlayerState, ScheduledEvent, GAME_STATE_SCHEMA_VERSION,
+};
 pub use map::{map_overview, Area, Grid, LegendEntry, MapModel, MapNode, Occupant};
+pub use save::{
+    load_save_file, save_game_file, SaveDependency, SaveEnvelope, SaveReport,
+    SAVE_ENVELOPE_SCHEMA_VERSION,
+};
 pub use status::{
     system_status, AppInfo, BuildInfo, Capability, EngineInfo, Milestone, PathPlaceholder,
     SystemStatus,
@@ -24,12 +38,24 @@ pub struct EngineError {
 }
 
 impl EngineError {
-    pub fn unavailable(code: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        details: serde_json::Value,
+    ) -> Self {
         Self {
             code: code.into(),
             message: message.into(),
-            details: serde_json::Value::Object(serde_json::Map::new()),
+            details,
         }
+    }
+
+    pub fn unavailable(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(
+            code,
+            message,
+            serde_json::Value::Object(serde_json::Map::new()),
+        )
     }
 }
 

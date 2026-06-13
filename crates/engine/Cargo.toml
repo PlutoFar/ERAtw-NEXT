@@ -3,8 +3,11 @@ name = "eratw_next_engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ERAtw-NEXT 核心引擎：提供系统状态与地图模型，不依赖 Tauri、不读取磁盘。"
+description = "ERAtw-NEXT 核心引擎：内容包加载、玩法状态机、存档与地图模型。"
 
 [dependencies]
+jsonschema = { version = "0.18", default-features = false, features = ["draft202012"] }
+semver = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = "0.10"
