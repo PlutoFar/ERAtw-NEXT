@@ -6,6 +6,8 @@ M1 目标是建立安全、可复现的只读内容审计流程，为后续 sche
 
 输入源只允许 `D:\AICODE\eratw-content`。`D:\AICODE\eratw` 只作为可游玩对照版本，M1 默认不扫描。`D:\AICODE\ERAtw-modern` 和 `D:\AICODE\ERAtw-native-foundation` 仍为无关项目。
 
+实现状态：已完成。CLI 已纳入 Rust workspace，并在真实源目录上扫描 6586 个文件。所有报告写入被 Git 忽略的生成目录，并在落盘前通过 JSON Schema 校验。
+
 ## 范围
 
 M1 可做：
@@ -173,6 +175,7 @@ M1 可以计算 hash，但 hash 报告属于生成产物，不默认提交。
 ## 安全规则
 
 - 所有扫描使用只读文件 API。
+- 报告输出目录必须是内容源之外的新路径，拒绝覆盖已有目录。
 - 默认不跟随 reparse point。
 - 默认不访问网络。
 - 默认不执行任何文件。
@@ -180,31 +183,33 @@ M1 可以计算 hash，但 hash 报告属于生成产物，不默认提交。
 - 报告不得包含内容正文。
 - 报告不得包含秘密、用户本机 token、环境变量或绝对系统隐私路径；source root 例外，因为这是项目约定输入。
 
-## 与 M0 并行边界
+## 与 M0 的实现边界
 
-M1 文档和报告可在独立 worktree/branch 中推进。不得修改：
+M1 最初在独立 worktree/branch 中推进；M0 合并后，CLI 接入 root Rust workspace。实现不得修改：
 
 - `apps/`
 - `crates/`
 - `schemas/system-status.schema.json`
-- root `Cargo.toml`
 - root `package.json`
 - M0 UI 文件
 
-如后续需要工具原型，应先放到独立目录并避免接入 workspace；等 M0 合并稳定后再单独写实现计划。
+允许修改 root `Cargo.toml`/`Cargo.lock` 以注册独立工具 crate，允许新增 M1 schema 与 fixture。
 
 ## 验收标准
 
 - 有 M1 审计 spec。
 - 有一次只读元数据盘点报告。
+- 有一次真实全层审计：编码、ERB token、CSV 结构、资源 hash 和引用候选。
 - 报告能说明统计口径，尤其是 `.git/` 排除规则。
 - 报告不包含 ERB/CSV 正文。
+- 生成报告通过 JSON Schema 自校验。
 - 文档通过 `git diff --check`。
-- 不修改当前 M0 工作区。
+- 不修改 M0 UI 与 engine 行为。
 
-## 后续实施建议
+## 实施结果
 
-1. M0 完成后，为 M1 CLI 单独写 implementation plan。
-2. 首版 CLI 先只输出 metadata JSON/Markdown，不做 ERB token 统计。
-3. 第二版再加入编码探测和 CSV/ERB 轻量文本统计。
-4. 第三版再做资源引用和高频 ERB token 分类。
+- 文件：6586；目录：1214；总大小：367049853 bytes。
+- ERB：3752；ERH：79；文本行：4335400；解码失败：0。
+- CSV：261；资源资产：1320；资源引用缺失候选：10。
+- 风险：47，无 blocker；包括无扩展文件、长路径、工具脚本和缺失资源引用候选。
+- 输出：`summary.json`、`summary.md`、`files.jsonl`、`directories.json`、`extensions.json`、`risks.json`、`erb-stats.json`、`csv-stats.json`、`resources.json`。

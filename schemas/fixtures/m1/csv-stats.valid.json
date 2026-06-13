@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "content-audit-csv-stats/v1",
+  "csvFiles": 1,
+  "csvDirectoryFiles": 1,
+  "bytes": 128,
+  "specialFiles": [],
+  "bodyRead": true,
+  "rowColumnStatsCollected": true,
+  "encodingCounts": { "utf-8": 1 },
+  "decodeErrorFiles": [],
+  "totals": {
+    "rows": 2,
+    "blankRows": 0,
+    "duplicateFirstColumnValues": 0,
+    "parseErrors": 0
+  },
+  "files": [
+    {
+      "relativePath": "CSV/Talent.csv",
+      "encoding": "utf-8",
+      "decodeErrors": false,
+      "delimiter": "comma",
+      "rows": 2,
+      "minColumns": 2,
+      "maxColumns": 2,
+      "blankRows": 0,
+      "duplicateFirstColumnValues": 0,
+      "parseErrors": 0,
+      "specialKind": null
+    }
+  ]
+}

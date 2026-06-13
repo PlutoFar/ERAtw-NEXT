@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-audit-directory-record/v1",
+  "title": "ERAtw-NEXT content audit directory record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["relativePath", "depth", "fileCount", "totalBytes"],
+  "properties": {
+    "relativePath": { "type": "string", "minLength": 1 },
+    "depth": { "type": "integer", "minimum": 1 },
+    "fileCount": { "type": "integer", "minimum": 0 },
+    "totalBytes": { "type": "integer", "minimum": 0 }
+  }
+}

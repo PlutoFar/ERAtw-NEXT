@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-audit-file-record/v1",
+  "title": "ERAtw-NEXT content audit file record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["relativePath", "kind", "extension", "sizeBytes", "modifiedTime", "depth", "flags"],
+  "properties": {
+    "relativePath": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string", "minLength": 1 },
+    "extension": { "type": "string" },
+    "sizeBytes": { "type": "integer", "minimum": 0 },
+    "modifiedTime": { "type": ["string", "null"] },
+    "depth": { "type": "integer", "minimum": 1 },
+    "flags": { "type": "array", "items": { "type": "string" } }
+  }
+}

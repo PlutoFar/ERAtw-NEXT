@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "content-audit-erb-stats/v1",
+  "erbFiles": 1,
+  "erbHeaderFiles": 0,
+  "bytes": 512,
+  "bodyRead": true,
+  "tokenStatsCollected": true,
+  "encodingCounts": { "utf-8": 1 },
+  "decodeErrorFiles": [],
+  "lines": 10,
+  "blankLines": 1,
+  "commentLines": 1,
+  "tokenCounts": {
+    "function_definitions": 1,
+    "calls": 1
+  },
+  "resourceReferences": [
+    {
+      "fileName": "001_face.webp",
+      "occurrences": 1,
+      "resolved": true
+    }
+  ]
+}

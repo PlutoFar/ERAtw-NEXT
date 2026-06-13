@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-audit-erb-stats/v1",
+  "title": "ERAtw-NEXT ERB aggregate audit statistics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "erbFiles",
+    "erbHeaderFiles",
+    "bytes",
+    "bodyRead",
+    "tokenStatsCollected",
+    "encodingCounts",
+    "decodeErrorFiles",
+    "lines",
+    "blankLines",
+    "commentLines",
+    "tokenCounts",
+    "resourceReferences"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "content-audit-erb-stats/v1" },
+    "erbFiles": { "type": "integer", "minimum": 0 },
+    "erbHeaderFiles": { "type": "integer", "minimum": 0 },
+    "bytes": { "type": "integer", "minimum": 0 },
+    "bodyRead": { "const": true },
+    "tokenStatsCollected": { "const": true },
+    "encodingCounts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+    "decodeErrorFiles": { "type": "array", "items": { "type": "string" } },
+    "lines": { "type": "integer", "minimum": 0 },
+    "blankLines": { "type": "integer", "minimum": 0 },
+    "commentLines": { "type": "integer", "minimum": 0 },
+    "tokenCounts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+    "resourceReferences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fileName", "occurrences", "resolved"],
+        "properties": {
+          "fileName": { "type": "string", "minLength": 1 },
+          "occurrences": { "type": "integer", "minimum": 1 },
+          "resolved": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

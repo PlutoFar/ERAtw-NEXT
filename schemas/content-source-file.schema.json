@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-source-file/v1-draft",
+  "title": "ERAtw-NEXT migration source file index record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["relativePath", "kind", "sizeBytes", "mappedObjectIds", "status"],
+  "properties": {
+    "relativePath": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string", "minLength": 1 },
+    "sizeBytes": { "type": "integer", "minimum": 0 },
+    "mappedObjectIds": { "type": "array", "items": { "type": "string" } },
+    "status": { "enum": ["mapped", "unmapped"] }
+  }
+}

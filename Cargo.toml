@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/engine", "apps/desktop/src-tauri", "tools/content-audit"]
+members = [
+  "crates/engine",
+  "apps/desktop/src-tauri",
+  "tools/content-audit",
+  "tools/content-migrate",
+]
 
 [workspace.package]
 version = "0.1.0-m0"

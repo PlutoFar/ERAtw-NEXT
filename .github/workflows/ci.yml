@@ -73,7 +73,7 @@ jobs:
         run: cargo fmt --check
 
       - name: Non-desktop Rust tests
-        run: cargo test -p eratw_next_engine -p eratw_next_content_audit
+        run: cargo test -p eratw_next_engine -p eratw_next_content_audit -p eratw_next_content_migrate
 
       - name: npm install
         run: npm ci

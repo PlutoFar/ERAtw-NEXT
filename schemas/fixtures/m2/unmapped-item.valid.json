@@ -1,0 +1,6 @@
+{
+  "code": "CSV_SEMANTICS_UNKNOWN",
+  "sourcePath": "CSV/Example.csv",
+  "severity": "warning",
+  "message": "CSV file classified but not mapped to a domain schema."
+}

@@ -1,0 +1,7 @@
+{
+  "relativePath": "CSV/Talent.csv",
+  "kind": "csv",
+  "sizeBytes": 1024,
+  "mappedObjectIds": ["core.dictionary.talent.source"],
+  "status": "mapped"
+}

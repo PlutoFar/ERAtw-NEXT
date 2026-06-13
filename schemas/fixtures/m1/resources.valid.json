@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "content-audit-resources/v1",
+  "resourceDirectoryFiles": 1,
+  "resourceDirectoryNonAssetFiles": 0,
+  "imageFiles": 1,
+  "audioFiles": 0,
+  "fontFiles": 0,
+  "bytes": 7,
+  "bodyRead": true,
+  "hashCollected": true,
+  "files": [
+    {
+      "relativePath": "resources/001_face.webp",
+      "fileName": "001_face.webp",
+      "stem": "001_face",
+      "extension": ".webp",
+      "mediaType": "resource_image",
+      "sizeBytes": 7,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "numericPrefix": 1,
+      "variantTokens": ["face"],
+      "author": "unknown",
+      "license": "unknown"
+    }
+  ],
+  "duplicateHashGroups": [],
+  "duplicateFileNames": [],
+  "sameStemDifferentExtensions": [],
+  "unresolvedReferenceCandidates": [],
+  "unknownAuthorFiles": 1,
+  "unknownLicenseFiles": 1
+}

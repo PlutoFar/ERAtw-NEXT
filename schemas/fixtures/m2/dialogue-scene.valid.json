@@ -1,0 +1,22 @@
+{
+  "id": "core.dialogue.scene.example",
+  "entryNodeId": "node-001",
+  "speakerRefs": [],
+  "resourceRefs": [],
+  "nodes": [
+    {
+      "id": "node-001",
+      "speakerRef": null,
+      "text": "",
+      "choices": [],
+      "effects": [],
+      "conditions": []
+    }
+  ],
+  "sourceTrace": {},
+  "review": {
+    "status": "generated",
+    "notes": ["Reserved for new content; no legacy body was converted."],
+    "blockingIssues": []
+  }
+}

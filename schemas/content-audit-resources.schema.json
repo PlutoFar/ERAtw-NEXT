@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-audit-resources/v1",
+  "title": "ERAtw-NEXT resource audit statistics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "resourceDirectoryFiles",
+    "resourceDirectoryNonAssetFiles",
+    "imageFiles",
+    "audioFiles",
+    "fontFiles",
+    "bytes",
+    "bodyRead",
+    "hashCollected",
+    "files",
+    "duplicateHashGroups",
+    "duplicateFileNames",
+    "sameStemDifferentExtensions",
+    "unresolvedReferenceCandidates",
+    "unknownAuthorFiles",
+    "unknownLicenseFiles"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "content-audit-resources/v1" },
+    "resourceDirectoryFiles": { "type": "integer", "minimum": 0 },
+    "resourceDirectoryNonAssetFiles": { "type": "integer", "minimum": 0 },
+    "imageFiles": { "type": "integer", "minimum": 0 },
+    "audioFiles": { "type": "integer", "minimum": 0 },
+    "fontFiles": { "type": "integer", "minimum": 0 },
+    "bytes": { "type": "integer", "minimum": 0 },
+    "bodyRead": { "const": true },
+    "hashCollected": { "const": true },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relativePath",
+          "fileName",
+          "stem",
+          "extension",
+          "mediaType",
+          "sizeBytes",
+          "sha256",
+          "numericPrefix",
+          "variantTokens",
+          "author",
+          "license"
+        ],
+        "properties": {
+          "relativePath": { "type": "string", "minLength": 1 },
+          "fileName": { "type": "string", "minLength": 1 },
+          "stem": { "type": "string", "minLength": 1 },
+          "extension": { "type": "string", "minLength": 1 },
+          "mediaType": { "enum": ["resource_image", "resource_audio", "font"] },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "numericPrefix": { "type": ["integer", "null"], "minimum": 0 },
+          "variantTokens": { "type": "array", "items": { "type": "string" } },
+          "author": { "type": "string" },
+          "license": { "type": "string" }
+        }
+      }
+    },
+    "duplicateHashGroups": { "type": "array", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2 } },
+    "duplicateFileNames": { "type": "array", "items": { "$ref": "#/$defs/group" } },
+    "sameStemDifferentExtensions": { "type": "array", "items": { "$ref": "#/$defs/group" } },
+    "unresolvedReferenceCandidates": { "type": "array", "items": { "type": "string" } },
+    "unknownAuthorFiles": { "type": "integer", "minimum": 0 },
+    "unknownLicenseFiles": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "paths"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "paths": { "type": "array", "items": { "type": "string" }, "minItems": 2 }
+      }
+    }
+  }
+}

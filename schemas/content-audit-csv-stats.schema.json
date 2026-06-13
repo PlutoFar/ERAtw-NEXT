@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-audit-csv-stats/v1",
+  "title": "ERAtw-NEXT CSV structural audit statistics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "csvFiles",
+    "csvDirectoryFiles",
+    "bytes",
+    "specialFiles",
+    "bodyRead",
+    "rowColumnStatsCollected",
+    "encodingCounts",
+    "decodeErrorFiles",
+    "totals",
+    "files"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "content-audit-csv-stats/v1" },
+    "csvFiles": { "type": "integer", "minimum": 0 },
+    "csvDirectoryFiles": { "type": "integer", "minimum": 0 },
+    "bytes": { "type": "integer", "minimum": 0 },
+    "specialFiles": { "type": "array", "items": { "type": "string" } },
+    "bodyRead": { "const": true },
+    "rowColumnStatsCollected": { "const": true },
+    "encodingCounts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+    "decodeErrorFiles": { "type": "array", "items": { "type": "string" } },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rows", "blankRows", "duplicateFirstColumnValues", "parseErrors"],
+      "properties": {
+        "rows": { "type": "integer", "minimum": 0 },
+        "blankRows": { "type": "integer", "minimum": 0 },
+        "duplicateFirstColumnValues": { "type": "integer", "minimum": 0 },
+        "parseErrors": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "relativePath",
+          "encoding",
+          "decodeErrors",
+          "delimiter",
+          "rows",
+          "minColumns",
+          "maxColumns",
+          "blankRows",
+          "duplicateFirstColumnValues",
+          "parseErrors",
+          "specialKind"
+        ],
+        "properties": {
+          "relativePath": { "type": "string", "minLength": 1 },
+          "encoding": { "type": "string", "minLength": 1 },
+          "decodeErrors": { "type": "boolean" },
+          "delimiter": { "enum": ["comma", "tab", "semicolon"] },
+          "rows": { "type": "integer", "minimum": 0 },
+          "minColumns": { "type": "integer", "minimum": 0 },
+          "maxColumns": { "type": "integer", "minimum": 0 },
+          "blankRows": { "type": "integer", "minimum": 0 },
+          "duplicateFirstColumnValues": { "type": "integer", "minimum": 0 },
+          "parseErrors": { "type": "integer", "minimum": 0 },
+          "specialKind": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}

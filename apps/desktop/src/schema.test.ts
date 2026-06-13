@@ -23,7 +23,20 @@ const m2Fixtures = [
   ["content-resource.schema.json", "resource.valid.json"],
   ["content-location.schema.json", "location.valid.json"],
   ["content-dialogue-source.schema.json", "dialogue-source.valid.json"],
+  ["content-dialogue-scene.schema.json", "dialogue-scene.valid.json"],
+  ["content-source-file.schema.json", "source-file.valid.json"],
+  ["content-unmapped-item.schema.json", "unmapped-item.valid.json"],
+  ["content-package-validation.schema.json", "validation-report.valid.json"],
   ["migration-report.schema.json", "migration-report.valid.json"],
+] as const;
+
+const m1Fixtures = [
+  ["content-audit-summary.schema.json", "content-audit-summary.valid.json"],
+  ["content-audit-file-record.schema.json", "file-record.valid.json"],
+  ["content-audit-directory-record.schema.json", "directory-record.valid.json"],
+  ["content-audit-erb-stats.schema.json", "erb-stats.valid.json"],
+  ["content-audit-csv-stats.schema.json", "csv-stats.valid.json"],
+  ["content-audit-resources.schema.json", "resources.valid.json"],
 ] as const;
 
 describe("JSON Schema 契约", () => {
@@ -48,9 +61,9 @@ describe("JSON Schema 契约", () => {
     expect(validate(broken)).toBe(false);
   });
 
-  it("M1 content-audit summary fixture 符合 schema", () => {
-    const validate = compileSchema("content-audit-summary.schema.json");
-    const ok = validate(loadM1Fixture("content-audit-summary.valid.json"));
+  it.each(m1Fixtures)("M1 fixture %s 符合 schema", (schemaFile, fixtureFile) => {
+    const validate = compileSchema(schemaFile);
+    const ok = validate(loadM1Fixture(fixtureFile));
     expect(validate.errors ?? []).toEqual([]);
     expect(ok).toBe(true);
   });

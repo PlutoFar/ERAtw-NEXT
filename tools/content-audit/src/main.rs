@@ -71,6 +71,8 @@ Usage:\n\
 Safety:\n\
   - only the allowlisted eratw-content source is accepted\n\
   - .git directories and reparse points are skipped\n\
-  - file bodies are not read and files are never executed"
+  - output must be new and outside the readonly source\n\
+  - text/resource bodies are read only for aggregate statistics and hashes\n\
+  - source content is never emitted, modified, or executed"
     );
 }

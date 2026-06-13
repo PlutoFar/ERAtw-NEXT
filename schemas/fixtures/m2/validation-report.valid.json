@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "content-package-validation/v1-draft",
+  "valid": true,
+  "errors": [],
+  "warnings": [
+    {
+      "code": "LICENSE_UNKNOWN",
+      "severity": "warning",
+      "objectId": "core.resource.001.face.default",
+      "message": "Resource license requires review."
+    }
+  ],
+  "counts": {
+    "dictionaries": 1,
+    "characters": 1,
+    "resources": 1,
+    "dialogueSources": 1,
+    "sourceFiles": 3,
+    "unmappedItems": 0
+  }
+}

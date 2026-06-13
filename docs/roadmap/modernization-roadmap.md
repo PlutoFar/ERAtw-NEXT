@@ -43,7 +43,7 @@ ERAtw-NEXT 是 ERAtw 的现代化引擎与桌面应用项目，不是旧 Emuera 
 
 - Content Audit：只读扫描、allowlist、路径穿越防护、符号链接策略。
 - Reports：生成 JSON/Markdown 报告。
-- UI：展示最近一次审计摘要，可手动触发，但默认不扫描。
+- UI：M1 不接 UI，审计仅通过独立 CLI 运行。
 - Security：不执行 ERB，不执行 Python/批处理脚本，不访问网络。
 
 退出标准：
@@ -66,7 +66,7 @@ ERAtw-NEXT 是 ERAtw 的现代化引擎与桌面应用项目，不是旧 Emuera 
 
 退出标准：
 
-- 至少一批角色/地点/资源能生成 draft package。
+- 至少一批角色、资源和 dialogue source 能生成 draft package；地点建立 schema 与人工草案路径，不从正文猜测。
 - draft package 可通过 schema 校验。
 - 未映射字段明确列出，不静默丢失。
 - 转换输出写到临时目录或独立内容包仓库，不进入 engine 仓库。
@@ -194,4 +194,4 @@ ERAtw-NEXT 是 ERAtw 的现代化引擎与桌面应用项目，不是旧 Emuera 
 
 ## 当前下一步
 
-当前只执行 M0。M0 通过后，再为 M1 只读内容审计单独写 spec 和实施计划。
+M0、M1、M2 已完成工程实现与真实数据验收。下一阶段为 M3：加载人工维护或 M2 生成的小型新 schema 内容包；M2 的全量草案仍不可玩，必须先完成人工复核与内容治理。

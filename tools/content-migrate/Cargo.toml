@@ -1,16 +1,14 @@
 [package]
-name = "eratw_next_content_audit"
+name = "eratw_next_content_migrate"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ERAtw-NEXT M1 readonly content audit CLI."
+description = "ERAtw-NEXT M2 draft content package generator and validator."
 
 [dependencies]
-csv = "1"
-encoding_rs = "0.8"
+eratw_next_content_audit = { path = "../content-audit" }
 jsonschema = { version = "0.18", default-features = false, features = ["draft202012"] }
 regex = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.10"
 time = { workspace = true }
