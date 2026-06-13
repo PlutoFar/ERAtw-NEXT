@@ -1,0 +1,19 @@
+{
+  "name": "eratw-next",
+  "private": true,
+  "version": "0.1.0-m0",
+  "description": "ERAtw 现代化引擎与桌面应用（M0 工程骨架）",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run tauri --workspace @eratw-next/desktop -- dev",
+    "dev:web": "npm run dev --workspace @eratw-next/desktop",
+    "tauri": "npm run tauri --workspace @eratw-next/desktop --",
+    "build": "npm run build --workspace @eratw-next/desktop",
+    "preview": "npm run preview --workspace @eratw-next/desktop",
+    "test": "npm run test --workspace @eratw-next/desktop",
+    "typecheck": "npm run typecheck --workspace @eratw-next/desktop"
+  }
+}

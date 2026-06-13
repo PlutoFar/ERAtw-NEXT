@@ -1,0 +1,25 @@
+# 依赖
+node_modules/
+
+# Rust 构建产物
+/target/
+**/target/
+
+# Vite / Tauri 构建输出
+apps/desktop/dist/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/target/
+
+# 运行期本地状态
+*.log
+*.sav
+*.cache
+.cache/
+
+# 本地配置与本地 agent 指令（不进远端）
+config.local.toml
+AGENTS.local.md
+
+# 系统
+.DS_Store
+Thumbs.db

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "M0 默认能力：主窗口核心权限与自定义命令。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

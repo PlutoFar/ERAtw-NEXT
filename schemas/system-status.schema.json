@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/system-status/v1",
+  "title": "SystemStatus",
+  "description": "system_get_status 命令返回值契约 (system-status/v1)。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "app",
+    "engine",
+    "build",
+    "paths",
+    "capabilities",
+    "currentMilestone",
+    "milestones"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "system-status/v1" },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "stage", "tagline"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "stage": { "type": "string", "minLength": 1 },
+        "tagline": { "type": "string" }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "gitDescribe", "timestamp"],
+      "properties": {
+        "profile": { "type": "string", "enum": ["debug", "release"] },
+        "gitDescribe": { "type": ["string", "null"] },
+        "timestamp": { "type": ["string", "null"] }
+      }
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "value", "kind", "note"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "value": { "type": "string" },
+          "kind": { "type": "string", "enum": ["read_only", "reference", "excluded"] },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "status", "description"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["available", "planned", "disabled"] },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "currentMilestone": { "type": "string", "minLength": 1 },
+    "milestones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "status", "summary"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["done", "in_progress", "planned"] },
+          "summary": { "type": "string" }
+        }
+      }
+    }
+  }
+}

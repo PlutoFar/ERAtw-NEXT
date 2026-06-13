@@ -1,0 +1,20 @@
+# ERAtw-NEXT 本地配置示例
+#
+# 复制为 config.local.toml 后按本机环境修改。config.local.toml 不进入版本库。
+# M0 阶段不读取本地状态，这里只表达字段与默认路径，不要求路径真实存在。
+
+[content]
+# 外部只读内容源（永远不复制进引擎仓库）
+source_dir = "D:\\AICODE\\eratw-content"
+
+# 可游玩对照版本（仅供人工参考，不被引擎读取）
+playable_reference_dir = "D:\\AICODE\\eratw"
+
+[app]
+# 默认窗口尺寸；M0 不持久化窗口状态
+window_width = 1600
+window_height = 900
+
+[map]
+# 默认地图显示方式：ascii（字符画） 或 svg（现代）
+default_render_mode = "svg"
