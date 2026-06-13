@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-package/v1-draft",
+  "title": "ERAtw-NEXT content package manifest draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "packageId",
+    "displayName",
+    "version",
+    "engineVersion",
+    "source",
+    "dependencies",
+    "conflicts",
+    "capabilities",
+    "review"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "content-package/v1-draft" },
+    "packageId": { "type": "string", "pattern": "^[a-z0-9]+(\\.[a-z0-9_-]+)+$" },
+    "displayName": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "engineVersion": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "sourceRootId", "sourceRootHint", "generatedFromAudit"],
+      "properties": {
+        "kind": { "const": "legacy-eratw" },
+        "sourceRootId": { "const": "eratw-content" },
+        "sourceRootHint": { "type": "string", "minLength": 1 },
+        "generatedFromAudit": { "const": "content-audit-summary/v1" }
+      }
+    },
+    "dependencies": { "type": "array", "items": { "type": "string" } },
+    "conflicts": { "type": "array", "items": { "type": "string" } },
+    "capabilities": { "type": "array", "items": { "type": "string" } },
+    "review": { "$ref": "#/$defs/review" }
+  },
+  "$defs": {
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "notes"],
+      "properties": {
+        "status": { "enum": ["generated", "needs_review", "accepted", "rejected", "blocked"] },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "blockingIssues": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

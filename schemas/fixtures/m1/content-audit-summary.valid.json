@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "content-audit-summary/v1",
+  "sourceRoot": "D:/AICODE/eratw-content",
+  "generatedAt": "2026-06-13T12:00:00+08:00",
+  "policy": {
+    "readonly": true,
+    "network": false,
+    "execute": false,
+    "followReparsePoints": false,
+    "excludeGit": true,
+    "profile": "m1-readonly"
+  },
+  "totals": {
+    "files": 4,
+    "directories": 3,
+    "bytes": 1234,
+    "excludedDirectories": 1,
+    "reparsePointsSkipped": 0,
+    "maxPathLength": 32,
+    "longPathFiles": 0,
+    "noExtensionFiles": 0
+  },
+  "extensions": [
+    {
+      "extension": ".erb",
+      "files": 1,
+      "bytes": 512,
+      "kinds": {
+        "erb": 1
+      }
+    }
+  ],
+  "risks": []
+}

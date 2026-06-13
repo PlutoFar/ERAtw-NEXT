@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-audit-summary/v1",
+  "title": "ERAtw-NEXT content audit summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sourceRoot", "generatedAt", "policy", "totals", "extensions", "risks"],
+  "properties": {
+    "schemaVersion": { "const": "content-audit-summary/v1" },
+    "sourceRoot": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["readonly", "network", "execute", "followReparsePoints", "excludeGit", "profile"],
+      "properties": {
+        "readonly": { "const": true },
+        "network": { "const": false },
+        "execute": { "const": false },
+        "followReparsePoints": { "const": false },
+        "excludeGit": { "const": true },
+        "profile": { "const": "m1-readonly" }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files",
+        "directories",
+        "bytes",
+        "excludedDirectories",
+        "reparsePointsSkipped",
+        "maxPathLength",
+        "longPathFiles",
+        "noExtensionFiles"
+      ],
+      "properties": {
+        "files": { "type": "integer", "minimum": 0 },
+        "directories": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "excludedDirectories": { "type": "integer", "minimum": 0 },
+        "reparsePointsSkipped": { "type": "integer", "minimum": 0 },
+        "maxPathLength": { "type": "integer", "minimum": 0 },
+        "longPathFiles": { "type": "integer", "minimum": 0 },
+        "noExtensionFiles": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "extensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["extension", "files", "bytes", "kinds"],
+        "properties": {
+          "extension": { "type": "string" },
+          "files": { "type": "integer", "minimum": 0 },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "kinds": {
+            "type": "object",
+            "additionalProperties": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity", "relativePath", "message"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["info", "warning", "blocker"] },
+          "relativePath": { "type": "string" },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

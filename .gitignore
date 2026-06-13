@@ -16,6 +16,9 @@ apps/desktop/src-tauri/target/
 *.cache
 .cache/
 
+# 生成报告
+reports/content-audit/
+
 # 本地配置与本地 agent 指令（不进远端）
 config.local.toml
 AGENTS.local.md

@@ -1,0 +1,43 @@
+{
+  "id": "core.character.001",
+  "legacy": {
+    "numericId": 1,
+    "rawKeys": ["1", "001"]
+  },
+  "displayName": {
+    "primary": "Character 001",
+    "ja": null,
+    "zhHans": null,
+    "aliases": []
+  },
+  "profile": {
+    "species": null,
+    "title": null,
+    "description": null
+  },
+  "dictionaryRefs": {
+    "talents": [],
+    "baseStats": [],
+    "abilities": []
+  },
+  "resourceRefs": ["core.resource.001.face.default"],
+  "dialogueSourceRefs": ["core.dialogue_source.kojo.001.daily"],
+  "sourceTrace": {
+    "sourceRootId": "eratw-content",
+    "relativePath": "resources/001_face.webp",
+    "legacyId": "001",
+    "lineRange": null,
+    "contentHash": null,
+    "conversion": {
+      "tool": "eratw-next-migration-draft",
+      "version": "0.1.0",
+      "confidence": "medium",
+      "requiresReview": true
+    }
+  },
+  "review": {
+    "status": "needs_review",
+    "notes": ["Display name is a placeholder."],
+    "blockingIssues": []
+  }
+}

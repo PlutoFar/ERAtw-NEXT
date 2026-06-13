@@ -1,0 +1,27 @@
+{
+  "id": "core.dictionary.talent.001",
+  "dictionaryId": "core.dictionary.talent",
+  "legacyKey": "001",
+  "displayName": "Legacy Talent 001",
+  "aliases": [],
+  "valueType": "flag",
+  "category": "character_trait",
+  "sourceTrace": {
+    "sourceRootId": "eratw-content",
+    "relativePath": "CSV/Talent.csv",
+    "legacyId": "Talent",
+    "lineRange": null,
+    "contentHash": null,
+    "conversion": {
+      "tool": "eratw-next-migration-draft",
+      "version": "0.1.0",
+      "confidence": "high",
+      "requiresReview": false
+    }
+  },
+  "review": {
+    "status": "generated",
+    "notes": [],
+    "blockingIssues": []
+  }
+}

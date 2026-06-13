@@ -1,0 +1,15 @@
+{
+  "id": "core.location.pending.human_village",
+  "displayName": {
+    "primary": "Pending Location",
+    "zhHans": null,
+    "ja": null
+  },
+  "kind": "unknown",
+  "tags": [],
+  "connections": [],
+  "sourceTrace": {},
+  "review": {
+    "status": "needs_review"
+  }
+}

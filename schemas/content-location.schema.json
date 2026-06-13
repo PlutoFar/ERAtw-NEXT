@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-location/v1-draft",
+  "title": "ERAtw-NEXT location draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "displayName", "kind", "tags", "connections", "sourceTrace", "review"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^core\\.location\\.[a-z0-9_.-]+$" },
+    "displayName": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "zhHans", "ja"],
+      "properties": {
+        "primary": { "type": "string", "minLength": 1 },
+        "zhHans": { "type": ["string", "null"] },
+        "ja": { "type": ["string", "null"] }
+      }
+    },
+    "kind": { "type": "string", "minLength": 1 },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "connections": { "type": "array", "items": { "type": "string" } },
+    "sourceTrace": { "type": "object" },
+    "review": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["generated", "needs_review", "accepted", "rejected", "blocked"] }
+      }
+    }
+  }
+}

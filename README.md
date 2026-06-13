@@ -4,16 +4,19 @@ ERAtw 现代化引擎与桌面应用（modernization engine & desktop app）。*
 
 长期方向是新 schema、新 engine、新 UI 和独立内容包；旧内容只作为外部只读参考。
 
-## 当前阶段：M0 工程骨架 + 双模式地图
+## 当前阶段：M0 工程骨架 + 双模式地图，M1/M2 开发中
 
 - 技术栈：Rust workspace + Tauri 2 桌面壳 + React/TypeScript + MUI + Vite。
 - 引擎 `eratw_next_engine` 提供 `system_get_status` 与 `map_get_overview`（纯查询，不读盘）。
+- M1 工具 `eratw_next_content_audit` 提供只读内容元数据审计 CLI，不读取正文、不执行脚本、不访问网络。
+- M2 已开始定义 draft 内容包 schema 与 fixture 校验，不生成真实内容包。
 - 首屏（status）展示项目身份、当前里程碑、能力列表与路径占位。
 - 地图（map）支持**运行时随时切换两种显示方式**：
   - **字符画地图**：等宽字符网格 + 连线 + 节点字形 + 标签浮层 + 占用着色 + 缩放 + 键盘方向导航。
   - **SVG 地图**：节点圆形 + 连线 + MUI 浮动标签 + 缩放。
   - 两种模式共享同一份地图数据与选中/区域状态，切换不丢状态。
 - JSON Schema 契约：`schemas/system-status.schema.json`、`schemas/map-model.schema.json`，由前端 Ajv 测试实际校验。
+- 内容迁移契约：`schemas/content-audit-summary.schema.json`、`schemas/content-package.schema.json`、`schemas/content-*.schema.json`、`schemas/migration-report.schema.json`。
 
 > 地图数据为引擎内置的**自有示例数据**（幻想乡题材、自有布局），**不复制** `eratw-content` 的地图。真实数据后续由内容包提供。
 
@@ -36,6 +39,16 @@ cargo test --workspace
 npm run dev          # Tauri 开发（需 Rust 工具链）
 ```
 
+M1 只读内容审计（生成物默认位于 `reports/content-audit/`，不入库）：
+
+```powershell
+cargo run -p eratw_next_content_audit -- `
+  --source D:\AICODE\eratw-content `
+  --out reports\content-audit\manual `
+  --profile m1-readonly `
+  --no-network --no-execute
+```
+
 > 在浏览器中运行前端时（非 Tauri 环境），引擎客户端自动回退到镜像数据 `src/engine/mockData.ts`，
 > 因此 `npm run dev`/`npm run build` 出的前端可独立预览地图与首屏。
 
@@ -47,6 +60,7 @@ ERAtw-NEXT/
   package.json               # npm workspaces
   schemas/                   # JSON Schema 契约（单一来源）
   crates/engine/             # eratw_next_engine：系统状态 + 地图模型
+  tools/content-audit/        # M1 只读内容元数据审计 CLI
   apps/desktop/              # @eratw-next/desktop
     src/                     # React + MUI 前端
       engine/                # 客户端 + 镜像数据

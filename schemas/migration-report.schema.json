@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/migration-report/v1-draft",
+  "title": "ERAtw-NEXT migration report draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sourceRootId", "generatedAt", "summary", "unmappedItems"],
+  "properties": {
+    "schemaVersion": { "const": "migration-report/v1-draft" },
+    "sourceRootId": { "const": "eratw-content" },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceFilesSeen", "objectsGenerated", "objectsNeedingReview", "unmappedItems"],
+      "properties": {
+        "sourceFilesSeen": { "type": "integer", "minimum": 0 },
+        "objectsGenerated": { "type": "integer", "minimum": 0 },
+        "objectsNeedingReview": { "type": "integer", "minimum": 0 },
+        "unmappedItems": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "unmappedItems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "sourcePath", "severity", "message"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "sourcePath": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["info", "warning", "blocker"] },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+[package]
+name = "eratw_next_content_audit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ERAtw-NEXT M1 readonly content metadata audit CLI."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "content-package/v1-draft",
+  "packageId": "eratw.core.draft",
+  "displayName": "ERAtw Core Draft",
+  "version": "0.1.0-draft",
+  "engineVersion": ">=0.1.0",
+  "source": {
+    "kind": "legacy-eratw",
+    "sourceRootId": "eratw-content",
+    "sourceRootHint": "D:/AICODE/eratw-content",
+    "generatedFromAudit": "content-audit-summary/v1"
+  },
+  "dependencies": [],
+  "conflicts": [],
+  "capabilities": [],
+  "review": {
+    "status": "generated",
+    "notes": ["Draft package is not playable."],
+    "blockingIssues": []
+  }
+}

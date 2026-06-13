@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-resource/v1-draft",
+  "title": "ERAtw-NEXT resource draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "legacy",
+    "mediaType",
+    "sourcePath",
+    "usage",
+    "characterRefs",
+    "hash",
+    "metadata",
+    "sourceTrace",
+    "review"
+  ],
+  "properties": {
+    "id": { "type": "string", "pattern": "^core\\.resource\\.[a-z0-9_.-]+$" },
+    "legacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numericPrefix", "variantTokens"],
+      "properties": {
+        "numericPrefix": { "type": ["integer", "null"], "minimum": 0 },
+        "variantTokens": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "mediaType": { "enum": ["image", "audio", "font", "metadata", "unknown"] },
+    "sourcePath": { "type": "string", "minLength": 1 },
+    "usage": { "type": "array", "items": { "type": "string" } },
+    "characterRefs": { "type": "array", "items": { "type": "string" } },
+    "hash": { "type": ["string", "null"] },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["author", "license"],
+      "properties": {
+        "author": { "type": "string" },
+        "license": { "type": "string" }
+      }
+    },
+    "sourceTrace": { "$ref": "#/$defs/sourceTrace" },
+    "review": { "$ref": "#/$defs/review" }
+  },
+  "$defs": {
+    "sourceTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceRootId", "relativePath", "conversion"],
+      "properties": {
+        "sourceRootId": { "const": "eratw-content" },
+        "relativePath": { "type": "string", "minLength": 1 },
+        "legacyId": { "type": ["string", "null"] },
+        "lineRange": { "type": ["array", "null"], "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 },
+        "contentHash": { "type": ["string", "null"] },
+        "conversion": { "$ref": "#/$defs/conversion" }
+      }
+    },
+    "conversion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "version", "confidence", "requiresReview"],
+      "properties": {
+        "tool": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "requiresReview": { "type": "boolean" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "notes", "blockingIssues"],
+      "properties": {
+        "status": { "enum": ["generated", "needs_review", "accepted", "rejected", "blocked"] },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "blockingIssues": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

@@ -731,6 +731,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eratw_next_content_audit"
+version = "0.1.0-m0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "time",
+]
+
+[[package]]
 name = "eratw_next_engine"
 version = "0.1.0-m0"
 dependencies = [

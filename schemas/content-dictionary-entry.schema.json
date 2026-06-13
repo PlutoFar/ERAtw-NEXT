@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eratw-next.dev/schemas/content-dictionary-entry/v1-draft",
+  "title": "ERAtw-NEXT dictionary entry draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "dictionaryId",
+    "legacyKey",
+    "displayName",
+    "aliases",
+    "valueType",
+    "category",
+    "sourceTrace",
+    "review"
+  ],
+  "properties": {
+    "id": { "type": "string", "pattern": "^core\\.dictionary\\.[a-z0-9_.-]+$" },
+    "dictionaryId": { "type": "string", "pattern": "^core\\.dictionary\\.[a-z0-9_.-]+$" },
+    "legacyKey": { "type": "string", "minLength": 1 },
+    "displayName": { "type": "string", "minLength": 1 },
+    "aliases": { "type": "array", "items": { "type": "string" } },
+    "valueType": { "enum": ["flag", "number", "string", "enum", "unknown"] },
+    "category": { "type": "string", "minLength": 1 },
+    "sourceTrace": { "$ref": "#/$defs/sourceTrace" },
+    "review": { "$ref": "#/$defs/review" }
+  },
+  "$defs": {
+    "sourceTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceRootId", "relativePath", "conversion"],
+      "properties": {
+        "sourceRootId": { "const": "eratw-content" },
+        "relativePath": { "type": "string", "minLength": 1 },
+        "legacyId": { "type": ["string", "null"] },
+        "lineRange": { "type": ["array", "null"], "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2 },
+        "contentHash": { "type": ["string", "null"] },
+        "conversion": { "$ref": "#/$defs/conversion" }
+      }
+    },
+    "conversion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "version", "confidence", "requiresReview"],
+      "properties": {
+        "tool": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "confidence": { "enum": ["high", "medium", "low"] },
+        "requiresReview": { "type": "boolean" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "notes", "blockingIssues"],
+      "properties": {
+        "status": { "enum": ["generated", "needs_review", "accepted", "rejected", "blocked"] },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "blockingIssues": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

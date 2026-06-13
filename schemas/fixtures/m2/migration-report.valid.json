@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "migration-report/v1-draft",
+  "sourceRootId": "eratw-content",
+  "generatedAt": "2026-06-13T12:00:00+08:00",
+  "summary": {
+    "sourceFilesSeen": 6586,
+    "objectsGenerated": 4,
+    "objectsNeedingReview": 3,
+    "unmappedItems": 1
+  },
+  "unmappedItems": [
+    {
+      "code": "CSV_SEMANTICS_UNKNOWN",
+      "sourcePath": "CSV/Example.csv",
+      "severity": "warning",
+      "message": "CSV file classified but not mapped to a domain schema."
+    }
+  ]
+}

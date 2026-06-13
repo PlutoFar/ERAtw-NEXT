@@ -1,0 +1,35 @@
+{
+  "id": "core.dialogue_source.kojo.001.daily",
+  "kind": "legacy_erb_source",
+  "legacy": {
+    "characterNumericId": 1,
+    "filePattern": "M_KOJO_K1_*",
+    "categoryTokens": ["daily"]
+  },
+  "sourcePath": "ERB/M_KOJO_K1_DAILY.ERB",
+  "candidateSpeakerRefs": ["core.character.001"],
+  "candidateSceneKind": "daily",
+  "conversionPlan": {
+    "strategy": "manual_or_subset_erb",
+    "requiresErbSubset": true,
+    "requiresManualReview": true
+  },
+  "sourceTrace": {
+    "sourceRootId": "eratw-content",
+    "relativePath": "ERB/M_KOJO_K1_DAILY.ERB",
+    "legacyId": "001",
+    "lineRange": null,
+    "contentHash": null,
+    "conversion": {
+      "tool": "eratw-next-migration-draft",
+      "version": "0.1.0",
+      "confidence": "low",
+      "requiresReview": true
+    }
+  },
+  "review": {
+    "status": "needs_review",
+    "notes": ["ERB body is not converted in M2."],
+    "blockingIssues": []
+  }
+}
